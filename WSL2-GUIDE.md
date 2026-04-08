@@ -1,4 +1,4 @@
-#Using Hull with WSL2 (Windows) 🪟
+# Using Hull with WSL2 (Windows) 🪟
 
 Hull is designed natively for Linux, which means the core engine works flawlessly inside WSL2 (Windows Subsystem for Linux). Docker, Caddy, and all your scaffolding commands will execute perfectly.
 
