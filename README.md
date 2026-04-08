@@ -70,7 +70,7 @@ To add a new framework (e.g., Node, Python, Go):
      caddy.reverse_proxy: "{{upstreams 3000}}"
      caddy.tls: internal
    ```
-4. Run `hull new my-app --node`!
+4. Run `hull new my-app --node`
 
 ---
 
@@ -95,4 +95,3 @@ You are highly encouraged to fork this repository and mold it to your exact need
 ## 📄 License
 
 This project is 100% open-source under the **MIT License**. You are free to use, modify, distribute, and completely rip apart this code to do whatever you want with it. No strings attached.
-```
