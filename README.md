@@ -81,3 +81,18 @@ If you ever need to remove Hull, the teardown script safely uninstalls the globa
 ```bash
 hull uninstall
 ```
+
+---
+
+## 🤝 Philosophy & Contributing
+
+**Built for me, free for you.** I built Hull primarily to solve my own local development workflows. It is designed to be brutally simple to hack, modify, and extend. 
+
+You are highly encouraged to fork this repository and mold it to your exact needs. While you are welcome to submit pull requests, please be aware that I may not merge (or review) them if they do not align with my personal setup. If you want Hull to do something specific for your tech stack, your best bet is to fork it and make it yours!
+
+---
+
+## 📄 License
+
+This project is 100% open-source under the **MIT License**. You are free to use, modify, distribute, and completely rip apart this code to do whatever you want with it. No strings attached.
+```
