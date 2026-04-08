@@ -2,7 +2,7 @@
 
 APP_DIR="$HOME/.hull"
 BIN_DIR="$HOME/.local/bin"
-REPO_URL="https://github.com/yourusername/hull.git"
+REPO_URL="https://github.com/CavenRE/hull.git"
 
 echo "🚀 Installing Hull CLI..."
 
