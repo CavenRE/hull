@@ -22,7 +22,7 @@ Hull features an OS-aware interactive setup wizard that automatically detects yo
 Run the web installer directly from your terminal:
 
 ```bash
-curl -sL [https://raw.githubusercontent.com/CavenRE/hull/main/install.sh](https://raw.githubusercontent.com/CavenRE/hull/main/install.sh) | bash
+curl -sL https://raw.githubusercontent.com/CavenRE/hull/refs/heads/main/install.sh | bash
 ```
 
 *During setup, you will be prompted to define your preferred `Sites` directory and your local TLD (default: `.test`).*
