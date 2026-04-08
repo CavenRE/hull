@@ -1,0 +1,29 @@
+#!/bin/bash
+
+NAME=$1
+TEMPLATE=${2#--}
+TARGET="$SITES_DIR/$NAME"
+
+if [ -z "$NAME" ] || [ -z "$TEMPLATE" ]; then
+    echo "Usage: hull new <name> --<template>"
+    exit 1
+fi
+
+if [ ! -d "$APP_DIR/templates/$TEMPLATE" ]; then
+    echo "Error: Template '$TEMPLATE' not found in $APP_DIR/templates"
+    exit 1
+fi
+
+mkdir -p "$TARGET"
+
+if [ -f "$APP_DIR/templates/$TEMPLATE/init.sh" ]; then
+    echo "Running initialization hook for $TEMPLATE..."
+    bash "$APP_DIR/templates/$TEMPLATE/init.sh" "$TARGET" "$NAME"
+fi
+
+cp "$APP_DIR/templates/$TEMPLATE/compose.yaml" "$TARGET/compose.yaml"
+sed -i "s/{{SITE_NAME}}/$NAME/g" "$TARGET/compose.yaml"
+sed -i "s/{{TLD}}/$TLD/g" "$TARGET/compose.yaml"
+
+cd "$TARGET" && docker compose up -d
+echo "✅ Site $NAME.$TLD is up and running."

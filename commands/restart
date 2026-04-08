@@ -1,0 +1,8 @@
+#!/bin/bash
+
+if [[ -f "compose.yaml" || -f "docker-compose.yml" ]]; then
+    docker compose restart
+else
+    cd "$APP_DIR/system/caddy" && docker compose restart
+    echo "Global router and Adminer restarted."
+fi

@@ -1,0 +1,25 @@
+#!/bin/bash
+
+APP_DIR="$HOME/.hull"
+COMMAND=$1
+
+if [ -f "$APP_DIR/.env" ]; then
+    source "$APP_DIR/.env"
+else
+    echo "Error: .env file missing. Run setup first."
+    exit 1
+fi
+
+if [ -z "$COMMAND" ]; then
+    echo "Usage: hull <command> [args]"
+    ls -1 "$APP_DIR/commands" | awk '{print "  " $1}'
+    exit 1
+fi
+
+if [ -f "$APP_DIR/commands/$COMMAND" ]; then
+    shift
+    bash "$APP_DIR/commands/$COMMAND" "$@"
+else
+    echo "Error: Command '$COMMAND' not found."
+    exit 1
+fi

@@ -1,0 +1,4 @@
+#!/bin/bash
+
+cd "$APP_DIR/system/caddy" && docker compose up -d
+echo "Global router and Adminer started."

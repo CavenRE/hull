@@ -1,0 +1,33 @@
+services:
+  caddy:
+    image: lucaslorentz/caddy-docker-proxy:alpine
+    container_name: hull-router
+    ports:
+      - 80:80
+      - 443:443
+    environment:
+      - CADDY_INGRESS_NETWORKS=caddy
+    networks:
+      - caddy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - caddy_data:/data
+    restart: unless-stopped
+
+  adminer:
+    image: adminer:latest
+    container_name: hull-adminer
+    labels:
+      caddy: db.test # Will be replaced by setup script if TLD differs, or handled dynamically.
+      caddy.reverse_proxy: "{{upstreams 8080}}"
+      caddy.tls: internal
+    networks:
+      - caddy
+    restart: unless-stopped
+
+networks:
+  caddy:
+    external: true
+
+volumes:
+  caddy_data:

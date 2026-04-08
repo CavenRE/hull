@@ -1,0 +1,14 @@
+#!/bin/bash
+
+if [[ -f "compose.yaml" || -f "docker-compose.yml" ]]; then
+    docker compose down
+else
+    SELECTED=$(docker ps --format "{{.Label \"com.docker.compose.project\"}}" | grep -v '^$' | sort -u | fzf -m --prompt="Select running sites to stop (TAB to multi-select, ENTER to confirm): ")
+    for SITE in $SELECTED; do
+        if [ -d "$SITES_DIR/$SITE" ]; then
+            cd "$SITES_DIR/$SITE" && docker compose down
+        elif [ "$SITE" == "caddy" ]; then
+            cd "$APP_DIR/system/caddy" && docker compose down
+        fi
+    done
+fi

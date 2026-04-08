@@ -1,0 +1,7 @@
+#!/bin/bash
+
+if xdg-open "https://db.$TLD" &> /dev/null; then
+    echo "Opening global database manager..."
+else
+    echo "Navigate to https://db.$TLD in your browser."
+fi

@@ -1,0 +1,46 @@
+#!/bin/bash
+
+# Load UI helpers for stylized output
+source "$APP_DIR/setup/ui.sh"
+
+warning "This will completely remove Hull, Caddy routing, local DNS, and SSL trusts."
+warning "Your actual project files in $SITES_DIR will NOT be deleted."
+read -p "Are you absolutely sure you want to uninstall Hull? (y/N): " CONFIRM
+
+if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+    info "Uninstall aborted."
+    exit 0
+fi
+
+step "Spinning down global infrastructure"
+if [ -d "$APP_DIR/system/caddy" ]; then
+    cd "$APP_DIR/system/caddy" && docker compose down > /dev/null 2>&1
+fi
+docker network rm caddy > /dev/null 2>&1
+success "Docker containers and networks removed."
+
+step "Removing SSL Certificates"
+# Arch Linux
+sudo rm -f /etc/ca-certificates/trust-source/anchors/caddy-root.crt
+sudo update-ca-trust 2>/dev/null
+# Debian/Ubuntu
+sudo rm -f /usr/local/share/ca-certificates/caddy-root.crt
+sudo update-ca-certificates 2>/dev/null
+# NSS Browser Trust
+certutil -d sql:$HOME/.pki/nssdb -D -n "Hull Local Root" > /dev/null 2>&1
+success "System and browser SSL certificates removed."
+
+step "Removing DNS Configurations"
+sudo rm -f /etc/NetworkManager/conf.d/dns.conf
+sudo rm -f /etc/NetworkManager/dnsmasq.d/hull-tld.conf
+sudo systemctl restart NetworkManager 2>/dev/null || sudo systemctl restart systemd-resolved 2>/dev/null
+success "Local DNS routing removed."
+
+step "Removing Core Application"
+rm -f "$HOME/.local/bin/hull"
+rm -rf "$APP_DIR"
+success "Hull application directory and symlink deleted."
+
+echo ""
+info "Hull has been completely uninstalled from your system."
+info "Note: You may want to manually remove the PATH export from your ~/.zshrc or ~/.bashrc if it is no longer needed."

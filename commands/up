@@ -1,0 +1,12 @@
+#!/bin/bash
+
+if [[ -f "compose.yaml" || -f "docker-compose.yml" ]]; then
+    docker compose up -d
+else
+    SELECTED=$(ls -1 "$SITES_DIR" 2>/dev/null | fzf -m --prompt="Select sites to start (TAB to multi-select, ENTER to confirm): ")
+    for SITE in $SELECTED; do
+        if [ -d "$SITES_DIR/$SITE" ]; then
+            cd "$SITES_DIR/$SITE" && docker compose up -d
+        fi
+    done
+fi

@@ -1,0 +1,9 @@
+# Environment configurations
+.env
+
+# Generated SSL Certificates
+system/caddy/*.crt
+system/caddy/*.key
+
+# OS generated files
+.DS_Store
