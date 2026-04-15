@@ -1,16 +1,40 @@
 #!/bin/bash
+set -euo pipefail
 
-NAME=$1
-TEMPLATE=${2#--}
-TARGET="$SITES_DIR/$NAME"
+export APP_DIR="${APP_DIR:-$HOME/.hull}"
+
+NAME=${1:-}
+TEMPLATE=${2:-}
+TEMPLATE=${TEMPLATE#--}
 
 if [ -z "$NAME" ] || [ -z "$TEMPLATE" ]; then
-    echo "Usage: hull new <name> --<template>"
+    echo "Usage: hull new <name> --<template>" >&2
+    exit 1
+fi
+
+if [[ ! "$NAME" =~ ^[a-zA-Z0-9-]+$ ]]; then
+    echo "Error: Site name can only contain alphanumeric characters and hyphens." >&2
+    exit 1
+fi
+
+if [[ ! "$TEMPLATE" =~ ^[a-zA-Z0-9-]+$ ]]; then
+    echo "Error: Template name can only contain alphanumeric characters and hyphens." >&2
+    exit 1
+fi
+
+set -a
+source "$APP_DIR/.env"
+set +a
+
+TARGET="$SITES_DIR/$NAME"
+
+if [ -d "$TARGET" ]; then
+    echo "Error: Target directory $TARGET already exists." >&2
     exit 1
 fi
 
 if [ ! -d "$APP_DIR/templates/$TEMPLATE" ]; then
-    echo "Error: Template '$TEMPLATE' not found in $APP_DIR/templates"
+    echo "Error: Template '$TEMPLATE' not found in $APP_DIR/templates" >&2
     exit 1
 fi
 
@@ -22,8 +46,10 @@ if [ -f "$APP_DIR/templates/$TEMPLATE/init.sh" ]; then
 fi
 
 cp "$APP_DIR/templates/$TEMPLATE/compose.yaml" "$TARGET/compose.yaml"
-sed -i "s/{{SITE_NAME}}/$NAME/g" "$TARGET/compose.yaml"
-sed -i "s/{{TLD}}/$TLD/g" "$TARGET/compose.yaml"
 
-cd "$TARGET" && docker compose up -d
-echo "✅ Site $NAME.$TLD is up and running."
+sed -i "s|{{SITE_NAME}}|$NAME|g" "$TARGET/compose.yaml"
+sed -i "s|{{TLD}}|${TLD:-test}|g" "$TARGET/compose.yaml"
+
+cd "$TARGET"
+docker compose up -d
+echo "✅ Site $NAME.${TLD:-test} is up and running."

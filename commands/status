@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 echo "=== Running Projects and Services ==="
 docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"

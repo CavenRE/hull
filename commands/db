@@ -1,7 +1,19 @@
 #!/bin/bash
+set -euo pipefail
 
-if xdg-open "https://db.$TLD" &> /dev/null; then
+export APP_DIR="${APP_DIR:-$HOME/.hull}"
+
+if [ ! -f "$APP_DIR/.env" ]; then
+    echo "Error: .env file missing. Run setup first." >&2
+    exit 1
+fi
+
+set -a
+source "$APP_DIR/.env"
+set +a
+
+if xdg-open "https://db.${TLD:-test}" &> /dev/null; then
     echo "Opening global database manager..."
 else
-    echo "Navigate to https://db.$TLD in your browser."
+    echo "Navigate to https://db.${TLD:-test} in your browser."
 fi

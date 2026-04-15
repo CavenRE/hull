@@ -1,12 +1,45 @@
 #!/bin/bash
+set -euo pipefail
+
+export APP_DIR="${APP_DIR:-$HOME/.hull}"
+
+set -a
+source "$APP_DIR/.env"
+set +a
 
 if [[ -f "compose.yaml" || -f "docker-compose.yml" ]]; then
     docker compose up -d
 else
-    SELECTED=$(ls -1 "$SITES_DIR" 2>/dev/null | fzf -m --prompt="Select sites to start (TAB to multi-select, ENTER to confirm): ")
-    for SITE in $SELECTED; do
-        if [ -d "$SITES_DIR/$SITE" ]; then
-            cd "$SITES_DIR/$SITE" && docker compose up -d
-        fi
+    if [ ! -d "${SITES_DIR:-}" ]; then
+        echo "Error: SITES_DIR is not set or does not exist." >&2
+        exit 1
+    fi
+
+    shopt -s nullglob
+    SITE_PATHS=("$SITES_DIR"/*/)
+    shopt -u nullglob
+
+    if [ ${#SITE_PATHS[@]} -eq 0 ]; then
+        echo "No sites found in $SITES_DIR."
+        exit 0
+    fi
+
+    SITE_NAMES=()
+    for path in "${SITE_PATHS[@]}"; do
+        SITE_NAMES+=("$(basename "$path")")
     done
+
+    SELECTED=$(printf "%s\n" "${SITE_NAMES[@]}" | fzf --multi --marker="[*] " --bind="space:toggle" --prompt="Select sites to start (SPACE to toggle, ENTER to confirm): " || true)
+
+    if [ -z "$SELECTED" ]; then
+        echo "Operation aborted. No sites selected."
+        exit 0
+    fi
+
+    while IFS= read -r SITE; do
+        if [ -n "$SITE" ] && [ -d "$SITES_DIR/$SITE" ]; then
+            echo "Booting $SITE..."
+            (cd "$SITES_DIR/$SITE" && docker compose up -d)
+        fi
+    done <<< "$SELECTED"
 fi

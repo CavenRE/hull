@@ -1,13 +1,14 @@
 #!/bin/bash
+set -euo pipefail
 
 if [ -f "artisan" ]; then
-    CONTAINER=$(docker compose ps --services | grep -E '^(app|php|laravel)$' | head -n 1)
+    CONTAINER=$(docker compose ps --services | grep -E '^(app|php|laravel)$' | head -n 1 || true)
     if [ -z "$CONTAINER" ]; then
-        echo "Error: Could not detect the PHP/App container."
+        echo "Error: Could not detect the PHP/App container." >&2
         exit 1
     fi
     docker compose exec "$CONTAINER" php artisan "$@"
 else
-    echo "Error: artisan file not found in current directory."
+    echo "Error: artisan file not found in current directory." >&2
     exit 1
 fi

@@ -1,0 +1,98 @@
+#!/bin/bash
+set -euo pipefail
+
+export APP_DIR="${APP_DIR:-$HOME/.hull}"
+source "$APP_DIR/setup/ui.sh"
+
+NAME=${1:-}
+TEMPLATE=${2:-}
+TEMPLATE=${TEMPLATE#--}
+
+if [ -z "$NAME" ] || [ -z "$TEMPLATE" ]; then
+    echo "Usage: hull import <name> --<template>" >&2
+    info "Example: hull import my-old-app --laravel"
+    exit 1
+fi
+
+if [[ ! "$NAME" =~ ^[a-zA-Z0-9-]+$ ]]; then
+    fatal "Site name can only contain alphanumeric characters and hyphens."
+fi
+
+if [[ ! "$TEMPLATE" =~ ^[a-zA-Z0-9-]+$ ]]; then
+    fatal "Template name can only contain alphanumeric characters and hyphens."
+fi
+
+set -a
+source "$APP_DIR/.env"
+set +a
+
+TARGET="$SITES_DIR/$NAME"
+
+if [ ! -d "$TARGET" ]; then
+    fatal "Directory $TARGET does not exist. Move your existing project to $SITES_DIR/$NAME first."
+fi
+
+if [ ! -d "$APP_DIR/templates/$TEMPLATE" ]; then
+    fatal "Template '$TEMPLATE' not found."
+fi
+
+step "Importing $NAME into Hull"
+
+cp "$APP_DIR/templates/$TEMPLATE/compose.yaml" "$TARGET/compose.yaml"
+sed -i "s|{{SITE_NAME}}|$NAME|g" "$TARGET/compose.yaml"
+sed -i "s|{{TLD}}|${TLD:-test}|g" "$TARGET/compose.yaml"
+success "Docker blueprints injected."
+
+cd "$TARGET"
+
+if [ "$TEMPLATE" == "laravel" ] && [ -f ".env" ]; then
+    cp .env .env.hull-backup
+    sed -i 's|^DB_HOST=.*|DB_HOST=db|' .env
+    sed -i 's|^DB_PASSWORD=.*|DB_PASSWORD=|' .env
+    sed -i 's|^REDIS_HOST=.*|REDIS_HOST=redis|' .env
+    success "Laravel .env updated for Docker (Backup saved as .env.hull-backup)."
+fi
+
+if [ "$TEMPLATE" == "wordpress" ] && [ -f "wp-config.php" ]; then
+    cp wp-config.php wp-config.php.hull-backup
+    sed -i "s|define( *'DB_HOST', *'.*' *);|define( 'DB_HOST', 'db' );|" wp-config.php
+    sed -i "s|define( *'DB_PASSWORD', *'.*' *);|define( 'DB_PASSWORD', '' );|" wp-config.php
+    success "WordPress wp-config.php updated for Docker (Backup saved as wp-config.php.hull-backup)."
+fi
+
+info "Booting environment..."
+docker compose up -d
+
+shopt -s nullglob
+SQL_FILES=(*.sql)
+shopt -u nullglob
+
+if [ ${#SQL_FILES[@]} -gt 0 ]; then
+    echo ""
+    read -r -p "Found SQL dump: ${SQL_FILES[0]}. Import this into the database? (Y/n): " IMPORT_DB
+    
+    if [[ "$IMPORT_DB" =~ ^[Yy]$ ]] || [[ -z "$IMPORT_DB" ]]; then
+        info "Waiting 10 seconds for database engine to initialize..."
+        sleep 10
+        
+        info "Importing database..."
+        if [ "$TEMPLATE" == "laravel" ]; then
+            if docker compose exec -T db psql -U postgres -d laravel < "${SQL_FILES[0]}"; then
+                success "Database imported successfully."
+            else
+                warning "Database import encountered an error. Check the output above."
+            fi
+        elif [ "$TEMPLATE" == "wordpress" ]; then
+            if docker compose exec -T db mysql -u root wordpress < "${SQL_FILES[0]}"; then
+                success "Database imported successfully."
+            else
+                warning "Database import encountered an error. Check the output above."
+            fi
+        fi
+    else
+        info "Skipping database import."
+    fi
+fi
+
+step "Import Complete"
+success "Your app is now running at https://$NAME.${TLD:-test}"

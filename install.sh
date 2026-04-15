@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 APP_DIR="$HOME/.hull"
 BIN_DIR="$HOME/.local/bin"
@@ -10,7 +11,6 @@ echo "🚀 Installing Hull CLI..."
 if [ -f "./bin/hull" ] && [ -f "./setup/01-os-detect.sh" ]; then
     echo "ℹ Local development files detected. Installing from current directory..."
     
-    # Wipe the old installation cleanly if it exists to prevent ghost files
     if [ -d "$APP_DIR" ]; then
         rm -rf "$APP_DIR"
     fi
@@ -18,15 +18,14 @@ if [ -f "./bin/hull" ] && [ -f "./setup/01-os-detect.sh" ]; then
     mkdir -p "$APP_DIR"
     cp -a . "$APP_DIR/"
 else
-    # Standard Web Installation
     if ! command -v git &> /dev/null; then
-        echo "❌ Git is required to install from the web. Please install git and try again."
+        echo "❌ Git is required to install from the web. Please install git and try again." >&2
         exit 1
     fi
 
     if [ -d "$APP_DIR" ]; then
         echo "ℹ Updating existing installation..."
-        cd "$APP_DIR" && git pull origin main --quiet
+        (cd "$APP_DIR" && git pull origin main --quiet)
     else
         echo "ℹ Cloning repository..."
         git clone --quiet "$REPO_URL" "$APP_DIR"
@@ -42,9 +41,9 @@ chmod +x "$APP_DIR/bin/hull"
 if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
     echo "ℹ Adding $BIN_DIR to your PATH..."
     
-    if [[ "$SHELL" == *"zsh"* ]]; then
+    if [[ "${SHELL:-}" == *"zsh"* ]]; then
         PROFILE_FILE="$HOME/.zshrc"
-    elif [[ "$SHELL" == *"bash"* ]]; then
+    elif [[ "${SHELL:-}" == *"bash"* ]]; then
         if [ -f "$HOME/.bashrc" ]; then
             PROFILE_FILE="$HOME/.bashrc"
         else
@@ -58,6 +57,6 @@ if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
     echo "✔ Added to $PROFILE_FILE. You may need to restart your terminal later."
 fi
 
-# 4. Hand off to the interactive wizard!
+# 4. Hand off to the interactive wizard
 echo "✔ Core installed successfully."
 bash "$APP_DIR/setup/01-os-detect.sh"
