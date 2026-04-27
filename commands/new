@@ -4,7 +4,8 @@ set -euo pipefail
 export APP_DIR="${APP_DIR:-$HOME/.hull}"
 
 if [ $# -lt 2 ]; then
-    echo "Usage: hull new <name> --<template> [--db=postgres|mysql|mariadb] [--with-redis]" >&2
+    echo "Usage: hull new <name> --<template> [options]" >&2
+    echo "Run 'hull new --help' for available flags." >&2
     exit 1
 fi
 
@@ -14,14 +15,25 @@ shift 2
 
 DB=""
 WITH_REDIS=false
+INTERACTIVE_INFRA=true
+VERSION=""
+PROMPT_VERSION=false
 
 for arg in "$@"; do
     case $arg in
         --db=*)
         DB="${arg#*=}"
+        INTERACTIVE_INFRA=false
         ;;
         --with-redis)
         WITH_REDIS=true
+        INTERACTIVE_INFRA=false
+        ;;
+        --version=*)
+        VERSION="${arg#*=}"
+        ;;
+        --version|-v)
+        PROMPT_VERSION=true
         ;;
         *)
         echo "Warning: Unknown flag $arg" >&2
@@ -55,14 +67,56 @@ if [ ! -f "$APP_DIR/templates/base/$TEMPLATE.yaml" ]; then
     exit 1
 fi
 
+if [ "$PROMPT_VERSION" = true ] && [ -z "$VERSION" ]; then
+    echo -e "\033[1;34mInteractive Version Selection\033[0m"
+    if [ "$TEMPLATE" == "laravel" ]; then
+        OPTIONS="13.x\n12.x\n11.x\n10.x"
+    elif [ "$TEMPLATE" == "wordpress" ]; then
+        OPTIONS="latest\n6.5\n6.4\n6.3\n6.2\n6.1\n6.0"
+    elif [ "$TEMPLATE" == "plain" ]; then
+        OPTIONS="8.4\n8.3\n8.2\n8.1"
+    fi
+    VERSION=$(echo -e "$OPTIONS" | fzf --prompt="Select $TEMPLATE version: " < /dev/tty || true)
+fi
+
+if [ "$INTERACTIVE_INFRA" = true ]; then
+    echo -e "\033[1;34mInteractive Infrastructure Selection\033[0m"
+    echo "Use SPACE to select/deselect, ENTER to confirm. Leave blank for framework defaults."
+
+    OPTIONS="PostgreSQL\nMySQL\nMariaDB\nRedis"
+    SELECTED=$(echo -e "$OPTIONS" | fzf --multi --marker="[*] " --prompt="Select optional infrastructure: " < /dev/tty || true)
+
+    if [[ "$SELECTED" == *"PostgreSQL"* ]]; then DB="postgres"; fi
+    if [[ "$SELECTED" == *"MySQL"* ]]; then DB="mysql"; fi
+    if [[ "$SELECTED" == *"MariaDB"* ]]; then DB="mariadb"; fi
+    if [[ "$SELECTED" == *"Redis"* ]]; then WITH_REDIS=true; fi
+
+    if [ -z "$DB" ]; then
+        if [ "$TEMPLATE" == "wordpress" ]; then
+            echo -e "\033[1;33mApplying smart default: MariaDB injected for WordPress.\033[0m"
+            DB="mariadb"
+        elif [ "$TEMPLATE" == "laravel" ]; then
+            echo -e "\033[1;33mApplying smart default: SQLite configured for Laravel.\033[0m"
+        fi
+    fi
+fi
+
 mkdir -p "$TARGET"
 
 if [ -f "$APP_DIR/templates/scripts/$TEMPLATE-init.sh" ]; then
     echo "Running initialization hook for $TEMPLATE..."
-    bash "$APP_DIR/templates/scripts/$TEMPLATE-init.sh" "$TARGET" "$NAME"
+    bash "$APP_DIR/templates/scripts/$TEMPLATE-init.sh" "$TARGET" "$NAME" "$VERSION"
 fi
 
 cp "$APP_DIR/templates/base/$TEMPLATE.yaml" "$TARGET/compose.yaml"
+
+if [ -n "$VERSION" ] && [ "$VERSION" != "latest" ]; then
+    if [ "$TEMPLATE" == "wordpress" ]; then
+        sed -i "s|image: wordpress:latest|image: wordpress:${VERSION}|g" "$TARGET/compose.yaml"
+    elif [ "$TEMPLATE" == "plain" ]; then
+        sed -i "s|image: serversideup/php:8.4-fpm-nginx|image: serversideup/php:${VERSION}-fpm-nginx|g" "$TARGET/compose.yaml"
+    fi
+fi
 
 inject_mixin() {
     local MIXIN="$1"
@@ -71,16 +125,11 @@ inject_mixin() {
         exit 1
     fi
 
-    # Extract service block safely (everything under 'services:' until next root key)
     awk '/^services:/{flag=1; next} /^volumes:|^networks:/{flag=0} flag' "$MIXIN" > "$TARGET/svc.tmp"
-
-    # Extract volume block safely (everything under 'volumes:' until next root key)
     awk '/^volumes:/{flag=1; next} /^services:|^networks:/{flag=0} flag' "$MIXIN" > "$TARGET/vol.tmp"
 
-    # Inject services into compose.yaml right after 'services:' line
     sed -i -e '/^services:/r '"$TARGET/svc.tmp" "$TARGET/compose.yaml"
 
-    # Append volumes if they exist
     if [ -s "$TARGET/vol.tmp" ]; then
         if ! grep -q "^volumes:" "$TARGET/compose.yaml"; then
             echo -e "\nvolumes:" >> "$TARGET/compose.yaml"
@@ -98,27 +147,30 @@ if [ "$WITH_REDIS" = true ]; then
     inject_mixin "$APP_DIR/templates/services/redis.yaml"
 fi
 
-# Standard replacements
 sed -i "s|{{SITE_NAME}}|$NAME|g" "$TARGET/compose.yaml"
 sed -i "s|{{TLD}}|${TLD:-test}|g" "$TARGET/compose.yaml"
 
 cd "$TARGET"
 
-# Post-assembly framework wiring
 if [ "$TEMPLATE" == "laravel" ] && [ -f ".env" ]; then
     sed -i 's|^DB_HOST=.*|DB_HOST=db|' .env
     sed -i 's|^DB_DATABASE=.*|DB_DATABASE=hull_db|' .env
 
-    if [ "$DB" == "postgres" ]; then
-        sed -i 's|^DB_CONNECTION=.*|DB_CONNECTION=pgsql|' .env
-        sed -i 's|^DB_PORT=.*|DB_PORT=5432|' .env
-        sed -i 's|^DB_USERNAME=.*|DB_USERNAME=postgres|' .env
-        sed -i 's|^DB_PASSWORD=.*|DB_PASSWORD=|' .env
-    elif [ "$DB" == "mysql" ] || [ "$DB" == "mariadb" ]; then
-        sed -i 's|^DB_CONNECTION=.*|DB_CONNECTION=mysql|' .env
-        sed -i 's|^DB_PORT=.*|DB_PORT=3306|' .env
-        sed -i 's|^DB_USERNAME=.*|DB_USERNAME=root|' .env
-        sed -i 's|^DB_PASSWORD=.*|DB_PASSWORD=|' .env
+    if [ -n "$DB" ]; then
+        if [ "$DB" == "postgres" ]; then
+            sed -i 's|^DB_CONNECTION=.*|DB_CONNECTION=pgsql|' .env
+            sed -i 's|^DB_PORT=.*|DB_PORT=5432|' .env
+            sed -i 's|^DB_USERNAME=.*|DB_USERNAME=postgres|' .env
+            sed -i 's|^DB_PASSWORD=.*|DB_PASSWORD=|' .env
+        elif [ "$DB" == "mysql" ] || [ "$DB" == "mariadb" ]; then
+            sed -i 's|^DB_CONNECTION=.*|DB_CONNECTION=mysql|' .env
+            sed -i 's|^DB_PORT=.*|DB_PORT=3306|' .env
+            sed -i 's|^DB_USERNAME=.*|DB_USERNAME=root|' .env
+            sed -i 's|^DB_PASSWORD=.*|DB_PASSWORD=|' .env
+        fi
+    else
+        sed -i 's|^DB_CONNECTION=.*|DB_CONNECTION=sqlite|' .env
+        touch database/database.sqlite || true
     fi
 
     if [ "$WITH_REDIS" = true ]; then
@@ -131,9 +183,6 @@ fi
 
 if [ "$TEMPLATE" == "wordpress" ]; then
     sed -i 's|WORDPRESS_DB_NAME: wordpress|WORDPRESS_DB_NAME: hull_db|g' compose.yaml
-    if [ "$DB" == "postgres" ]; then
-        echo "Warning: WordPress does not natively support PostgreSQL without drop-in plugins." >&2
-    fi
 fi
 
 docker compose up -d

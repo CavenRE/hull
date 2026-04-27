@@ -3,6 +3,78 @@ set -euo pipefail
 
 export APP_DIR="$HOME/.hull"
 COMMAND=${1:-}
+FLAG=${2:-}
+
+if [[ "$COMMAND" == "--help" ]] || [[ "$COMMAND" == "-h" ]] || [[ -z "$COMMAND" ]]; then
+    echo -e "\033[1;34m🚀 Hull CLI\033[0m - Composable Development Environment"
+    echo ""
+    echo -e "\033[1mUsage:\033[0m hull <command> [arguments]"
+    echo ""
+    echo -e "\033[1mCore Commands:\033[0m"
+    echo -e "  \033[32mnew\033[0m         Scaffold a new project (try: hull new --help)"
+    echo -e "  \033[32mimport\033[0m      Import an existing project with auto-discovery"
+    echo -e "  \033[32mup\033[0m          Boot environments (Interactive multi-select)"
+    echo -e "  \033[32mdown\033[0m        Stop environments (Interactive multi-select)"
+    echo ""
+    echo -e "\033[1mManagement:\033[0m"
+    echo -e "  \033[33mstatus\033[0m      List all running containers and ports"
+    echo -e "  \033[33mlogs\033[0m        Tail container logs in the current directory"
+    echo -e "  \033[33mdb\033[0m          Open the global Adminer database GUI"
+    echo -e "  \033[33mrestart\033[0m     Restart current environment or global router"
+    echo ""
+    echo -e "\033[1mTools:\033[0m"
+    echo -e "  \033[36martisan\033[0m     Execute Laravel artisan commands"
+    echo -e "  \033[36mnpm\033[0m         Execute ephemeral Node/NPM commands"
+    echo ""
+    echo -e "\033[1mSystem:\033[0m"
+    echo -e "  \033[35mupdate\033[0m      Update Hull CLI to the latest repository version"
+    echo -e "  \033[35muninstall\033[0m   Completely remove Hull from your system"
+    exit 0
+fi
+
+if [[ "$FLAG" == "--help" ]] || [[ "$FLAG" == "-h" ]]; then
+    if [[ "$COMMAND" == "new" ]]; then
+        echo -e "\033[1;34m📦 Hull Scaffolding Engine (new)\033[0m"
+        echo ""
+        echo -e "\033[1mUsage:\033[0m hull new <site-name> --<template> [options]"
+        echo ""
+        echo -e "\033[1mTemplates:\033[0m"
+        echo "  --laravel      Modern Laravel application"
+        echo "  --wordpress    Standard WordPress installation"
+        echo "  --plain        Plain PHP/Nginx environment"
+        echo ""
+        echo -e "\033[1mInfrastructure Mix-ins (Optional):\033[0m"
+        echo "  --db=postgres  Inject PostgreSQL database"
+        echo "  --db=mysql     Inject MySQL database"
+        echo "  --db=mariadb   Inject MariaDB database"
+        echo "  --with-redis   Inject Redis caching layer"
+        echo ""
+        echo -e "\033[1mExamples:\033[0m"
+        echo "  hull new myapp --laravel --db=postgres --with-redis"
+        echo "  hull new blog --wordpress"
+        exit 0
+    fi
+    if [[ "$COMMAND" == "import" ]]; then
+        echo -e "\033[1;34m🔍 Hull Auto-Discoverer (import)\033[0m"
+        echo ""
+        echo -e "\033[1mUsage:\033[0m hull import <site-name> --<template>"
+        echo ""
+        echo -e "\033[1mDescription:\033[0m"
+        echo "  Imports an existing application and automatically reads"
+        echo "  composer.json and .env files to build the required Docker"
+        echo "  infrastructure dynamically."
+        exit 0
+    fi
+    if [[ "$COMMAND" == "update" ]]; then
+        echo -e "\033[1;34m🔄 Hull Updater (update)\033[0m"
+        echo ""
+        echo -e "\033[1mUsage:\033[0m hull update [--reinstall]"
+        echo ""
+        echo -e "\033[1mOptions:\033[0m"
+        echo "  --reinstall    Forces a re-run of the system dependency pipeline"
+        exit 0
+    fi
+fi
 
 if [ -f "$APP_DIR/.env" ]; then
     set -a
@@ -10,12 +82,6 @@ if [ -f "$APP_DIR/.env" ]; then
     set +a
 else
     echo "Error: .env file missing. Run setup first." >&2
-    exit 1
-fi
-
-if [ -z "$COMMAND" ]; then
-    echo "Usage: hull <command> [args]"
-    ls -1 "$APP_DIR/commands" | awk '{print "  " $1}'
     exit 1
 fi
 

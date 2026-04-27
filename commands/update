@@ -1,0 +1,35 @@
+#!/bin/bash
+set -euo pipefail
+
+export APP_DIR="${APP_DIR:-$HOME/.hull}"
+source "$APP_DIR/setup/ui.sh"
+
+REINSTALL=false
+
+for arg in "$@"; do
+    if [ "$arg" == "--reinstall" ]; then
+        REINSTALL=true
+    fi
+done
+
+step "Updating Hull CLI"
+
+if command -v git &> /dev/null; then
+    info "Pulling latest changes from repository..."
+    (cd "$APP_DIR" && git pull origin main --quiet)
+    success "Repository synchronized."
+
+    info "Applying execution permissions..."
+    chmod +x "$APP_DIR/bin/hull" "$APP_DIR"/commands/* "$APP_DIR"/setup/*.sh "$APP_DIR"/install.sh "$APP_DIR"/templates/scripts/*.sh || true
+    success "Permissions secured."
+else
+    fatal "Git is required to update."
+fi
+
+if [ "$REINSTALL" = true ]; then
+    step "Re-running System Pipeline"
+    source "$APP_DIR/setup/01-os-detect.sh"
+else
+    echo ""
+    success "Hull is up to date! Run 'hull update --reinstall' if you need to fetch new dependencies."
+fi
