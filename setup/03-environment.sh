@@ -1,9 +1,9 @@
 #!/bin/bash
 set -euo pipefail
-source "$(dirname "$0")/ui.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/ui.sh"
 
 step "Configuring Environment Variables"
-ENV_FILE="$(dirname "$0")/../.env"
+ENV_FILE="$(dirname "${BASH_SOURCE[0]}")/../.env"
 
 read -r -p "Enter project directory [default: $HOME/Work/Sites]: " SITES_DIR
 SITES_DIR=${SITES_DIR:-$HOME/Work/Sites}
@@ -27,4 +27,4 @@ echo "SITES_DIR=$SITES_DIR" > "$ENV_FILE"
 echo "TLD=$TLD" >> "$ENV_FILE"
 
 success "Configuration saved to .env"
-bash "$(dirname "$0")/04-caddy-router.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/04-caddy-router.sh"

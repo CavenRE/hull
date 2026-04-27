@@ -1,23 +1,25 @@
 #!/bin/bash
-source "$(dirname "$0")/ui.sh"
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/ui.sh"
 
 step "Installing System Dependencies"
 
-$UPDATE_CMD > /dev/null 2>&1
+${UPDATE_CMD:-} > /dev/null 2>&1 || true
 
 PACKAGES="curl git fzf jq nss"
 
-if [[ "$OS_FAMILY" == *"arch"* ]] || [[ "$OS" == "arch" ]]; then
+if [[ "${OS_FAMILY:-}" == *"arch"* ]] || [[ "${OS:-}" == "arch" ]]; then
     PACKAGES="$PACKAGES dnsmasq docker docker-compose"
-elif [[ "$OS_FAMILY" == *"debian"* ]] || [[ "$OS" == "ubuntu" ]] || [[ "$OS" == "debian" ]]; then
+elif [[ "${OS_FAMILY:-}" == *"debian"* ]] || [[ "${OS:-}" == "ubuntu" ]] || [[ "${OS:-}" == "debian" ]]; then
     PACKAGES="$PACKAGES dnsmasq docker.io docker-compose-v2 libnss3-tools"
 fi
 
 info "Installing packages: $PACKAGES"
-$PKG_MANAGER $PACKAGES
+# shellcheck disable=SC2086
+${PKG_MANAGER:-} $PACKAGES
 
-sudo systemctl enable --now docker
-sudo usermod -aG docker $USER
+sudo systemctl enable --now docker || true
+sudo usermod -aG docker "$USER" || true
 
 success "Dependencies installed."
-bash "$(dirname "$0")/03-environment.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/03-environment.sh"

@@ -59,4 +59,4 @@ fi
 
 # 4. Hand off to the interactive wizard
 echo "✔ Core installed successfully."
-bash "$APP_DIR/setup/01-os-detect.sh"
+source "$APP_DIR/setup/01-os-detect.sh"

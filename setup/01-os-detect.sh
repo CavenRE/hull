@@ -1,25 +1,33 @@
 #!/bin/bash
 set -euo pipefail
-source "$(dirname "$0")/ui.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/ui.sh"
 
-step "Installing System Dependencies"
+step "Detecting Operating System"
 
-${UPDATE_CMD:-} > /dev/null 2>&1 || true
-
-PACKAGES="curl git fzf jq nss"
-
-if [[ "${OS_FAMILY:-}" == *"arch"* ]] || [[ "${OS:-}" == "arch" ]]; then
-    PACKAGES="$PACKAGES dnsmasq docker docker-compose"
-elif [[ "${OS_FAMILY:-}" == *"debian"* ]] || [[ "${OS:-}" == "ubuntu" ]] || [[ "${OS:-}" == "debian" ]]; then
-    PACKAGES="$PACKAGES dnsmasq docker.io docker-compose-v2 libnss3-tools"
+if [ -f /etc/os-release ]; then
+    set -a
+    source /etc/os-release
+    set +a
+    OS="${ID:-}"
+    OS_FAMILY="${ID_LIKE:-}"
+else
+    fatal "/etc/os-release is missing."
 fi
 
-info "Installing packages: $PACKAGES"
-# shellcheck disable=SC2086
-${PKG_MANAGER:-} $PACKAGES
+if [[ "$OS_FAMILY" == *"arch"* ]] || [[ "$OS" == "arch" ]]; then
+    PKG_MANAGER="sudo pacman -S --needed --noconfirm"
+    UPDATE_CMD="sudo pacman -Sy"
+    success "Arch Linux base detected."
+elif [[ "$OS_FAMILY" == *"debian"* ]] || [[ "$OS" == "ubuntu" ]] || [[ "$OS" == "debian" ]]; then
+    PKG_MANAGER="sudo apt-get install -y"
+    UPDATE_CMD="sudo apt-get update"
+    success "Debian/Ubuntu base detected."
+else
+    fatal "Unsupported OS: $OS."
+fi
 
-sudo systemctl enable --now docker || true
-sudo usermod -aG docker "$USER" || true
+export PKG_MANAGER
+export UPDATE_CMD
+export OS_FAMILY
 
-success "Dependencies installed."
-bash "$(dirname "$0")/03-environment.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/02-dependencies.sh"

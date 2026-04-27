@@ -1,9 +1,9 @@
 #!/bin/bash
 set -euo pipefail
-source "$(dirname "$0")/ui.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/ui.sh"
 
 step "Configuring Global Caddy Router"
-CADDY_DIR="$(dirname "$0")/../system/caddy"
+CADDY_DIR="$(dirname "${BASH_SOURCE[0]}")/../system/caddy"
 
 if ! docker network ls | grep -q caddy; then
     docker network create caddy || true
@@ -38,4 +38,4 @@ else
     fatal "Failed to extract SSL certificate from hull-router."
 fi
 
-bash "$(dirname "$0")/05-dns-resolver.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/05-dns-resolver.sh"

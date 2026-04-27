@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
-source "$(dirname "$0")/ui.sh"
-source "$(dirname "$0")/../.env"
+source "$(dirname "${BASH_SOURCE[0]}")/ui.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../.env"
 
 step "Configuring DNS Resolver"
 
