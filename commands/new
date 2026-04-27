@@ -76,7 +76,7 @@ if [ "$PROMPT_VERSION" = true ] && [ -z "$VERSION" ]; then
     elif [ "$TEMPLATE" == "plain" ]; then
         OPTIONS="8.4\n8.3\n8.2\n8.1"
     fi
-    VERSION=$(echo -e "$OPTIONS" | fzf --prompt="Select $TEMPLATE version: " < /dev/tty || true)
+    VERSION=$(echo -e "$OPTIONS" | fzf --prompt="Select $TEMPLATE version: " || true)
 fi
 
 if [ "$INTERACTIVE_INFRA" = true ]; then
@@ -84,7 +84,7 @@ if [ "$INTERACTIVE_INFRA" = true ]; then
     echo "Use SPACE to select/deselect, ENTER to confirm. Leave blank for framework defaults."
 
     OPTIONS="PostgreSQL\nMySQL\nMariaDB\nRedis"
-    SELECTED=$(echo -e "$OPTIONS" | fzf --multi --marker="> " --prompt="Select optional infrastructure: " < /dev/tty || true)
+    SELECTED=$(echo -e "$OPTIONS" | fzf --multi --marker="> " --prompt="Select optional infrastructure: " || true)
 
     if [[ "$SELECTED" == *"PostgreSQL"* ]]; then DB="postgres"; fi
     if [[ "$SELECTED" == *"MySQL"* ]]; then DB="mysql"; fi
