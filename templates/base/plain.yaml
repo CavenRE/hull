@@ -1,6 +1,8 @@
 services:
   app:
     image: serversideup/php:8.4-fpm-nginx
+    environment:
+      WEB_DOCUMENT_ROOT: /var/www/html
     volumes:
       - ./:/var/www/html
       - ${HOME}/.hull/system/php/xdebug.ini:/usr/local/etc/php/conf.d/99-xdebug.ini:ro

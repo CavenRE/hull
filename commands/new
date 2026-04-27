@@ -84,7 +84,7 @@ if [ "$INTERACTIVE_INFRA" = true ]; then
     echo "Use SPACE to select/deselect, ENTER to confirm. Leave blank for framework defaults."
 
     OPTIONS="PostgreSQL\nMySQL\nMariaDB\nRedis"
-    SELECTED=$(echo -e "$OPTIONS" | fzf --multi --marker="[*] " --prompt="Select optional infrastructure: " < /dev/tty || true)
+    SELECTED=$(echo -e "$OPTIONS" | fzf --multi --marker="> " --prompt="Select optional infrastructure: " < /dev/tty || true)
 
     if [[ "$SELECTED" == *"PostgreSQL"* ]]; then DB="postgres"; fi
     if [[ "$SELECTED" == *"MySQL"* ]]; then DB="mysql"; fi
