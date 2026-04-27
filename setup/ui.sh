@@ -7,22 +7,10 @@ YELLOW="\033[1;33m"
 RED="\033[1;31m"
 RESET="\033[0m"
 
-info() {
-    echo -e "${BLUE}i${RESET} ${BOLD}$1${RESET}"
-}
-
-success() {
-    echo -e "${GREEN}v${RESET} ${BOLD}$1${RESET}"
-}
-
-warning() {
-    echo -e "${YELLOW}!${RESET} $1"
-}
-
-fatal() {
-    echo -e "${RED}x${RESET} $1"
-    exit 1
-}
+info() { echo -e "${BLUE}i${RESET} ${BOLD}$1${RESET}"; }
+success() { echo -e "${GREEN}v${RESET} ${BOLD}$1${RESET}"; }
+warning() { echo -e "${YELLOW}!${RESET} $1"; }
+fatal() { echo -e "${RED}x${RESET} $1" >&2; exit 1; }
 
 step() {
     echo ""

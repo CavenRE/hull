@@ -1,0 +1,18 @@
+services:
+  app:
+    image: serversideup/php:8.4-fpm-nginx
+    volumes:
+      - ./:/var/www/html
+      - ${HOME}/.hull/system/php/xdebug.ini:/usr/local/etc/php/conf.d/99-xdebug.ini:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    labels:
+      caddy: {{SITE_NAME}}.{{TLD}}
+      caddy.reverse_proxy: "{{upstreams 8080}}"
+      caddy.tls: internal
+    networks:
+      - caddy
+
+networks:
+  caddy:
+    external: true

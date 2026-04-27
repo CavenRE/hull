@@ -1,15 +1,16 @@
 #!/bin/bash
+set -euo pipefail
 source "$(dirname "$0")/ui.sh"
 
 step "Configuring Environment Variables"
 ENV_FILE="$(dirname "$0")/../.env"
 
-read -p "Enter project directory [default: $HOME/Work/Sites]: " SITES_DIR
+read -r -p "Enter project directory [default: $HOME/Work/Sites]: " SITES_DIR
 SITES_DIR=${SITES_DIR:-$HOME/Work/Sites}
 
 if [ ! -d "$SITES_DIR" ]; then
     warning "Directory $SITES_DIR does not exist."
-    read -p "Create it? (Y/n): " CREATE_DIR
+    read -r -p "Create it? (Y/n): " CREATE_DIR
     if [[ "$CREATE_DIR" =~ ^[Yy]$ ]] || [[ -z "$CREATE_DIR" ]]; then
         mkdir -p "$SITES_DIR"
         success "Created $SITES_DIR"
@@ -18,7 +19,7 @@ if [ ! -d "$SITES_DIR" ]; then
     fi
 fi
 
-read -p "Enter local TLD [default: test]: " TLD
+read -r -p "Enter local TLD [default: test]: " TLD
 TLD=${TLD:-test}
 TLD=${TLD#.}
 

@@ -3,14 +3,31 @@ set -euo pipefail
 
 export APP_DIR="${APP_DIR:-$HOME/.hull}"
 
-NAME=${1:-}
-TEMPLATE=${2:-}
-TEMPLATE=${TEMPLATE#--}
-
-if [ -z "$NAME" ] || [ -z "$TEMPLATE" ]; then
-    echo "Usage: hull new <name> --<template>" >&2
+if [ $# -lt 2 ]; then
+    echo "Usage: hull new <name> --<template> [--db=postgres|mysql|mariadb] [--with-redis]" >&2
     exit 1
 fi
+
+NAME=$1
+TEMPLATE=${2#--}
+shift 2
+
+DB=""
+WITH_REDIS=false
+
+for arg in "$@"; do
+    case $arg in
+        --db=*)
+        DB="${arg#*=}"
+        ;;
+        --with-redis)
+        WITH_REDIS=true
+        ;;
+        *)
+        echo "Warning: Unknown flag $arg" >&2
+        ;;
+    esac
+done
 
 if [[ ! "$NAME" =~ ^[a-zA-Z0-9-]+$ ]]; then
     echo "Error: Site name can only contain alphanumeric characters and hyphens." >&2
@@ -26,30 +43,98 @@ set -a
 source "$APP_DIR/.env"
 set +a
 
-TARGET="$SITES_DIR/$NAME"
+TARGET="${SITES_DIR:-$HOME/Work/Sites}/$NAME"
 
 if [ -d "$TARGET" ]; then
     echo "Error: Target directory $TARGET already exists." >&2
     exit 1
 fi
 
-if [ ! -d "$APP_DIR/templates/$TEMPLATE" ]; then
-    echo "Error: Template '$TEMPLATE' not found in $APP_DIR/templates" >&2
+if [ ! -f "$APP_DIR/templates/base/$TEMPLATE.yaml" ]; then
+    echo "Error: Base template '$TEMPLATE' not found in $APP_DIR/templates/base" >&2
     exit 1
 fi
 
 mkdir -p "$TARGET"
 
-if [ -f "$APP_DIR/templates/$TEMPLATE/init.sh" ]; then
+if [ -f "$APP_DIR/templates/scripts/$TEMPLATE-init.sh" ]; then
     echo "Running initialization hook for $TEMPLATE..."
-    bash "$APP_DIR/templates/$TEMPLATE/init.sh" "$TARGET" "$NAME"
+    bash "$APP_DIR/templates/scripts/$TEMPLATE-init.sh" "$TARGET" "$NAME"
 fi
 
-cp "$APP_DIR/templates/$TEMPLATE/compose.yaml" "$TARGET/compose.yaml"
+cp "$APP_DIR/templates/base/$TEMPLATE.yaml" "$TARGET/compose.yaml"
 
+inject_mixin() {
+    local MIXIN="$1"
+    if [ ! -f "$MIXIN" ]; then
+        echo "Error: Mix-in '$MIXIN' not found." >&2
+        exit 1
+    fi
+
+    # Extract service block safely (everything under 'services:' until next root key)
+    awk '/^services:/{flag=1; next} /^volumes:|^networks:/{flag=0} flag' "$MIXIN" > "$TARGET/svc.tmp"
+
+    # Extract volume block safely (everything under 'volumes:' until next root key)
+    awk '/^volumes:/{flag=1; next} /^services:|^networks:/{flag=0} flag' "$MIXIN" > "$TARGET/vol.tmp"
+
+    # Inject services into compose.yaml right after 'services:' line
+    sed -i -e '/^services:/r '"$TARGET/svc.tmp" "$TARGET/compose.yaml"
+
+    # Append volumes if they exist
+    if [ -s "$TARGET/vol.tmp" ]; then
+        if ! grep -q "^volumes:" "$TARGET/compose.yaml"; then
+            echo -e "\nvolumes:" >> "$TARGET/compose.yaml"
+        fi
+        cat "$TARGET/vol.tmp" >> "$TARGET/compose.yaml"
+    fi
+    rm -f "$TARGET/svc.tmp" "$TARGET/vol.tmp"
+}
+
+if [ -n "$DB" ]; then
+    inject_mixin "$APP_DIR/templates/services/$DB.yaml"
+fi
+
+if [ "$WITH_REDIS" = true ]; then
+    inject_mixin "$APP_DIR/templates/services/redis.yaml"
+fi
+
+# Standard replacements
 sed -i "s|{{SITE_NAME}}|$NAME|g" "$TARGET/compose.yaml"
 sed -i "s|{{TLD}}|${TLD:-test}|g" "$TARGET/compose.yaml"
 
 cd "$TARGET"
+
+# Post-assembly framework wiring
+if [ "$TEMPLATE" == "laravel" ] && [ -f ".env" ]; then
+    sed -i 's|^DB_HOST=.*|DB_HOST=db|' .env
+    sed -i 's|^DB_DATABASE=.*|DB_DATABASE=hull_db|' .env
+
+    if [ "$DB" == "postgres" ]; then
+        sed -i 's|^DB_CONNECTION=.*|DB_CONNECTION=pgsql|' .env
+        sed -i 's|^DB_PORT=.*|DB_PORT=5432|' .env
+        sed -i 's|^DB_USERNAME=.*|DB_USERNAME=postgres|' .env
+        sed -i 's|^DB_PASSWORD=.*|DB_PASSWORD=|' .env
+    elif [ "$DB" == "mysql" ] || [ "$DB" == "mariadb" ]; then
+        sed -i 's|^DB_CONNECTION=.*|DB_CONNECTION=mysql|' .env
+        sed -i 's|^DB_PORT=.*|DB_PORT=3306|' .env
+        sed -i 's|^DB_USERNAME=.*|DB_USERNAME=root|' .env
+        sed -i 's|^DB_PASSWORD=.*|DB_PASSWORD=|' .env
+    fi
+
+    if [ "$WITH_REDIS" = true ]; then
+        sed -i 's|^REDIS_HOST=.*|REDIS_HOST=redis|' .env
+        sed -i 's|^CACHE_STORE=.*|CACHE_STORE=redis|' .env
+        sed -i 's|^SESSION_DRIVER=.*|SESSION_DRIVER=redis|' .env
+        sed -i 's|^QUEUE_CONNECTION=.*|QUEUE_CONNECTION=redis|' .env
+    fi
+fi
+
+if [ "$TEMPLATE" == "wordpress" ]; then
+    sed -i 's|WORDPRESS_DB_NAME: wordpress|WORDPRESS_DB_NAME: hull_db|g' compose.yaml
+    if [ "$DB" == "postgres" ]; then
+        echo "Warning: WordPress does not natively support PostgreSQL without drop-in plugins." >&2
+    fi
+fi
+
 docker compose up -d
 echo "✅ Site $NAME.${TLD:-test} is up and running."

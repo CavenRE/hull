@@ -1,0 +1,10 @@
+services:
+  redis:
+    image: redis:alpine
+    volumes:
+      - redis_data:/data
+    networks:
+      - default
+
+volumes:
+  redis_data:

@@ -1,11 +1,13 @@
 #!/bin/bash
+set -euo pipefail
+
 TARGET_DIR=$1
 SITE_NAME=$2
 
 echo "Bootstrapping fresh Laravel installation into $SITE_NAME..."
 
 docker run --rm \
-    --user $(id -u):$(id -g) \
+    --user "$(id -u):$(id -g)" \
     -v "$TARGET_DIR:/app" \
     -w /app \
     composer:latest \

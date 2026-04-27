@@ -1,19 +1,6 @@
 services:
-  db:
-    image: mariadb:lts
-    environment:
-      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
-      MYSQL_DATABASE: wordpress
-    volumes:
-      - db_data:/var/lib/mysql
-    networks:
-      - default
-      - caddy
-
   wordpress:
     image: wordpress:latest
-    depends_on:
-      - db
     environment:
       WORDPRESS_DB_HOST: db
       WORDPRESS_DB_USER: root
@@ -35,6 +22,3 @@ services:
 networks:
   caddy:
     external: true
-
-volumes:
-  db_data:

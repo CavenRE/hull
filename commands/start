@@ -1,4 +1,8 @@
 #!/bin/bash
+set -euo pipefail
 
-cd "$APP_DIR/system/caddy" && docker compose up -d
+export APP_DIR="${APP_DIR:-$HOME/.hull}"
+
+cd "$APP_DIR/system/caddy"
+docker compose up -d
 echo "Global router and Adminer started."

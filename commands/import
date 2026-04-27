@@ -32,31 +32,121 @@ if [ ! -d "$TARGET" ]; then
     fatal "Directory $TARGET does not exist. Move your existing project to $SITES_DIR/$NAME first."
 fi
 
-if [ ! -d "$APP_DIR/templates/$TEMPLATE" ]; then
-    fatal "Template '$TEMPLATE' not found."
+if [ ! -f "$APP_DIR/templates/base/$TEMPLATE.yaml" ]; then
+    fatal "Base template '$TEMPLATE' not found in $APP_DIR/templates/base"
 fi
 
-step "Importing $NAME into Hull"
+step "Analyzing Project State"
+cd "$TARGET"
 
-cp "$APP_DIR/templates/$TEMPLATE/compose.yaml" "$TARGET/compose.yaml"
+DB=""
+WITH_REDIS=false
+PHP_VER="8.4"
+
+# 1. Dependency Sniffing (PHP Version)
+if [ "$TEMPLATE" == "laravel" ] || [ "$TEMPLATE" == "plain" ]; then
+    if [ -f "composer.json" ] && command -v jq &> /dev/null; then
+        PHP_REQ=$(jq -r '.require.php // empty' composer.json || echo "")
+        if [[ "$PHP_REQ" == *"8.1"* ]]; then PHP_VER="8.1"; fi
+        if [[ "$PHP_REQ" == *"8.2"* ]]; then PHP_VER="8.2"; fi
+        if [[ "$PHP_REQ" == *"8.3"* ]]; then PHP_VER="8.3"; fi
+        if [[ "$PHP_REQ" == *"8.4"* ]]; then PHP_VER="8.4"; fi
+        info "Detected PHP requirement: $PHP_REQ -> Mapping to serversideup/php:${PHP_VER}-fpm-nginx"
+    else
+        info "No composer.json found or jq not installed. Defaulting to PHP 8.4."
+    fi
+fi
+
+# 2. State Sniffing (Infrastructure)
+if [ -f ".env" ]; then
+    if grep -q "^DB_CONNECTION=pgsql" .env; then
+        DB="postgres"
+        info "Detected DB_CONNECTION=pgsql -> Selecting PostgreSQL mix-in"
+    elif grep -q "^DB_CONNECTION=mysql" .env; then
+        DB="mysql"
+        info "Detected DB_CONNECTION=mysql -> Selecting MySQL mix-in"
+    elif grep -q "^DB_CONNECTION=mariadb" .env; then
+        DB="mariadb"
+        info "Detected DB_CONNECTION=mariadb -> Selecting MariaDB mix-in"
+    fi
+
+    if grep -q "^REDIS_HOST=" .env || grep -q "^CACHE_STORE=redis" .env; then
+        WITH_REDIS=true
+        info "Detected Redis configuration -> Selecting Redis mix-in"
+    fi
+elif [ "$TEMPLATE" == "wordpress" ] && [ -f "wp-config.php" ]; then
+    DB="mariadb"
+    info "Detected WordPress wp-config.php -> Defaulting to MariaDB mix-in"
+fi
+
+step "Assembling Infrastructure Blueprint"
+
+cp "$APP_DIR/templates/base/$TEMPLATE.yaml" "$TARGET/compose.yaml"
+
+if [ "$PHP_VER" != "8.4" ]; then
+    sed -i "s|serversideup/php:8.4-fpm-nginx|serversideup/php:${PHP_VER}-fpm-nginx|g" "$TARGET/compose.yaml"
+fi
+
+inject_mixin() {
+    local MIXIN="$1"
+    if [ ! -f "$MIXIN" ]; then
+        fatal "Mix-in '$MIXIN' not found."
+    fi
+
+    awk '/^services:/{flag=1; next} /^volumes:|^networks:/{flag=0} flag' "$MIXIN" > "$TARGET/svc.tmp"
+    awk '/^volumes:/{flag=1; next} /^services:|^networks:/{flag=0} flag' "$MIXIN" > "$TARGET/vol.tmp"
+
+    sed -i -e '/^services:/r '"$TARGET/svc.tmp" "$TARGET/compose.yaml"
+
+    if [ -s "$TARGET/vol.tmp" ]; then
+        if ! grep -q "^volumes:" "$TARGET/compose.yaml"; then
+            echo -e "\nvolumes:" >> "$TARGET/compose.yaml"
+        fi
+        cat "$TARGET/vol.tmp" >> "$TARGET/compose.yaml"
+    fi
+    rm -f "$TARGET/svc.tmp" "$TARGET/vol.tmp"
+}
+
+if [ -n "$DB" ]; then
+    inject_mixin "$APP_DIR/templates/services/$DB.yaml"
+fi
+
+if [ "$WITH_REDIS" = true ]; then
+    inject_mixin "$APP_DIR/templates/services/redis.yaml"
+fi
+
 sed -i "s|{{SITE_NAME}}|$NAME|g" "$TARGET/compose.yaml"
 sed -i "s|{{TLD}}|${TLD:-test}|g" "$TARGET/compose.yaml"
-success "Docker blueprints injected."
+success "Docker blueprints assembled dynamically."
 
-cd "$TARGET"
+step "Configuring Framework Hooks"
 
 if [ "$TEMPLATE" == "laravel" ] && [ -f ".env" ]; then
     cp .env .env.hull-backup
     sed -i 's|^DB_HOST=.*|DB_HOST=db|' .env
-    sed -i 's|^DB_PASSWORD=.*|DB_PASSWORD=|' .env
-    sed -i 's|^REDIS_HOST=.*|REDIS_HOST=redis|' .env
+
+    if [ -n "$DB" ]; then
+        sed -i 's|^DB_DATABASE=.*|DB_DATABASE=hull_db|' .env
+        sed -i 's|^DB_PASSWORD=.*|DB_PASSWORD=|' .env
+        if [ "$DB" == "postgres" ]; then
+            sed -i 's|^DB_USERNAME=.*|DB_USERNAME=postgres|' .env
+        else
+            sed -i 's|^DB_USERNAME=.*|DB_USERNAME=root|' .env
+        fi
+    fi
+
+    if [ "$WITH_REDIS" = true ]; then
+        sed -i 's|^REDIS_HOST=.*|REDIS_HOST=redis|' .env
+    fi
     success "Laravel .env updated for Docker (Backup saved as .env.hull-backup)."
 fi
 
 if [ "$TEMPLATE" == "wordpress" ] && [ -f "wp-config.php" ]; then
     cp wp-config.php wp-config.php.hull-backup
     sed -i "s|define( *'DB_HOST', *'.*' *);|define( 'DB_HOST', 'db' );|" wp-config.php
+    sed -i "s|define( *'DB_NAME', *'.*' *);|define( 'DB_NAME', 'hull_db' );|" wp-config.php
     sed -i "s|define( *'DB_PASSWORD', *'.*' *);|define( 'DB_PASSWORD', '' );|" wp-config.php
+    sed -i 's|WORDPRESS_DB_NAME: wordpress|WORDPRESS_DB_NAME: hull_db|g' compose.yaml || true
     success "WordPress wp-config.php updated for Docker (Backup saved as wp-config.php.hull-backup)."
 fi
 
@@ -67,23 +157,23 @@ shopt -s nullglob
 SQL_FILES=(*.sql)
 shopt -u nullglob
 
-if [ ${#SQL_FILES[@]} -gt 0 ]; then
+if [ ${#SQL_FILES[@]} -gt 0 ] && [ -n "$DB" ]; then
     echo ""
     read -r -p "Found SQL dump: ${SQL_FILES[0]}. Import this into the database? (Y/n): " IMPORT_DB
-    
+
     if [[ "$IMPORT_DB" =~ ^[Yy]$ ]] || [[ -z "$IMPORT_DB" ]]; then
         info "Waiting 10 seconds for database engine to initialize..."
         sleep 10
-        
+
         info "Importing database..."
-        if [ "$TEMPLATE" == "laravel" ]; then
-            if docker compose exec -T db psql -U postgres -d laravel < "${SQL_FILES[0]}"; then
+        if [ "$DB" == "postgres" ]; then
+            if docker compose exec -T db psql -U postgres -d hull_db < "${SQL_FILES[0]}"; then
                 success "Database imported successfully."
             else
                 warning "Database import encountered an error. Check the output above."
             fi
-        elif [ "$TEMPLATE" == "wordpress" ]; then
-            if docker compose exec -T db mysql -u root wordpress < "${SQL_FILES[0]}"; then
+        elif [ "$DB" == "mysql" ] || [ "$DB" == "mariadb" ]; then
+            if docker compose exec -T db mysql -u root hull_db < "${SQL_FILES[0]}"; then
                 success "Database imported successfully."
             else
                 warning "Database import encountered an error. Check the output above."

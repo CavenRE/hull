@@ -1,6 +1,6 @@
 services:
   app:
-    image: serversideup/php:8.3-fpm-nginx
+    image: serversideup/php:8.4-fpm-nginx
     volumes:
       - ./:/var/www/html
       - ${HOME}/.hull/system/php/xdebug.ini:/usr/local/etc/php/conf.d/99-xdebug.ini:ro
@@ -11,6 +11,7 @@ services:
       caddy.reverse_proxy: "{{upstreams 8080}}"
       caddy.tls: internal
     networks:
+      - default
       - caddy
 
 networks:

@@ -1,0 +1,14 @@
+services:
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_DATABASE: hull_db
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - default
+      - caddy
+
+volumes:
+  db_data:
