@@ -12,11 +12,19 @@ if [ -f "./bin/hull" ] && [ -f "./setup/01-os-detect.sh" ]; then
     echo "ℹ Local development files detected. Installing from current directory..."
     
     if [ -d "$APP_DIR" ]; then
+        if [ -f "$APP_DIR/.env" ]; then
+            cp "$APP_DIR/.env" "/tmp/hull.env.bak"
+        fi
         rm -rf "$APP_DIR"
     fi
     
     mkdir -p "$APP_DIR"
     cp -a . "$APP_DIR/"
+    
+    if [ -f "/tmp/hull.env.bak" ]; then
+        cp "/tmp/hull.env.bak" "$APP_DIR/.env"
+        rm -f "/tmp/hull.env.bak"
+    fi
 else
     if ! command -v git &> /dev/null; then
         echo "❌ Git is required to install from the web. Please install git and try again." >&2
