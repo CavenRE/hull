@@ -35,6 +35,9 @@ if [ -f "compose.yaml" ] || [ -f "docker-compose.yml" ]; then
 fi
 
 cd ..
-rm -rf "$TARGET"
+if ! rm -rf "$TARGET" 2>/dev/null; then
+    echo "Requires elevated permissions to remove container-generated files..."
+    sudo rm -rf "$TARGET"
+fi
 
 echo "✅ Environment '$NAME' has been completely removed."
