@@ -12,7 +12,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     labels:
-      caddy: {{SITE_NAME}}.{{TLD}}
+      caddy: "{{SITE_NAME}}.{{TLD}}"
       caddy.reverse_proxy: "{{upstreams 80}}"
       caddy.tls: internal
     networks:
