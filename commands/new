@@ -148,6 +148,8 @@ set_env() {
     local file=${3:-.env}
     if grep -q "^${key}=" "$file"; then
         sed -i "s|^${key}=.*|${key}=${val}|" "$file"
+    elif grep -q "^# ${key}=" "$file"; then
+        sed -i "s|^# ${key}=.*|${key}=${val}|" "$file"
     else
         echo "${key}=${val}" >> "$file"
     fi
