@@ -15,8 +15,8 @@ done
 step "Updating Hull CLI"
 
 if command -v git &> /dev/null; then
-    info "Pulling latest changes from repository..."
-    (cd "$APP_DIR" && git pull origin main --quiet)
+    info "Fetching latest changes from repository..."
+    (cd "$APP_DIR" && git fetch origin main --quiet && git reset --hard origin/main --quiet)
     success "Repository synchronized."
 
     info "Applying execution permissions..."

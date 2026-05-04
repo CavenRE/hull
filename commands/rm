@@ -31,7 +31,11 @@ fi
 echo "Tearing down containers..."
 cd "$TARGET"
 if [ -f "compose.yaml" ] || [ -f "docker-compose.yml" ]; then
-    docker compose down -v
+    if ! docker compose down -v; then
+        echo -e "\033[1;33mDocker Compose failed (possibly corrupted YAML). Force cleaning up containers...\033[0m"
+        docker ps -a --filter "label=com.docker.compose.project=$NAME" -q | xargs -r docker rm -f || true
+        docker volume ls --filter "label=com.docker.compose.project=$NAME" -q | xargs -r docker volume rm || true
+    fi
 fi
 
 cd ..
