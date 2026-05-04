@@ -62,7 +62,7 @@ else
         SITE_NAMES+=("$(basename "$path")")
     done
 
-    SELECTED=$(printf "%s\n" "${SITE_NAMES[@]}" | fzf --multi --marker="[*] " --bind="space:toggle" --prompt="Select sites to start (SPACE to toggle, ENTER to confirm): " || true)
+    SELECTED=$(printf "%s\n" "${SITE_NAMES[@]}" | fzf --multi --marker="* " --bind="space:toggle" --prompt="Select sites to start (SPACE to toggle, ENTER to confirm): " || true)
 
     if [ -z "$SELECTED" ]; then
         echo "Operation aborted. No sites selected."
