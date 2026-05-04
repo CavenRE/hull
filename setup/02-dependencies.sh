@@ -21,5 +21,11 @@ ${PKG_MANAGER:-} $PACKAGES
 sudo systemctl enable --now docker || true
 sudo usermod -aG docker "$USER" || true
 
+if ! command -v yq &> /dev/null; then
+    info "Installing yq..."
+    sudo curl -sL -o /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+    sudo chmod a+x /usr/local/bin/yq
+fi
+
 success "Dependencies installed."
 source "$(dirname "${BASH_SOURCE[0]}")/03-environment.sh"

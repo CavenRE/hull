@@ -1,0 +1,40 @@
+#!/bin/bash
+set -euo pipefail
+
+export APP_DIR="${APP_DIR:-$HOME/.hull}"
+
+if [ $# -lt 1 ]; then
+    echo "Usage: hull rm <name>" >&2
+    exit 1
+fi
+
+NAME=$1
+
+set -a
+source "$APP_DIR/.env"
+set +a
+
+TARGET="${SITES_DIR:-$HOME/Work/Sites}/$NAME"
+
+if [ ! -d "$TARGET" ]; then
+    echo "Error: Environment $NAME does not exist at $TARGET" >&2
+    exit 1
+fi
+
+echo -e "\033[1;31mWARNING: This will permanently destroy the environment '$NAME' and all its data.\033[0m"
+read -p "Are you sure you want to proceed? (y/N): " CONFIRM
+if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+    echo "Aborted."
+    exit 0
+fi
+
+echo "Tearing down containers..."
+cd "$TARGET"
+if [ -f "compose.yaml" ] || [ -f "docker-compose.yml" ]; then
+    docker compose down -v
+fi
+
+cd ..
+rm -rf "$TARGET"
+
+echo "✅ Environment '$NAME' has been completely removed."

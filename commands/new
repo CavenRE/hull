@@ -125,18 +125,8 @@ inject_mixin() {
         exit 1
     fi
 
-    awk '/^services:/{flag=1; next} /^volumes:|^networks:/{flag=0} flag' "$MIXIN" > "$TARGET/svc.tmp"
-    awk '/^volumes:/{flag=1; next} /^services:|^networks:/{flag=0} flag' "$MIXIN" > "$TARGET/vol.tmp"
-
-    sed -i -e '/^services:/r '"$TARGET/svc.tmp" "$TARGET/compose.yaml"
-
-    if [ -s "$TARGET/vol.tmp" ]; then
-        if ! grep -q "^volumes:" "$TARGET/compose.yaml"; then
-            echo -e "\nvolumes:" >> "$TARGET/compose.yaml"
-        fi
-        cat "$TARGET/vol.tmp" >> "$TARGET/compose.yaml"
-    fi
-    rm -f "$TARGET/svc.tmp" "$TARGET/vol.tmp"
+    yq eval-all '. as $item ireduce ({}; . * $item )' "$TARGET/compose.yaml" "$MIXIN" > "$TARGET/compose.tmp.yaml"
+    mv "$TARGET/compose.tmp.yaml" "$TARGET/compose.yaml"
 }
 
 if [ -n "$DB" ]; then
@@ -152,32 +142,43 @@ sed -i "s|{{TLD}}|${TLD:-test}|g" "$TARGET/compose.yaml"
 
 cd "$TARGET"
 
+set_env() {
+    local key=$1
+    local val=$2
+    local file=${3:-.env}
+    if grep -q "^${key}=" "$file"; then
+        sed -i "s|^${key}=.*|${key}=${val}|" "$file"
+    else
+        echo "${key}=${val}" >> "$file"
+    fi
+}
+
 if [ "$TEMPLATE" == "laravel" ] && [ -f ".env" ]; then
-    sed -i 's|^DB_HOST=.*|DB_HOST=db|' .env
-    sed -i 's|^DB_DATABASE=.*|DB_DATABASE=hull_db|' .env
+    set_env DB_HOST db
+    set_env DB_DATABASE hull_db
 
     if [ -n "$DB" ]; then
         if [ "$DB" == "postgres" ]; then
-            sed -i 's|^DB_CONNECTION=.*|DB_CONNECTION=pgsql|' .env
-            sed -i 's|^DB_PORT=.*|DB_PORT=5432|' .env
-            sed -i 's|^DB_USERNAME=.*|DB_USERNAME=postgres|' .env
-            sed -i 's|^DB_PASSWORD=.*|DB_PASSWORD=|' .env
+            set_env DB_CONNECTION pgsql
+            set_env DB_PORT 5432
+            set_env DB_USERNAME postgres
+            set_env DB_PASSWORD ""
         elif [ "$DB" == "mysql" ] || [ "$DB" == "mariadb" ]; then
-            sed -i 's|^DB_CONNECTION=.*|DB_CONNECTION=mysql|' .env
-            sed -i 's|^DB_PORT=.*|DB_PORT=3306|' .env
-            sed -i 's|^DB_USERNAME=.*|DB_USERNAME=root|' .env
-            sed -i 's|^DB_PASSWORD=.*|DB_PASSWORD=|' .env
+            set_env DB_CONNECTION mysql
+            set_env DB_PORT 3306
+            set_env DB_USERNAME root
+            set_env DB_PASSWORD ""
         fi
     else
-        sed -i 's|^DB_CONNECTION=.*|DB_CONNECTION=sqlite|' .env
+        set_env DB_CONNECTION sqlite
         touch database/database.sqlite || true
     fi
 
     if [ "$WITH_REDIS" = true ]; then
-        sed -i 's|^REDIS_HOST=.*|REDIS_HOST=redis|' .env
-        sed -i 's|^CACHE_STORE=.*|CACHE_STORE=redis|' .env
-        sed -i 's|^SESSION_DRIVER=.*|SESSION_DRIVER=redis|' .env
-        sed -i 's|^QUEUE_CONNECTION=.*|QUEUE_CONNECTION=redis|' .env
+        set_env REDIS_HOST redis
+        set_env CACHE_STORE redis
+        set_env SESSION_DRIVER redis
+        set_env QUEUE_CONNECTION redis
     fi
 fi
 

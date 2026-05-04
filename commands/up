@@ -3,9 +3,42 @@ set -euo pipefail
 
 export APP_DIR="${APP_DIR:-$HOME/.hull}"
 
+START_ALL=false
+for arg in "$@"; do
+    if [[ "$arg" == "--all" ]]; then
+        START_ALL=true
+    fi
+done
+
 set -a
 source "$APP_DIR/.env"
 set +a
+
+if [ "$START_ALL" = true ]; then
+    if [ ! -d "${SITES_DIR:-}" ]; then
+        echo "Error: SITES_DIR is not set or does not exist." >&2
+        exit 1
+    fi
+
+    shopt -s nullglob
+    SITE_PATHS=("$SITES_DIR"/*/)
+    shopt -u nullglob
+
+    if [ ${#SITE_PATHS[@]} -eq 0 ]; then
+        echo "No sites found in $SITES_DIR."
+        exit 0
+    fi
+
+    echo "Booting all sites..."
+    for path in "${SITE_PATHS[@]}"; do
+        SITE="$(basename "$path")"
+        if [ -f "$path/compose.yaml" ] || [ -f "$path/docker-compose.yml" ]; then
+            echo "Booting $SITE..."
+            (cd "$path" && docker compose up -d)
+        fi
+    done
+    exit 0
+fi
 
 if [[ -f "compose.yaml" || -f "docker-compose.yml" ]]; then
     docker compose up -d

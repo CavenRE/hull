@@ -3,9 +3,37 @@ set -euo pipefail
 
 export APP_DIR="${APP_DIR:-$HOME/.hull}"
 
+STOP_ALL=false
+for arg in "$@"; do
+    if [[ "$arg" == "--all" ]]; then
+        STOP_ALL=true
+    fi
+done
+
 set -a
 source "$APP_DIR/.env"
 set +a
+
+if [ "$STOP_ALL" = true ]; then
+    PROJECTS=$(docker ps --format '{{.Label "com.docker.compose.project"}}' | awk 'NF' | sort -u || true)
+    if [ -z "$PROJECTS" ]; then
+        echo "No Hull environments are currently running."
+        exit 0
+    fi
+    echo "Stopping all environments..."
+    while IFS= read -r SITE; do
+        if [ -n "$SITE" ]; then
+            if [ -d "${SITES_DIR:-}/$SITE" ]; then
+                echo "Stopping $SITE..."
+                (cd "$SITES_DIR/$SITE" && docker compose down)
+            elif [ "$SITE" == "caddy" ]; then
+                echo "Stopping global infrastructure..."
+                (cd "$APP_DIR/system/caddy" && docker compose down)
+            fi
+        fi
+    done <<< "$PROJECTS"
+    exit 0
+fi
 
 if [[ -f "compose.yaml" || -f "docker-compose.yml" ]]; then
     docker compose down
