@@ -1,0 +1,131 @@
+#!/bin/bash
+set -euo pipefail
+
+export APP_DIR="${APP_DIR:-$HOME/.hull}"
+source "$APP_DIR/setup/ui.sh"
+
+if [ $# -lt 1 ]; then
+    echo "Usage: hull add <name> [options]" >&2
+    echo "Options:" >&2
+    echo "  --db=postgres|mysql|mariadb" >&2
+    echo "  --with-redis" >&2
+    exit 1
+fi
+
+NAME=$1
+shift
+
+DB=""
+WITH_REDIS=false
+
+for arg in "$@"; do
+    case $arg in
+        --db=*)
+        DB="${arg#*=}"
+        ;;
+        --with-redis)
+        WITH_REDIS=true
+        ;;
+        *)
+        echo "Warning: Unknown flag $arg" >&2
+        ;;
+    esac
+done
+
+if [ -z "$DB" ] && [ "$WITH_REDIS" = false ]; then
+    fatal "You must specify an infrastructure mix-in to add (e.g. --db=mariadb or --with-redis)."
+fi
+
+set -a
+source "$APP_DIR/.env"
+set +a
+
+TARGET="${SITES_DIR:-$HOME/Work/Sites}/$NAME"
+
+if [ ! -d "$TARGET" ]; then
+    fatal "Environment $NAME does not exist at $TARGET."
+fi
+
+if [ ! -f "$TARGET/compose.yaml" ]; then
+    fatal "Environment $NAME does not have a compose.yaml file."
+fi
+
+step "Adding Infrastructure to $NAME"
+
+inject_mixin() {
+    local MIXIN="$1"
+    if [ ! -f "$MIXIN" ]; then
+        fatal "Mix-in '$MIXIN' not found."
+    fi
+
+    # Merge into compose.yaml
+    yq eval-all '. as $item ireduce ({}; . * $item )' "$TARGET/compose.yaml" "$MIXIN" > "$TARGET/compose.tmp.yaml"
+    mv "$TARGET/compose.tmp.yaml" "$TARGET/compose.yaml"
+}
+
+set_env() {
+    local key=$1
+    local val=$2
+    local file=${3:-$TARGET/.env}
+    if [ -f "$file" ]; then
+        if grep -q "^${key}=" "$file"; then
+            sed -i "s|^${key}=.*|${key}=${val}|" "$file"
+        elif grep -q "^# ${key}=" "$file"; then
+            sed -i "s|^# ${key}=.*|${key}=${val}|" "$file"
+        else
+            echo "${key}=${val}" >> "$file"
+        fi
+    fi
+}
+
+cd "$TARGET"
+
+if [ -n "$DB" ]; then
+    info "Injecting $DB mix-in..."
+    inject_mixin "$APP_DIR/templates/services/$DB.yaml"
+
+    # We guess the template by checking the existing compose.yaml for image names
+    # or just apply env vars dynamically. Let's do it based on grep
+    if grep -q "image: serversideup" compose.yaml && [ -f ".env" ]; then
+        # It's likely Laravel
+        set_env DB_HOST db
+        set_env DB_DATABASE hull_db
+        
+        if [ "$DB" == "postgres" ]; then
+            set_env DB_CONNECTION pgsql
+            set_env DB_PORT 5432
+            set_env DB_USERNAME postgres
+            set_env DB_PASSWORD ""
+        elif [ "$DB" == "mysql" ]; then
+            set_env DB_CONNECTION mysql
+            set_env DB_PORT 3306
+            set_env DB_USERNAME root
+            set_env DB_PASSWORD ""
+        elif [ "$DB" == "mariadb" ]; then
+            set_env DB_CONNECTION mariadb
+            set_env DB_PORT 3306
+            set_env DB_USERNAME root
+            set_env DB_PASSWORD ""
+        fi
+    elif grep -q "image: wordpress" compose.yaml; then
+        # WordPress handles DB via its own yaml injection in mixins, no .env file typically.
+        true
+    fi
+fi
+
+if [ "$WITH_REDIS" = true ]; then
+    info "Injecting Redis mix-in..."
+    inject_mixin "$APP_DIR/templates/services/redis.yaml"
+    
+    if [ -f ".env" ]; then
+        set_env REDIS_HOST redis
+        set_env CACHE_STORE redis
+        set_env SESSION_DRIVER redis
+        set_env QUEUE_CONNECTION redis
+    fi
+fi
+
+info "Rebuilding environment..."
+docker compose up -d
+
+success "Infrastructure successfully added to $NAME!"

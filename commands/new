@@ -15,19 +15,26 @@ shift 2
 
 DB=""
 WITH_REDIS=false
-INTERACTIVE_INFRA=true
+INTERACTIVE_INFRA=false
 VERSION=""
 PROMPT_VERSION=false
+DB_EXPLICIT=false
 
 for arg in "$@"; do
     case $arg in
         --db=*)
         DB="${arg#*=}"
-        INTERACTIVE_INFRA=false
+        DB_EXPLICIT=true
+        ;;
+        --no-db)
+        DB="none"
+        DB_EXPLICIT=true
         ;;
         --with-redis)
         WITH_REDIS=true
-        INTERACTIVE_INFRA=false
+        ;;
+        --interactive|-i)
+        INTERACTIVE_INFRA=true
         ;;
         --version=*)
         VERSION="${arg#*=}"
@@ -40,6 +47,21 @@ for arg in "$@"; do
         ;;
     esac
 done
+
+if [ "$DB_EXPLICIT" = false ] && [ "$INTERACTIVE_INFRA" = false ]; then
+    if [ "$TEMPLATE" == "laravel" ]; then
+        DB="postgres"
+    elif [ "$TEMPLATE" == "wordpress" ]; then
+        DB="mariadb"
+    elif [ "$TEMPLATE" == "plain" ]; then
+        DB="none"
+    fi
+fi
+
+if [ "$DB" == "none" ]; then
+    DB=""
+fi
+
 
 if [[ ! "$NAME" =~ ^[a-zA-Z0-9-]+$ ]]; then
     echo "Error: Site name can only contain alphanumeric characters and hyphens." >&2
@@ -91,12 +113,13 @@ if [ "$INTERACTIVE_INFRA" = true ]; then
     if [[ "$SELECTED" == *"MariaDB"* ]]; then DB="mariadb"; fi
     if [[ "$SELECTED" == *"Redis"* ]]; then WITH_REDIS=true; fi
 
-    if [ -z "$DB" ]; then
+    if [ -z "$DB" ] && [ "$WITH_REDIS" = false ]; then
         if [ "$TEMPLATE" == "wordpress" ]; then
             echo -e "\033[1;33mApplying smart default: MariaDB injected for WordPress.\033[0m"
             DB="mariadb"
         elif [ "$TEMPLATE" == "laravel" ]; then
-            echo -e "\033[1;33mApplying smart default: SQLite configured for Laravel.\033[0m"
+            echo -e "\033[1;33mApplying smart default: PostgreSQL injected for Laravel.\033[0m"
+            DB="postgres"
         fi
     fi
 fi
