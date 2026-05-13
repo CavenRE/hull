@@ -23,6 +23,8 @@ services:
       caddy.tls: internal
     networks:
       - caddy
+    volumes:
+      - ./hull-login.php:/var/www/html/plugins-enabled/hull-login.php:ro
     restart: unless-stopped
 
 networks:
