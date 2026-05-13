@@ -4,15 +4,50 @@ set -euo pipefail
 export APP_DIR="${APP_DIR:-$HOME/.hull}"
 source "$APP_DIR/setup/ui.sh"
 
-NAME=${1:-}
-TEMPLATE=${2:-}
-TEMPLATE=${TEMPLATE#--}
-
-if [ -z "$NAME" ] || [ -z "$TEMPLATE" ]; then
-    echo "Usage: hull import <name> --<template>" >&2
-    info "Example: hull import my-old-app --laravel"
+if [ $# -lt 2 ]; then
+    echo "Usage: hull import <name> --<template> [options]" >&2
+    info "Example: hull import my-old-app --laravel --db=mysql"
     exit 1
 fi
+
+NAME=$1
+TEMPLATE=${2#--}
+shift 2
+
+DB=""
+WITH_REDIS=false
+INTERACTIVE_INFRA=false
+VERSION=""
+PROMPT_VERSION=false
+DB_EXPLICIT=false
+
+for arg in "$@"; do
+    case $arg in
+        --db=*)
+        DB="${arg#*=}"
+        DB_EXPLICIT=true
+        ;;
+        --no-db)
+        DB="none"
+        DB_EXPLICIT=true
+        ;;
+        --with-redis)
+        WITH_REDIS=true
+        ;;
+        --interactive|-i)
+        INTERACTIVE_INFRA=true
+        ;;
+        --version=*)
+        VERSION="${arg#*=}"
+        ;;
+        --version|-v)
+        PROMPT_VERSION=true
+        ;;
+        *)
+        echo "Warning: Unknown flag $arg" >&2
+        ;;
+    esac
+done
 
 if [[ ! "$NAME" =~ ^[a-zA-Z0-9-]+$ ]]; then
     fatal "Site name can only contain alphanumeric characters and hyphens."
@@ -39,52 +74,114 @@ fi
 step "Analyzing Project State"
 cd "$TARGET"
 
-DB=""
-WITH_REDIS=false
-PHP_VER="8.4"
-
 # 1. Dependency Sniffing (PHP Version)
-if [ "$TEMPLATE" == "laravel" ] || [ "$TEMPLATE" == "plain" ]; then
-    if [ -f "composer.json" ] && command -v jq &> /dev/null; then
-        PHP_REQ=$(jq -r '.require.php // empty' composer.json || echo "")
-        if [[ "$PHP_REQ" == *"8.1"* ]]; then PHP_VER="8.1"; fi
-        if [[ "$PHP_REQ" == *"8.2"* ]]; then PHP_VER="8.2"; fi
-        if [[ "$PHP_REQ" == *"8.3"* ]]; then PHP_VER="8.3"; fi
-        if [[ "$PHP_REQ" == *"8.4"* ]]; then PHP_VER="8.4"; fi
-        info "Detected PHP requirement: $PHP_REQ -> Mapping to serversideup/php:${PHP_VER}-fpm-nginx"
-    else
-        info "No composer.json found or jq not installed. Defaulting to PHP 8.4."
+PHP_VER="8.4"
+if [ -z "$VERSION" ] && [ "$PROMPT_VERSION" = false ]; then
+    if [ "$TEMPLATE" == "laravel" ] || [ "$TEMPLATE" == "plain" ]; then
+        if [ -f "composer.json" ] && command -v jq &> /dev/null; then
+            PHP_REQ=$(jq -r '.require.php // empty' composer.json || echo "")
+            if [[ "$PHP_REQ" == *"8.1"* ]]; then PHP_VER="8.1"; fi
+            if [[ "$PHP_REQ" == *"8.2"* ]]; then PHP_VER="8.2"; fi
+            if [[ "$PHP_REQ" == *"8.3"* ]]; then PHP_VER="8.3"; fi
+            if [[ "$PHP_REQ" == *"8.4"* ]]; then PHP_VER="8.4"; fi
+            info "Detected PHP requirement: $PHP_REQ -> Mapping to serversideup/php:${PHP_VER}-fpm-nginx"
+        else
+            info "No composer.json found or jq not installed. Defaulting to PHP 8.4."
+        fi
     fi
+else
+    # If explicitly asked for a version via flag, we skip auto-detect.
+    true
 fi
 
 # 2. State Sniffing (Infrastructure)
-if [ -f ".env" ]; then
-    if grep -q "^DB_CONNECTION=pgsql" .env; then
-        DB="postgres"
-        info "Detected DB_CONNECTION=pgsql -> Selecting PostgreSQL mix-in"
-    elif grep -q "^DB_CONNECTION=mysql" .env; then
-        DB="mysql"
-        info "Detected DB_CONNECTION=mysql -> Selecting MySQL mix-in"
-    elif grep -q "^DB_CONNECTION=mariadb" .env; then
-        DB="mariadb"
-        info "Detected DB_CONNECTION=mariadb -> Selecting MariaDB mix-in"
-    fi
+if [ "$DB_EXPLICIT" = false ] && [ "$INTERACTIVE_INFRA" = false ]; then
+    # Sniff from .env first
+    if [ -f ".env" ]; then
+        if grep -q "^DB_CONNECTION=pgsql" .env; then
+            DB="postgres"
+            info "Detected DB_CONNECTION=pgsql -> Selecting PostgreSQL mix-in"
+        elif grep -q "^DB_CONNECTION=mysql" .env; then
+            DB="mysql"
+            info "Detected DB_CONNECTION=mysql -> Selecting MySQL mix-in"
+        elif grep -q "^DB_CONNECTION=mariadb" .env; then
+            DB="mariadb"
+            info "Detected DB_CONNECTION=mariadb -> Selecting MariaDB mix-in"
+        fi
 
-    if grep -q "^REDIS_HOST=" .env || grep -q "^CACHE_STORE=redis" .env; then
-        WITH_REDIS=true
-        info "Detected Redis configuration -> Selecting Redis mix-in"
+        if grep -q "^REDIS_HOST=" .env || grep -q "^CACHE_STORE=redis" .env; then
+            WITH_REDIS=true
+            info "Detected Redis configuration -> Selecting Redis mix-in"
+        fi
+    elif [ "$TEMPLATE" == "wordpress" ] && [ -f "wp-config.php" ]; then
+        DB="mariadb"
+        info "Detected WordPress wp-config.php -> Defaulting to MariaDB mix-in"
     fi
-elif [ "$TEMPLATE" == "wordpress" ] && [ -f "wp-config.php" ]; then
-    DB="mariadb"
-    info "Detected WordPress wp-config.php -> Defaulting to MariaDB mix-in"
+    
+    # Smart Defaults Fallback
+    if [ -z "$DB" ]; then
+        if [ "$TEMPLATE" == "laravel" ]; then
+            DB="postgres"
+            info "Applying smart default: PostgreSQL injected for Laravel."
+        elif [ "$TEMPLATE" == "wordpress" ]; then
+            DB="mariadb"
+            info "Applying smart default: MariaDB injected for WordPress."
+        elif [ "$TEMPLATE" == "plain" ]; then
+            DB="none"
+        fi
+    fi
+fi
+
+if [ "$DB" == "none" ]; then
+    DB=""
+fi
+
+if [ "$PROMPT_VERSION" = true ]; then
+    if command -v fzf &> /dev/null; then
+        if [ "$TEMPLATE" == "wordpress" ]; then
+            OPTIONS="latest\n6.4\n6.3"
+        else
+            OPTIONS="8.4\n8.3\n8.2\n8.1"
+        fi
+        VERSION=$(echo -e "$OPTIONS" | fzf --prompt="Select $TEMPLATE version: " || true)
+    fi
+fi
+
+if [ "$INTERACTIVE_INFRA" = true ]; then
+    echo -e "\033[1;34mInteractive Infrastructure Selection\033[0m"
+    echo "Use SPACE to select/deselect, ENTER to confirm. Leave blank for framework defaults."
+
+    OPTIONS="PostgreSQL\nMySQL\nMariaDB\nRedis"
+    SELECTED=$(echo -e "$OPTIONS" | fzf --multi --marker="> " --prompt="Select optional infrastructure: " || true)
+
+    if [[ "$SELECTED" == *"PostgreSQL"* ]]; then DB="postgres"; fi
+    if [[ "$SELECTED" == *"MySQL"* ]]; then DB="mysql"; fi
+    if [[ "$SELECTED" == *"MariaDB"* ]]; then DB="mariadb"; fi
+    if [[ "$SELECTED" == *"Redis"* ]]; then WITH_REDIS=true; fi
+
+    if [ -z "$DB" ] && [ "$WITH_REDIS" = false ]; then
+        if [ "$TEMPLATE" == "wordpress" ]; then
+            echo -e "\033[1;33mApplying smart default: MariaDB injected for WordPress.\033[0m"
+            DB="mariadb"
+        elif [ "$TEMPLATE" == "laravel" ]; then
+            echo -e "\033[1;33mApplying smart default: PostgreSQL injected for Laravel.\033[0m"
+            DB="postgres"
+        fi
+    fi
 fi
 
 step "Assembling Infrastructure Blueprint"
 
 cp "$APP_DIR/templates/base/$TEMPLATE.yaml" "$TARGET/compose.yaml"
 
-if [ "$PHP_VER" != "8.4" ]; then
-    sed -i "s|serversideup/php:8.4-fpm-nginx|serversideup/php:${PHP_VER}-fpm-nginx|g" "$TARGET/compose.yaml"
+if [ -n "$VERSION" ] && [ "$VERSION" != "latest" ]; then
+    if [ "$TEMPLATE" == "wordpress" ]; then
+        sed -i "s|image: wordpress:latest|image: wordpress:${VERSION}|g" "$TARGET/compose.yaml"
+    elif [ "$TEMPLATE" == "plain" ] || [ "$TEMPLATE" == "laravel" ]; then
+        sed -i "s|image: serversideup/php:8.4-fpm-nginx|image: serversideup/php:${VERSION}-fpm-nginx|g" "$TARGET/compose.yaml"
+    fi
+elif [ -n "$PHP_VER" ] && [ "$PHP_VER" != "8.4" ]; then
+    sed -i "s|image: serversideup/php:8.4-fpm-nginx|image: serversideup/php:${PHP_VER}-fpm-nginx|g" "$TARGET/compose.yaml"
 fi
 
 inject_mixin() {
@@ -93,18 +190,21 @@ inject_mixin() {
         fatal "Mix-in '$MIXIN' not found."
     fi
 
-    awk '/^services:/{flag=1; next} /^volumes:|^networks:/{flag=0} flag' "$MIXIN" > "$TARGET/svc.tmp"
-    awk '/^volumes:/{flag=1; next} /^services:|^networks:/{flag=0} flag' "$MIXIN" > "$TARGET/vol.tmp"
+    yq eval-all '. as $item ireduce ({}; . * $item )' "$TARGET/compose.yaml" "$MIXIN" > "$TARGET/compose.tmp.yaml"
+    mv "$TARGET/compose.tmp.yaml" "$TARGET/compose.yaml"
+}
 
-    sed -i -e '/^services:/r '"$TARGET/svc.tmp" "$TARGET/compose.yaml"
-
-    if [ -s "$TARGET/vol.tmp" ]; then
-        if ! grep -q "^volumes:" "$TARGET/compose.yaml"; then
-            echo -e "\nvolumes:" >> "$TARGET/compose.yaml"
-        fi
-        cat "$TARGET/vol.tmp" >> "$TARGET/compose.yaml"
+set_env() {
+    local key=$1
+    local val=$2
+    local file=${3:-.env}
+    if grep -q "^${key}=" "$file"; then
+        sed -i "s|^${key}=.*|${key}=${val}|" "$file"
+    elif grep -q "^# ${key}=" "$file"; then
+        sed -i "s|^# ${key}=.*|${key}=${val}|" "$file"
+    else
+        echo "${key}=${val}" >> "$file"
     fi
-    rm -f "$TARGET/svc.tmp" "$TARGET/vol.tmp"
 }
 
 if [ -n "$DB" ]; then
@@ -123,20 +223,33 @@ step "Configuring Framework Hooks"
 
 if [ "$TEMPLATE" == "laravel" ] && [ -f ".env" ]; then
     cp .env .env.hull-backup
-    sed -i 's|^DB_HOST=.*|DB_HOST=db|' .env
+    set_env DB_HOST db
+    set_env DB_DATABASE hull_db
 
     if [ -n "$DB" ]; then
-        sed -i 's|^DB_DATABASE=.*|DB_DATABASE=hull_db|' .env
-        sed -i 's|^DB_PASSWORD=.*|DB_PASSWORD=|' .env
         if [ "$DB" == "postgres" ]; then
-            sed -i 's|^DB_USERNAME=.*|DB_USERNAME=postgres|' .env
-        else
-            sed -i 's|^DB_USERNAME=.*|DB_USERNAME=root|' .env
+            set_env DB_CONNECTION pgsql
+            set_env DB_PORT 5432
+            set_env DB_USERNAME postgres
+            set_env DB_PASSWORD ""
+        elif [ "$DB" == "mysql" ]; then
+            set_env DB_CONNECTION mysql
+            set_env DB_PORT 3306
+            set_env DB_USERNAME root
+            set_env DB_PASSWORD ""
+        elif [ "$DB" == "mariadb" ]; then
+            set_env DB_CONNECTION mariadb
+            set_env DB_PORT 3306
+            set_env DB_USERNAME root
+            set_env DB_PASSWORD ""
         fi
     fi
 
     if [ "$WITH_REDIS" = true ]; then
-        sed -i 's|^REDIS_HOST=.*|REDIS_HOST=redis|' .env
+        set_env REDIS_HOST redis
+        set_env CACHE_STORE redis
+        set_env SESSION_DRIVER redis
+        set_env QUEUE_CONNECTION redis
     fi
     success "Laravel .env updated for Docker (Backup saved as .env.hull-backup)."
 fi

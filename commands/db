@@ -12,8 +12,59 @@ set -a
 source "$APP_DIR/.env"
 set +a
 
-if xdg-open "https://db.${TLD:-test}" &> /dev/null; then
-    echo "Opening global database manager..."
+# Find running database containers (service name "db")
+DBS=$(docker ps --format '{{.Names}}|{{.Image}}|{{.Label "com.docker.compose.project"}}|{{.Label "com.docker.compose.service"}}' | awk -F'|' '$4=="db" {print $0}')
+
+if [ -z "$DBS" ]; then
+    echo "No running project databases found."
+    if xdg-open "https://db.${TLD:-test}" &> /dev/null; then
+        echo "Opening global database manager anyway..."
+    else
+        echo "Navigate to https://db.${TLD:-test} in your browser."
+    fi
+    exit 0
+fi
+
+# Prepare options for fzf
+# Format: "ProjectName (Driver) - ContainerName"
+OPTIONS=""
+while IFS='|' read -r CONTAINER_NAME IMAGE PROJECT SERVICE; do
+    DRIVER="Unknown"
+    if [[ "$IMAGE" == *"postgres"* ]]; then DRIVER="PostgreSQL"; fi
+    if [[ "$IMAGE" == *"mysql"* ]]; then DRIVER="MySQL"; fi
+    if [[ "$IMAGE" == *"mariadb"* ]]; then DRIVER="MariaDB"; fi
+
+    OPTIONS+="$PROJECT ($DRIVER) - $CONTAINER_NAME\n"
+done <<< "$DBS"
+
+OPTIONS+="Open Adminer without connecting"
+
+echo -e "\033[1;34mDatabase Selection\033[0m"
+SELECTED=$(echo -e "$OPTIONS" | fzf --prompt="Select database to open: ")
+
+if [ -z "$SELECTED" ]; then
+    echo "Operation aborted."
+    exit 0
+fi
+
+if [[ "$SELECTED" == "Open Adminer without connecting" ]]; then
+    URL="https://db.${TLD:-test}"
 else
-    echo "Navigate to https://db.${TLD:-test} in your browser."
+    # Extract container name from selection
+    CONTAINER_NAME=$(echo "$SELECTED" | awk -F' - ' '{print $2}')
+    
+    # Determine URL parameters based on the driver
+    if [[ "$SELECTED" == *"PostgreSQL"* ]]; then
+        URL="https://db.${TLD:-test}/?pgsql=$CONTAINER_NAME&username=postgres"
+    elif [[ "$SELECTED" == *"MySQL"* ]] || [[ "$SELECTED" == *"MariaDB"* ]]; then
+        URL="https://db.${TLD:-test}/?mysql=$CONTAINER_NAME&username=root"
+    else
+        URL="https://db.${TLD:-test}"
+    fi
+fi
+
+if xdg-open "$URL" &> /dev/null; then
+    echo "Opening database manager..."
+else
+    echo "Navigate to $URL in your browser."
 fi
