@@ -212,4 +212,9 @@ if [ "$TEMPLATE" == "wordpress" ]; then
 fi
 
 docker compose up -d
+
+if [ -f "$APP_DIR/commands/hosts" ]; then
+    bash "$APP_DIR/commands/hosts"
+fi
+
 echo "✅ Site $NAME.${TLD:-test} is up and running."

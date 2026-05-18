@@ -12,16 +12,10 @@ To get that smooth `https://myapp.test` experience in your Windows browser, you 
 
 Hull configures `dnsmasq` inside Linux to automatically route `*.test` domains to your local server. Windows does not support wildcard local DNS out of the box, so you must explicitly tell Windows where to find your app.
 
-Every time you run `hull new myapp`, you need to add it to your Windows Hosts file.
+**Hull automatically manages this for you!** 
+Every time you run `hull new`, `hull import`, or `hull rm`, Hull will trigger a Windows UAC (Administrator) prompt. 
 
-1. Open **Notepad** as an **Administrator**.
-2. Go to **File -> Open** and navigate to: `C:\Windows\System32\drivers\etc\hosts` *(Note: you may need to change the file filter from "Text Documents" to "All Files" to see it).*
-3. Add a new line at the bottom for your app, and one for the global database manager (assuming your TLD is `.test`):
-   ```text
-   127.0.0.1    myapp.test db.test
-   ```
-   *Note: Caddy binds port 80 and 443 directly to your host, so no port numbers (like `:8080`) are required in your browser!*
-4. Save the file.
+Simply click **Yes** to allow PowerShell to update your `C:\Windows\System32\drivers\etc\hosts` file with the latest projects. You never have to manually edit the file!
 
 ---
 

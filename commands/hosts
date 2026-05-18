@@ -1,0 +1,69 @@
+#!/bin/bash
+set -euo pipefail
+
+export APP_DIR="${APP_DIR:-$HOME/.hull}"
+if [ -f "$APP_DIR/.env" ]; then
+    set -a
+    source "$APP_DIR/.env"
+    set +a
+fi
+
+source "$APP_DIR/setup/ui.sh"
+
+if ! grep -qi microsoft /proc/version; then
+    # Not running in WSL
+    exit 0
+fi
+
+HOSTS_ENTRY="127.0.0.1 db.${TLD:-test}"
+
+if [ -d "${SITES_DIR:-}" ]; then
+    shopt -s nullglob
+    for dir in "$SITES_DIR"/*/; do
+        name=$(basename "$dir")
+        HOSTS_ENTRY="$HOSTS_ENTRY $name.${TLD:-test}"
+    done
+    shopt -u nullglob
+fi
+
+WIN_HOSTS="/mnt/c/Windows/System32/drivers/etc/hosts"
+
+if [ ! -f "$WIN_HOSTS" ]; then
+    exit 0
+fi
+
+if grep -q "BEGIN HULL MANAGED HOSTS" "$WIN_HOSTS" 2>/dev/null; then
+    CURRENT_ENTRY=$(sed -n '/BEGIN HULL MANAGED HOSTS/,/END HULL MANAGED HOSTS/p' "$WIN_HOSTS" | grep "^127.0.0.1" | tr -d '\r' || true)
+    if [ "$CURRENT_ENTRY" == "$HOSTS_ENTRY" ]; then
+        # Already perfectly in sync
+        exit 0
+    fi
+fi
+
+info "Syncing local projects to Windows Hosts file. This may prompt for Administrator access..."
+
+TEMP_PS1=$(mktemp --suffix=.ps1)
+cat << EOF > "$TEMP_PS1"
+\$ErrorActionPreference = "Stop"
+\$hostsPath = "C:\Windows\System32\drivers\etc\hosts"
+\$content = Get-Content \$hostsPath -Raw
+if (\$content -match '(?s)# --- BEGIN HULL MANAGED HOSTS ---.*# --- END HULL MANAGED HOSTS ---') {
+    \$newContent = \$content -replace '(?s)\r?\n?# --- BEGIN HULL MANAGED HOSTS ---.*?# --- END HULL MANAGED HOSTS ---\r?\n?', "\`r\`n"
+} else {
+    \$newContent = \$content
+}
+\$newContent = \$newContent.TrimEnd() + "\`r\`n\`r\`n# --- BEGIN HULL MANAGED HOSTS ---\`r\`n"
+\$newContent += "$HOSTS_ENTRY\`r\`n"
+\$newContent += "# --- END HULL MANAGED HOSTS ---\`r\`n"
+Set-Content -Path \$hostsPath -Value \$newContent
+EOF
+
+WIN_PS1=$(wslpath -w "$TEMP_PS1")
+
+if powershell.exe -Command "Start-Process powershell -WindowStyle Hidden -Verb runAs -ArgumentList \"-ExecutionPolicy Bypass -File \`\"\$WIN_PS1\`\"\" -Wait" 2>/dev/null; then
+    success "Windows Hosts file updated automatically."
+else
+    warning "Failed to update Windows Hosts file. You may need to update it manually."
+fi
+
+rm -f "$TEMP_PS1"

@@ -45,3 +45,7 @@ if ! rm -rf "$TARGET" 2>/dev/null; then
 fi
 
 echo "✅ Environment '$NAME' has been completely removed."
+
+if [ -f "$APP_DIR/commands/hosts" ]; then
+    bash "$APP_DIR/commands/hosts"
+fi
