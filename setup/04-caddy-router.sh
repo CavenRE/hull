@@ -5,6 +5,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/ui.sh"
 step "Configuring Global Caddy Router"
 CADDY_DIR="$(dirname "${BASH_SOURCE[0]}")/../system/caddy"
 
+set -a
+source "$(dirname "${BASH_SOURCE[0]}")/../.env"
+set +a
+
 if ! docker network ls | grep -q caddy; then
     docker network create caddy || true
     success "Docker network 'caddy' created."
