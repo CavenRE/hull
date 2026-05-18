@@ -339,7 +339,7 @@ if [ ${#SQL_FILES[@]} -gt 0 ] && [ -n "$DB" ]; then
             elif [ "$DB" == "mysql" ] || [ "$DB" == "mariadb" ]; then
                 DB_CMD="mysql"
                 if [ "$DB" == "mariadb" ]; then DB_CMD="mariadb"; fi
-                if docker compose exec -T db $DB_CMD -u root -e "SELECT 1" >/dev/null 2>&1; then
+                if docker compose exec -T db $DB_CMD -h 127.0.0.1 -u root -e "SELECT 1" >/dev/null 2>&1; then
                     READY=true
                     break
                 fi
@@ -366,21 +366,27 @@ if [ ${#SQL_FILES[@]} -gt 0 ] && [ -n "$DB" ]; then
         # Strip out CREATE DATABASE and USE statements to prevent 'database exists' errors
         CMD="$CMD | sed -e '/^[[:space:]]*CREATE DATABASE/Id' -e '/^[[:space:]]*USE /Id'"
 
+        LOG_FILE="error_log-$(date +%Y%m%d-%H%M%S).txt"
+
         if [ "$DB" == "postgres" ]; then
-            if eval "$CMD" | docker compose exec -T db psql -U postgres -d "$DB_NAME"; then
+            if eval "$CMD" | docker compose exec -T db psql -U postgres -d "$DB_NAME" 2> "$LOG_FILE"; then
                 success "Database imported successfully."
+                rm -f "$LOG_FILE"
             else
-                warning "Database import encountered an error."
+                warning "Database import encountered an error. See $LOG_FILE for details."
+                IMPORT_ERRORS=1
             fi
         elif [ "$DB" == "mysql" ] || [ "$DB" == "mariadb" ]; then
             DB_CMD="mysql"
             if [ "$DB" == "mariadb" ]; then
                 DB_CMD="mariadb"
             fi
-            if eval "$CMD" | docker compose exec -T db $DB_CMD -f -u root "$DB_NAME"; then
+            if eval "$CMD" | docker compose exec -T db $DB_CMD -f -u root "$DB_NAME" 2> "$LOG_FILE"; then
                 success "Database imported successfully."
+                rm -f "$LOG_FILE"
             else
-                warning "Database import encountered an error."
+                warning "Database import encountered an error. See $LOG_FILE for details."
+                IMPORT_ERRORS=1
             fi
         fi
     else
@@ -388,5 +394,10 @@ if [ ${#SQL_FILES[@]} -gt 0 ] && [ -n "$DB" ]; then
     fi
 fi
 
-step "Import Complete"
-success "Your app is now running at https://$NAME.${TLD:-test}"
+if [ "${IMPORT_ERRORS:-0}" -eq 0 ]; then
+    step "Import Complete"
+    success "Your app is now running at https://$NAME.${TLD:-test}"
+else
+    step "Import Completed with Errors"
+    warning "Your app is running at https://$NAME.${TLD:-test}, but some steps failed."
+fi
