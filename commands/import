@@ -349,7 +349,7 @@ if [ ${#SQL_FILES[@]} -gt 0 ] && [ -n "$DB" ]; then
             if [ "$DB" == "mariadb" ]; then
                 DB_CMD="mariadb"
             fi
-            if eval "$CMD" | docker compose exec -T db $DB_CMD -u root "$DB_NAME"; then
+            if eval "$CMD" | docker compose exec -T db $DB_CMD -f -u root "$DB_NAME"; then
                 success "Database imported successfully."
             else
                 warning "Database import encountered an error."
