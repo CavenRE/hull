@@ -6,12 +6,12 @@ step "Installing System Dependencies"
 
 ${UPDATE_CMD:-} > /dev/null 2>&1 || true
 
-PACKAGES="curl git fzf jq nss"
+PACKAGES="curl git fzf jq"
 
 if [[ "${OS_FAMILY:-}" == *"arch"* ]] || [[ "${OS:-}" == "arch" ]]; then
-    PACKAGES="$PACKAGES dnsmasq docker docker-compose"
+    PACKAGES="$PACKAGES nss dnsmasq docker docker-compose"
 elif [[ "${OS_FAMILY:-}" == *"debian"* ]] || [[ "${OS:-}" == "ubuntu" ]] || [[ "${OS:-}" == "debian" ]]; then
-    PACKAGES="$PACKAGES dnsmasq docker.io docker-compose-v2 libnss3-tools"
+    PACKAGES="$PACKAGES dnsmasq docker.io docker-compose libnss3-tools"
 fi
 
 info "Installing packages: $PACKAGES"
