@@ -324,8 +324,33 @@ if [ ${#SQL_FILES[@]} -gt 0 ] && [ -n "$DB" ]; then
     SELECTED_FILE=$(echo -e "$OPTIONS" | fzf --prompt="Select database dump to import: ")
 
     if [ -n "$SELECTED_FILE" ] && [ "$SELECTED_FILE" != "Skip Import" ]; then
-        info "Waiting 10 seconds for database engine to initialize..."
-        sleep 10
+        info "Waiting for database engine to initialize..."
+        
+        MAX_RETRIES=30
+        RETRY_COUNT=0
+        READY=false
+        
+        while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if [ "$DB" == "postgres" ]; then
+                if docker compose exec -T db pg_isready -U postgres >/dev/null 2>&1; then
+                    READY=true
+                    break
+                fi
+            elif [ "$DB" == "mysql" ] || [ "$DB" == "mariadb" ]; then
+                DB_CMD="mysql"
+                if [ "$DB" == "mariadb" ]; then DB_CMD="mariadb"; fi
+                if docker compose exec -T db $DB_CMD -u root -e "SELECT 1" >/dev/null 2>&1; then
+                    READY=true
+                    break
+                fi
+            fi
+            sleep 1
+            RETRY_COUNT=$((RETRY_COUNT+1))
+        done
+        
+        if [ "$READY" = false ]; then
+            warning "Database engine did not become ready in time. Import may fail."
+        fi
 
         info "Importing database from $SELECTED_FILE into $DB_NAME..."
         EXT="${SELECTED_FILE##*.}"
@@ -337,6 +362,9 @@ if [ ${#SQL_FILES[@]} -gt 0 ] && [ -n "$DB" ]; then
         else
             CMD="cat \"$SELECTED_FILE\""
         fi
+        
+        # Strip out CREATE DATABASE and USE statements to prevent 'database exists' errors
+        CMD="$CMD | sed -e '/^[[:space:]]*CREATE DATABASE/Id' -e '/^[[:space:]]*USE /Id'"
 
         if [ "$DB" == "postgres" ]; then
             if eval "$CMD" | docker compose exec -T db psql -U postgres -d "$DB_NAME"; then
