@@ -13,12 +13,23 @@ fi
 cd "$CADDY_DIR"
 docker compose up -d
 success "Global router started."
-info "Generating local SSL root CA. This may take 10 seconds."
-sleep 10
+info "Generating local SSL root CA. Waiting for Caddy to generate..."
 
 ROOT_CERT_PATH="$CADDY_DIR/caddy-root.crt"
+MAX_RETRIES=30
+RETRY_COUNT=0
+CERT_READY=false
 
-if docker cp hull-router:/data/caddy/pki/authorities/local/root.crt "$ROOT_CERT_PATH" 2>/dev/null; then
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if docker cp hull-router:/data/caddy/pki/authorities/local/root.crt "$ROOT_CERT_PATH" 2>/dev/null; then
+        CERT_READY=true
+        break
+    fi
+    sleep 1
+    RETRY_COUNT=$((RETRY_COUNT+1))
+done
+
+if [ "$CERT_READY" = true ]; then
 
     if [[ "${OS_FAMILY:-}" == *"arch"* ]] || [[ "${OS:-}" == "arch" ]]; then
         sudo cp "$ROOT_CERT_PATH" /etc/ca-certificates/trust-source/anchors/
