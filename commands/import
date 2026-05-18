@@ -4,15 +4,21 @@ set -euo pipefail
 export APP_DIR="${APP_DIR:-$HOME/.hull}"
 source "$APP_DIR/setup/ui.sh"
 
-if [ $# -lt 2 ]; then
-    echo "Usage: hull import <name> --<template> [options]" >&2
+if [ $# -lt 1 ]; then
+    echo "Usage: hull import <name> [options]" >&2
+    info "Example: hull import my-old-app"
     info "Example: hull import my-old-app --laravel --db=mysql"
     exit 1
 fi
 
 NAME=$1
-TEMPLATE=${2#--}
-shift 2
+shift
+
+TEMPLATE=""
+if [[ "${1:-}" == --* ]] && [[ ! "${1:-}" =~ ^--(db|no-db|with-redis|interactive|version|interactive|-i|-v) ]]; then
+    TEMPLATE=${1#--}
+    shift
+fi
 
 DB=""
 WITH_REDIS=false
@@ -53,7 +59,7 @@ if [[ ! "$NAME" =~ ^[a-zA-Z0-9-]+$ ]]; then
     fatal "Site name can only contain alphanumeric characters and hyphens."
 fi
 
-if [[ ! "$TEMPLATE" =~ ^[a-zA-Z0-9-]+$ ]]; then
+if [[ -n "$TEMPLATE" ]] && [[ ! "$TEMPLATE" =~ ^[a-zA-Z0-9-]+$ ]]; then
     fatal "Template name can only contain alphanumeric characters and hyphens."
 fi
 
@@ -65,6 +71,20 @@ TARGET="$SITES_DIR/$NAME"
 
 if [ ! -d "$TARGET" ]; then
     fatal "Directory $TARGET does not exist. Move your existing project to $SITES_DIR/$NAME first."
+fi
+
+if [ -z "$TEMPLATE" ]; then
+    step "Auto-Detecting Framework"
+    if [ -f "$TARGET/artisan" ] || ( [ -f "$TARGET/composer.json" ] && grep -q "laravel/framework" "$TARGET/composer.json" ); then
+        TEMPLATE="laravel"
+        info "Detected framework: Laravel"
+    elif [ -f "$TARGET/wp-config.php" ] || [ -f "$TARGET/wp-config-sample.php" ] || [ -d "$TARGET/wp-includes" ]; then
+        TEMPLATE="wordpress"
+        info "Detected framework: WordPress"
+    else
+        TEMPLATE="plain"
+        info "Detected framework: Plain PHP"
+    fi
 fi
 
 if [ ! -f "$APP_DIR/templates/base/$TEMPLATE.yaml" ]; then
@@ -95,6 +115,21 @@ else
 fi
 
 # 2. State Sniffing (Infrastructure)
+DB_NAME="hull_db"
+if [ "$TEMPLATE" == "laravel" ] && [ -f ".env" ]; then
+    EXTRACTED=$(grep -E "^DB_DATABASE=" ".env" | cut -d'=' -f2 | tr -d '"'\'' ' || true)
+    if [ -n "$EXTRACTED" ] && [ "$EXTRACTED" != "null" ]; then
+        DB_NAME="$EXTRACTED"
+        info "Extracted database name '$DB_NAME' from .env"
+    fi
+elif [ "$TEMPLATE" == "wordpress" ] && [ -f "wp-config.php" ]; then
+    EXTRACTED=$(grep -E "define\(\s*'DB_NAME'" "wp-config.php" | cut -d"'" -f4 || true)
+    if [ -n "$EXTRACTED" ]; then
+        DB_NAME="$EXTRACTED"
+        info "Extracted database name '$DB_NAME' from wp-config.php"
+    fi
+fi
+
 if [ "$DB_EXPLICIT" = false ] && [ "$INTERACTIVE_INFRA" = false ]; then
     # Sniff from .env first
     if [ -f ".env" ]; then
@@ -209,6 +244,8 @@ set_env() {
 
 if [ -n "$DB" ]; then
     inject_mixin "$APP_DIR/templates/services/$DB.yaml"
+    # Ensure database is named correctly
+    sed -i "s|hull_db|$DB_NAME|g" "$TARGET/compose.yaml"
 fi
 
 if [ "$WITH_REDIS" = true ]; then
@@ -224,7 +261,7 @@ step "Configuring Framework Hooks"
 if [ "$TEMPLATE" == "laravel" ] && [ -f ".env" ]; then
     cp .env .env.hull-backup
     set_env DB_HOST db
-    set_env DB_DATABASE hull_db
+    set_env DB_DATABASE "$DB_NAME"
 
     if [ -n "$DB" ]; then
         if [ "$DB" == "postgres" ]; then
@@ -257,9 +294,15 @@ fi
 if [ "$TEMPLATE" == "wordpress" ] && [ -f "wp-config.php" ]; then
     cp wp-config.php wp-config.php.hull-backup
     sed -i "s|define( *'DB_HOST', *'.*' *);|define( 'DB_HOST', 'db' );|" wp-config.php
-    sed -i "s|define( *'DB_NAME', *'.*' *);|define( 'DB_NAME', 'hull_db' );|" wp-config.php
+    sed -i "s|define( *'DB_NAME', *'.*' *);|define( 'DB_NAME', '$DB_NAME' );|" wp-config.php
     sed -i "s|define( *'DB_PASSWORD', *'.*' *);|define( 'DB_PASSWORD', '' );|" wp-config.php
-    sed -i 's|WORDPRESS_DB_NAME: wordpress|WORDPRESS_DB_NAME: hull_db|g' compose.yaml || true
+    sed -i "s|WORDPRESS_DB_NAME: wordpress|WORDPRESS_DB_NAME: $DB_NAME|g" compose.yaml || true
+
+    if ! grep -q "HTTP_X_FORWARDED_PROTO" wp-config.php; then
+        PROXY_FIX="<?php\n\n// Hull Reverse Proxy Fix\nif (isset(\$_SERVER['HTTP_X_FORWARDED_PROTO']) \&\& strpos(\$_SERVER['HTTP_X_FORWARDED_PROTO'], 'https') !== false) {\n    \$_SERVER['HTTPS'] = 'on';\n}\n"
+        sed -i "0,/<?php/s|<?php|$PROXY_FIX|" wp-config.php
+    fi
+
     success "WordPress wp-config.php updated for Docker (Backup saved as wp-config.php.hull-backup)."
 fi
 
@@ -267,29 +310,49 @@ info "Booting environment..."
 docker compose up -d
 
 shopt -s nullglob
-SQL_FILES=(*.sql)
+SQL_FILES=(*.sql *.sql.gz *.zip)
 shopt -u nullglob
 
 if [ ${#SQL_FILES[@]} -gt 0 ] && [ -n "$DB" ]; then
     echo ""
-    read -r -p "Found SQL dump: ${SQL_FILES[0]}. Import this into the database? (Y/n): " IMPORT_DB
+    OPTIONS=""
+    for file in "${SQL_FILES[@]}"; do
+        OPTIONS+="$file\n"
+    done
+    OPTIONS+="Skip Import"
 
-    if [[ "$IMPORT_DB" =~ ^[Yy]$ ]] || [[ -z "$IMPORT_DB" ]]; then
+    SELECTED_FILE=$(echo -e "$OPTIONS" | fzf --prompt="Select database dump to import: ")
+
+    if [ -n "$SELECTED_FILE" ] && [ "$SELECTED_FILE" != "Skip Import" ]; then
         info "Waiting 10 seconds for database engine to initialize..."
         sleep 10
 
-        info "Importing database..."
+        info "Importing database from $SELECTED_FILE into $DB_NAME..."
+        EXT="${SELECTED_FILE##*.}"
+        CMD=""
+        if [ "$EXT" == "gz" ]; then
+            CMD="zcat \"$SELECTED_FILE\""
+        elif [ "$EXT" == "zip" ]; then
+            CMD="unzip -p \"$SELECTED_FILE\""
+        else
+            CMD="cat \"$SELECTED_FILE\""
+        fi
+
         if [ "$DB" == "postgres" ]; then
-            if docker compose exec -T db psql -U postgres -d hull_db < "${SQL_FILES[0]}"; then
+            if eval "$CMD" | docker compose exec -T db psql -U postgres -d "$DB_NAME"; then
                 success "Database imported successfully."
             else
-                warning "Database import encountered an error. Check the output above."
+                warning "Database import encountered an error."
             fi
         elif [ "$DB" == "mysql" ] || [ "$DB" == "mariadb" ]; then
-            if docker compose exec -T db mysql -u root hull_db < "${SQL_FILES[0]}"; then
+            DB_CMD="mysql"
+            if [ "$DB" == "mariadb" ]; then
+                DB_CMD="mariadb"
+            fi
+            if eval "$CMD" | docker compose exec -T db $DB_CMD -u root "$DB_NAME"; then
                 success "Database imported successfully."
             else
-                warning "Database import encountered an error. Check the output above."
+                warning "Database import encountered an error."
             fi
         fi
     else
