@@ -24,9 +24,9 @@ type Meta struct {
 	BundleSchema int               `json:"bundle_schema"`
 	HullVersion  string            `json:"hull_version"`
 	CreatedAt    time.Time         `json:"created_at"`
-	ProjectYAML  string            `json:"project_yaml"`        // hull.yaml content
-	Dumps        map[string]string `json:"dumps,omitempty"`     // service key -> archive path
-	EnvPath      string            `json:"env_path,omitempty"`  // archive path of .env, if included
+	ProjectYAML  string            `json:"project_yaml"`       // hull.yaml content
+	Dumps        map[string]string `json:"dumps,omitempty"`    // service key -> archive path
+	EnvPath      string            `json:"env_path,omitempty"` // archive path of .env, if included
 	EnvStripped  []string          `json:"env_stripped,omitempty"`
 }
 
@@ -40,11 +40,11 @@ var secretKeyRE = regexp.MustCompile(`(?i)(secret|password|token|_key$|^key_|api
 
 // ExportOptions configures WriteBundle.
 type ExportOptions struct {
-	ProjectDir   string
-	ProjectYAML  string
-	HullVersion  string
-	IncludeEnv   bool     // include secret values verbatim
-	KeepVendor   bool     // do not exclude vendor/node_modules
+	ProjectDir  string
+	ProjectYAML string
+	HullVersion string
+	IncludeEnv  bool // include secret values verbatim
+	KeepVendor  bool // do not exclude vendor/node_modules
 	// DumpDB streams a plain-SQL dump of the given service key into w.
 	// Nil means no database dumps.
 	DumpDB   func(key string, w io.Writer) error
