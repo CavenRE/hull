@@ -1,0 +1,11 @@
+schema: 1
+name: linked
+template: laravel
+services:
+  db:
+    engine: postgres
+    version: "16"
+    mode: shared
+  redis:
+    engine: redis
+    mode: shared

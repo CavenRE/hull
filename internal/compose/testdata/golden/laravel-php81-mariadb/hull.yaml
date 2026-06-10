@@ -1,0 +1,7 @@
+schema: 1
+name: legacy-app
+template: laravel
+php: "8.1"
+services:
+  db:
+    engine: mariadb

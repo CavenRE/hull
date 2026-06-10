@@ -1,0 +1,26 @@
+schema: 1
+name: bigapp
+type: app
+containers:
+  web:
+    template: laravel
+    php: "8.3"
+    path: ./web
+    domain: bigapp
+  api:
+    build: ./api
+    domain: api.bigapp
+    port: 3000
+    env:
+      API_MODE: local
+  worker:
+    template: laravel
+    path: ./web
+    command: php artisan queue:work
+services:
+  db:
+    engine: postgres
+  redis:
+    engine: redis
+env:
+  APP_ENV: local

@@ -1,0 +1,6 @@
+schema: 1
+name: blog
+template: wordpress
+services:
+  db:
+    engine: mariadb

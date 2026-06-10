@@ -1,0 +1,8 @@
+schema: 1
+name: oldblog
+template: wordpress
+version: "6.4"
+services:
+  db:
+    engine: mysql
+    version: "8.0"

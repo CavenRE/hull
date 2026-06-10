@@ -1,0 +1,6 @@
+schema: 1
+name: tools
+template: plain
+services:
+  db:
+    engine: mariadb

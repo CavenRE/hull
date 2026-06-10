@@ -1,0 +1,217 @@
+package compose
+
+import (
+	"fmt"
+	"path"
+	"sort"
+	"strings"
+
+	"github.com/CavenRE/hull/internal/manifest"
+	"github.com/CavenRE/hull/internal/templates"
+)
+
+// Context carries the machine/global settings a render needs. Generated
+// compose files embed concrete values (paths, TLD) — they are disposable
+// artifacts, regenerated whenever the manifest or settings change.
+type Context struct {
+	// TLD is the local top-level domain, e.g. "test".
+	TLD string
+	// HullHome is the absolute path to the Hull home directory (for the
+	// shared xdebug.ini mount). Forward slashes work on all engines.
+	HullHome string
+}
+
+const (
+	caddyNetwork = "caddy"
+	webrootMount = "/var/www/html"
+)
+
+// Render generates the compose file for a validated manifest.
+func Render(m *manifest.Manifest, ctx Context) (*File, error) {
+	if ctx.TLD == "" {
+		ctx.TLD = "test"
+	}
+	f := &File{
+		Name:     m.Name,
+		Services: map[string]*ServiceDef{},
+		Networks: map[string]*Network{caddyNetwork: {External: true}},
+	}
+
+	switch m.Type {
+	case manifest.TypeSite:
+		svc, err := siteService(m, ctx)
+		if err != nil {
+			return nil, err
+		}
+		f.Services["app"] = svc
+	case manifest.TypeApp:
+		for _, key := range m.ContainerKeys() {
+			svc, err := containerService(m, key, m.Containers[key], ctx)
+			if err != nil {
+				return nil, err
+			}
+			f.Services[key] = svc
+		}
+	default:
+		return nil, fmt.Errorf("unsupported project type %q", m.Type)
+	}
+
+	for _, key := range m.ServiceKeys() {
+		s := m.Services[key]
+		if s.Mode != manifest.ModeDedicated {
+			continue // shared instances live outside the project (Phase 5)
+		}
+		eng, ok := templates.Engine(s.Engine)
+		if !ok {
+			return nil, fmt.Errorf("service %q: unknown engine %q", key, s.Engine)
+		}
+		networks := []string{"default"}
+		if eng.JoinsCaddy {
+			networks = append(networks, caddyNetwork)
+		}
+		volume := key + "_data"
+		f.Services[key] = &ServiceDef{
+			Image:       eng.Image(s.Version),
+			Environment: eng.Env(s.Database),
+			Volumes:     []string{volume + ":" + eng.DataPath},
+			Networks:    networks,
+		}
+		if f.Volumes == nil {
+			f.Volumes = map[string]*Volume{}
+		}
+		f.Volumes[volume] = nil
+	}
+
+	return f, nil
+}
+
+// siteService builds the single web container of a type:site project.
+func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
+	def, ok := templates.Site(m.Template)
+	if !ok {
+		return nil, fmt.Errorf("unknown template %q", m.Template)
+	}
+	svc := &ServiceDef{
+		Image: def.Image(m.PHP, m.Version),
+		Volumes: []string{
+			"./:" + webrootMount,
+			xdebugMount(ctx, def.XdebugTarget),
+		},
+		ExtraHosts: []string{"host.docker.internal:host-gateway"},
+		Labels:     caddyLabels(m.Domain+"."+ctx.TLD, def.UpstreamPort),
+		Networks:   []string{"default", caddyNetwork},
+	}
+
+	env := append([]string{}, def.ExtraEnv...)
+	if m.Template == "wordpress" {
+		dbKey, db, ok := m.DatabaseService(def.RequiredDB...)
+		if !ok {
+			return nil, fmt.Errorf("template wordpress requires a %s service", strings.Join(def.RequiredDB, " or "))
+		}
+		env = append(env,
+			"WORDPRESS_DB_HOST="+dbKey,
+			"WORDPRESS_DB_NAME="+db.Database,
+			"WORDPRESS_DB_PASSWORD=",
+			"WORDPRESS_DB_USER=root",
+		)
+	}
+	svc.Environment = mergeEnv(env, m.Env, nil)
+	return svc, nil
+}
+
+// containerService builds one container of a type:app project.
+func containerService(m *manifest.Manifest, key string, c *manifest.Container, ctx Context) (*ServiceDef, error) {
+	if c.Template != "" {
+		def, ok := templates.Site(c.Template)
+		if !ok {
+			return nil, fmt.Errorf("container %q: unknown template %q", key, c.Template)
+		}
+		svc := &ServiceDef{
+			Image:   def.Image(c.PHP, c.Version),
+			Command: c.Command,
+			Volumes: []string{
+				mountSource(c.Path) + ":" + webrootMount,
+				xdebugMount(ctx, def.XdebugTarget),
+			},
+			ExtraHosts:  []string{"host.docker.internal:host-gateway"},
+			Environment: mergeEnv(def.ExtraEnv, m.Env, c.Env),
+			Networks:    []string{"default"},
+		}
+		if c.Domain != "" {
+			port := def.UpstreamPort
+			if c.Port != 0 {
+				port = c.Port
+			}
+			svc.Labels = caddyLabels(c.Domain+"."+ctx.TLD, port)
+			svc.Networks = append(svc.Networks, caddyNetwork)
+		}
+		return svc, nil
+	}
+
+	svc := &ServiceDef{
+		Image:       c.Image,
+		Build:       c.Build,
+		Command:     c.Command,
+		Environment: mergeEnv(nil, m.Env, c.Env),
+		Networks:    []string{"default"},
+	}
+	if c.Domain != "" {
+		svc.Labels = caddyLabels(c.Domain+"."+ctx.TLD, c.Port)
+		svc.Networks = append(svc.Networks, caddyNetwork)
+	}
+	return svc, nil
+}
+
+// caddyLabels routes a domain to the container via the Caddy ingress
+// (caddy-docker-proxy label syntax, kept through Phase 3; the embedded
+// router in Phase 4 consumes the same information from the manifest).
+func caddyLabels(fqdn string, upstreamPort int) []string {
+	return []string{
+		"caddy=" + fqdn,
+		fmt.Sprintf("caddy.reverse_proxy={{upstreams %d}}", upstreamPort),
+		"caddy.tls=internal",
+	}
+}
+
+// xdebugMount mounts Hull's shared xdebug.ini read-only into a PHP container.
+func xdebugMount(ctx Context, target string) string {
+	home := strings.ReplaceAll(ctx.HullHome, "\\", "/")
+	return home + "/system/php/xdebug.ini:" + target + ":ro"
+}
+
+// mountSource normalizes a manifest path field to a compose bind source.
+func mountSource(p string) string {
+	cleaned := path.Clean(strings.ReplaceAll(p, "\\", "/"))
+	if cleaned == "." || cleaned == "./" {
+		return "./"
+	}
+	if !strings.HasPrefix(cleaned, "./") {
+		cleaned = "./" + cleaned
+	}
+	return cleaned
+}
+
+// mergeEnv layers template env, project env, and container env (later wins
+// per key) and returns sorted KEY=value pairs.
+func mergeEnv(base []string, project, container map[string]string) []string {
+	merged := map[string]string{}
+	for _, kv := range base {
+		k, v, _ := strings.Cut(kv, "=")
+		merged[k] = v
+	}
+	for k, v := range project {
+		merged[k] = v
+	}
+	for k, v := range container {
+		merged[k] = v
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(merged))
+	for k, v := range merged {
+		out = append(out, k+"="+v)
+	}
+	sort.Strings(out)
+	return out
+}
