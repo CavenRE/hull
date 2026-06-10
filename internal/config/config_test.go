@@ -1,0 +1,85 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestLoadDefaultsWhenEmpty(t *testing.T) {
+	cfg, err := Load(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TLD != "test" {
+		t.Errorf("tld = %q, want test", cfg.TLD)
+	}
+	if len(cfg.Roots) == 0 {
+		t.Error("expected a default root")
+	}
+}
+
+func TestLoadConfigYAML(t *testing.T) {
+	home := t.TempDir()
+	root := t.TempDir()
+	content := "tld: dev\nroots:\n  - " + root + "\n"
+	if err := os.WriteFile(filepath.Join(home, Filename), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TLD != "dev" {
+		t.Errorf("tld = %q, want dev", cfg.TLD)
+	}
+	if len(cfg.Roots) != 1 || cfg.Roots[0] != filepath.Clean(root) {
+		t.Errorf("roots = %v, want [%s]", cfg.Roots, root)
+	}
+}
+
+func TestLoadRejectsUnknownFields(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, Filename), []byte("bogus: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(home); err == nil || !strings.Contains(err.Error(), "bogus") {
+		t.Errorf("expected unknown-field error, got %v", err)
+	}
+}
+
+func TestLoadV1EnvFallback(t *testing.T) {
+	home := t.TempDir()
+	env := "SITES_DIR=$HOME/Work/Sites\nTLD=.local\nHTTP_PORT=80\n"
+	if err := os.WriteFile(filepath.Join(home, ".env"), []byte(env), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.TLD != "local" {
+		t.Errorf("tld = %q, want local (leading dot stripped)", cfg.TLD)
+	}
+	userHome, _ := os.UserHomeDir()
+	want := filepath.Join(userHome, "Work", "Sites")
+	if len(cfg.Roots) != 1 || cfg.Roots[0] != want {
+		t.Errorf("roots = %v, want [%s]", cfg.Roots, want)
+	}
+}
+
+func TestSaveRoundTrip(t *testing.T) {
+	home := t.TempDir()
+	cfg := &Config{TLD: "dev", Roots: []string{t.TempDir()}, HullHome: home}
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.TLD != cfg.TLD || len(loaded.Roots) != 1 || loaded.Roots[0] != cfg.Roots[0] {
+		t.Errorf("round trip mismatch: %+v vs %+v", loaded, cfg)
+	}
+}

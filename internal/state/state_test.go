@@ -1,0 +1,97 @@
+package state
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestScanMixedRoots(t *testing.T) {
+	sites := t.TempDir()
+	apps := t.TempDir()
+	writeFile(t, filepath.Join(sites, "alpha", "hull.yaml"), "schema: 1\nname: alpha\ntemplate: plain\n")
+	writeFile(t, filepath.Join(sites, "legacy", "compose.yaml"), "services: {}\n")
+	writeFile(t, filepath.Join(sites, "notes", "readme.txt"), "not a project")
+	writeFile(t, filepath.Join(sites, ".hidden", "hull.yaml"), "schema: 1\nname: hidden\ntemplate: plain\n")
+	writeFile(t, filepath.Join(apps, "beta", "hull.yaml"), "schema: 1\nname: beta\ntemplate: plain\n")
+
+	projects, err := Scan([]string{sites, apps, filepath.Join(sites, "missing-root")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, p := range projects {
+		names = append(names, p.Name)
+	}
+	want := "alpha,beta,legacy"
+	if got := strings.Join(names, ","); got != want {
+		t.Errorf("projects = %s, want %s", got, want)
+	}
+	for _, p := range projects {
+		switch p.Name {
+		case "legacy":
+			if !p.Legacy {
+				t.Error("legacy project not marked Legacy")
+			}
+		default:
+			if p.Legacy || p.Manifest == nil {
+				t.Errorf("project %s: Legacy=%v Manifest=%v", p.Name, p.Legacy, p.Manifest)
+			}
+		}
+	}
+}
+
+func TestScanBrokenManifestIsVisible(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "broken", "hull.yaml"), "schema: 1\nname: broken\ntemplate: nope\n")
+	projects, err := Scan([]string{root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Err == nil {
+		t.Fatalf("broken manifest should be listed with Err, got %+v", projects)
+	}
+}
+
+func TestScanDuplicateNames(t *testing.T) {
+	a := t.TempDir()
+	b := t.TempDir()
+	writeFile(t, filepath.Join(a, "dup", "hull.yaml"), "schema: 1\nname: dup\ntemplate: plain\n")
+	writeFile(t, filepath.Join(b, "dup", "hull.yaml"), "schema: 1\nname: dup\ntemplate: plain\n")
+	if _, err := Scan([]string{a, b}); err == nil || !strings.Contains(err.Error(), "duplicate") {
+		t.Errorf("expected duplicate error, got %v", err)
+	}
+}
+
+func TestFindAndCurrent(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "mysite", "hull.yaml"), "schema: 1\nname: mysite\ntemplate: plain\n")
+	writeFile(t, filepath.Join(root, "mysite", "public", "index.php"), "<?php")
+
+	p, err := Find([]string{root}, "mysite")
+	if err != nil || p.Name != "mysite" {
+		t.Fatalf("Find = %+v, %v", p, err)
+	}
+	if _, err := Find([]string{root}, "absent"); err == nil {
+		t.Error("Find(absent) should error")
+	}
+
+	cur, ok := Current([]string{root}, filepath.Join(root, "mysite", "public"))
+	if !ok || cur.Name != "mysite" {
+		t.Errorf("Current = %+v, %v", cur, ok)
+	}
+	if _, ok := Current([]string{root}, t.TempDir()); ok {
+		t.Error("Current outside any project should be false")
+	}
+}
