@@ -136,20 +136,61 @@ func (e EngineDef) Image(version string) string {
 }
 
 // Env returns the engine's container environment (KEY=value pairs, sorted)
-// for the given database name.
+// for the given database name. An empty database omits the create-database
+// variable — shared instances create databases per linked project instead.
 func (e EngineDef) Env(database string) []string {
 	switch e.Name {
 	case "postgres":
-		return []string{
-			"POSTGRES_DB=" + database,
+		env := []string{
 			"POSTGRES_HOST_AUTH_METHOD=trust",
 			"POSTGRES_USER=postgres",
 		}
-	case "mysql", "mariadb":
-		return []string{
-			"MYSQL_ALLOW_EMPTY_PASSWORD=yes",
-			"MYSQL_DATABASE=" + database,
+		if database != "" {
+			env = append([]string{"POSTGRES_DB=" + database}, env...)
 		}
+		return env
+	case "mysql", "mariadb":
+		env := []string{"MYSQL_ALLOW_EMPTY_PASSWORD=yes"}
+		if database != "" {
+			env = append(env, "MYSQL_DATABASE="+database)
+		}
+		return env
 	}
 	return nil
+}
+
+// InstanceName names a shared service instance for an engine+version, e.g.
+// "postgres-16", "mariadb-lts", "redis". Empty version means the default.
+func InstanceName(engine, version string) string {
+	e, ok := engines[engine]
+	if !ok {
+		return engine
+	}
+	if version == "" {
+		version = e.DefaultVersion
+	}
+	if version == "" {
+		return engine
+	}
+	return engine + "-" + version
+}
+
+// InstanceContainerName is the docker container name (and in-network
+// hostname) of a shared instance, e.g. "hull-postgres-16".
+func InstanceContainerName(engine, version string) string {
+	return "hull-" + InstanceName(engine, version)
+}
+
+// DefaultPort is the engine's in-network port, used when wiring project
+// env files to shared instances.
+func (e EngineDef) DefaultPort() string {
+	switch e.Name {
+	case "postgres":
+		return "5432"
+	case "mysql", "mariadb":
+		return "3306"
+	case "redis":
+		return "6379"
+	}
+	return ""
 }

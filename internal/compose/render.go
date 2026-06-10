@@ -108,8 +108,14 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 		if !ok {
 			return nil, fmt.Errorf("template wordpress requires a %s service", strings.Join(def.RequiredDB, " or "))
 		}
+		host := dbKey
+		if db.Mode == manifest.ModeShared {
+			// Shared instances are addressed by container name on the
+			// shared (caddy) network.
+			host = templates.InstanceContainerName(db.Engine, db.Version)
+		}
 		env = append(env,
-			"WORDPRESS_DB_HOST="+dbKey,
+			"WORDPRESS_DB_HOST="+host,
 			"WORDPRESS_DB_NAME="+db.Database,
 			"WORDPRESS_DB_PASSWORD=",
 			"WORDPRESS_DB_USER=root",

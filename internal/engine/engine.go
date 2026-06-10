@@ -237,8 +237,12 @@ func wireLaravelEnv(dir string, m *manifest.Manifest) error {
 
 	dbKey, db, hasDB := m.DatabaseService()
 	if hasDB {
+		host := dbKey
+		if db.Mode == manifest.ModeShared {
+			host = templates.InstanceContainerName(db.Engine, db.Version)
+		}
 		pairs := [][2]string{
-			{"DB_HOST", dbKey},
+			{"DB_HOST", host},
 			{"DB_DATABASE", db.Database},
 		}
 		switch db.Engine {
@@ -266,9 +270,13 @@ func wireLaravelEnv(dir string, m *manifest.Manifest) error {
 		}
 	}
 
-	if _, ok := m.Services["redis"]; ok {
+	if redis, ok := m.Services["redis"]; ok {
+		host := "redis"
+		if redis.Mode == manifest.ModeShared {
+			host = templates.InstanceContainerName("redis", redis.Version)
+		}
 		for _, kv := range [][2]string{
-			{"REDIS_HOST", "redis"},
+			{"REDIS_HOST", host},
 			{"CACHE_STORE", "redis"},
 			{"SESSION_DRIVER", "redis"},
 			{"QUEUE_CONNECTION", "redis"},
