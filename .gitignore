@@ -7,3 +7,7 @@ system/caddy/*.key
 
 # OS generated files
 .DS_Store
+
+# Local working notes (never push)
+INGEST.md
+ROADMAP.md
