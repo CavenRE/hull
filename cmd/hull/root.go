@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CavenRE/hull/internal/api"
 	"github.com/CavenRE/hull/internal/config"
 	"github.com/CavenRE/hull/internal/engine"
 	"github.com/CavenRE/hull/internal/state"
@@ -34,6 +35,12 @@ func loadApp() (*app, error) {
 		return nil, err
 	}
 	return &app{Config: cfg, Engine: engine.New(cfg)}, nil
+}
+
+// client returns a connected daemon client, or ok=false to operate
+// in-process (the headless guarantee of ADR 0002/0006).
+func (a *app) client() (*api.Client, bool) {
+	return api.Connect(a.Config.HullHome)
 }
 
 // currentProject resolves the project for the working directory, or returns

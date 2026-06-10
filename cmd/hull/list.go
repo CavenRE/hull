@@ -7,8 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CavenRE/hull/internal/api"
 	"github.com/CavenRE/hull/internal/dockerx"
-	"github.com/CavenRE/hull/internal/state"
 )
 
 func init() {
@@ -21,52 +21,40 @@ func init() {
 			if err != nil {
 				return err
 			}
-			projects, err := state.Scan(a.Config.Roots)
+
+			var infos []api.ProjectInfo
+			if client, ok := a.client(); ok {
+				infos, err = client.Projects(cmd.Context())
+			} else {
+				infos, err = api.ProjectList(cmd.Context(), a.Config, dockerx.RunningComposeProjects)
+			}
 			if err != nil {
 				return err
 			}
-			if len(projects) == 0 {
+			if len(infos) == 0 {
 				fmt.Printf("No projects found in %v.\nCreate one with: hull new <name> <template>\n", a.Config.Roots)
 				return nil
 			}
 
-			running := map[string]bool{}
-			if names, err := dockerx.RunningComposeProjects(cmd.Context()); err == nil {
-				for _, n := range names {
-					running[n] = true
-				}
-			}
-
 			w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
 			_, _ = fmt.Fprintln(w, "NAME\tSTATE\tKIND\tURL\tDIR") // surfaced by Flush
-			for _, p := range projects {
+			for _, p := range infos {
 				stateStr := "stopped"
-				if running[p.Name] {
+				if p.Running {
 					stateStr = "running"
 				}
-				kind, url := describe(&p, a.Config.TLD)
-				if p.Err != nil {
+				if p.Error != "" {
 					stateStr = "broken"
-					kind = "invalid manifest"
 				}
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", p.Name, stateStr, kind, url, p.Dir)
+				url := p.URL
+				if url == "" {
+					url = "-"
+				}
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", p.Name, stateStr, p.Kind, url, p.Dir)
 			}
 			return w.Flush()
 		},
 	})
-}
-
-func describe(p *state.Project, tld string) (kind, url string) {
-	switch {
-	case p.Legacy:
-		return "v1 (legacy)", "https://" + p.Name + "." + tld
-	case p.Manifest == nil:
-		return "-", "-"
-	case p.Manifest.Type == "app":
-		return "app", "-"
-	default:
-		return string(p.Manifest.Template), "https://" + p.Manifest.Domain + "." + tld
-	}
 }
 
 func init() {

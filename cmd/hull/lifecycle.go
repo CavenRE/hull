@@ -27,9 +27,15 @@ func init() {
 			if err != nil {
 				return err
 			}
+			client, viaDaemon := a.client()
 			for _, p := range targets {
 				fmt.Printf("Starting %s...\n", p.Name)
-				if err := a.Engine.Up(cmd.Context(), p); err != nil {
+				if viaDaemon {
+					err = client.ProjectAction(cmd.Context(), p.Name, "start")
+				} else {
+					err = a.Engine.Up(cmd.Context(), p)
+				}
+				if err != nil {
 					return fmt.Errorf("%s: %w", p.Name, err)
 				}
 			}
@@ -58,9 +64,15 @@ func init() {
 			if err != nil {
 				return err
 			}
+			client, viaDaemon := a.client()
 			for _, p := range targets {
 				fmt.Printf("Stopping %s...\n", p.Name)
-				if err := a.Engine.Down(cmd.Context(), p); err != nil {
+				if viaDaemon {
+					err = client.ProjectAction(cmd.Context(), p.Name, "stop")
+				} else {
+					err = a.Engine.Down(cmd.Context(), p)
+				}
+				if err != nil {
 					return fmt.Errorf("%s: %w", p.Name, err)
 				}
 			}
