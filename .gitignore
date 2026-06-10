@@ -1,0 +1,14 @@
+# Build artifacts
+/bin/
+/dist/
+*.exe
+coverage.out
+
+# Local working notes (never push)
+INGEST.md
+ROADMAP.md
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
