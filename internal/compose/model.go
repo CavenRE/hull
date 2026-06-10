@@ -18,15 +18,15 @@ type File struct {
 
 // ServiceDef is one compose service.
 type ServiceDef struct {
-	Image         string `yaml:"image,omitempty"`
-	Build         string `yaml:"build,omitempty"`
-	ContainerName string `yaml:"container_name,omitempty"`
-	Command       string `yaml:"command,omitempty"`
-	Environment []string `yaml:"environment,omitempty"`
-	Volumes     []string `yaml:"volumes,omitempty"`
-	ExtraHosts  []string `yaml:"extra_hosts,omitempty"`
-	Labels      []string `yaml:"labels,omitempty"`
-	Networks    []string `yaml:"networks,omitempty"`
+	Image         string   `yaml:"image,omitempty"`
+	Build         string   `yaml:"build,omitempty"`
+	ContainerName string   `yaml:"container_name,omitempty"`
+	Command       string   `yaml:"command,omitempty"`
+	Environment   []string `yaml:"environment,omitempty"`
+	Volumes       []string `yaml:"volumes,omitempty"`
+	ExtraHosts    []string `yaml:"extra_hosts,omitempty"`
+	Labels        []string `yaml:"labels,omitempty"`
+	Networks      []string `yaml:"networks,omitempty"`
 }
 
 // Network is a compose network definition.
