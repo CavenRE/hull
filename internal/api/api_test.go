@@ -36,6 +36,7 @@ func testServer(t *testing.T) (*Server, *Client, *recorded) {
 	s := NewServer(cfg, "secret-token")
 	s.Engine = engine.New(cfg)
 	s.Engine.Run = rec.runner()
+	s.Engine.EnsureNet = func(ctx context.Context, name string) error { return nil }
 	s.RunningProjects = func(ctx context.Context) ([]string, error) { return []string{"alpha"}, nil }
 
 	ts := httptest.NewServer(s.Handler())
