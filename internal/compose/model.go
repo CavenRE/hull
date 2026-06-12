@@ -24,6 +24,7 @@ type ServiceDef struct {
 	Command       string   `yaml:"command,omitempty"`
 	Environment   []string `yaml:"environment,omitempty"`
 	Volumes       []string `yaml:"volumes,omitempty"`
+	Ports         []string `yaml:"ports,omitempty"`
 	ExtraHosts    []string `yaml:"extra_hosts,omitempty"`
 	Labels        []string `yaml:"labels,omitempty"`
 	Networks      []string `yaml:"networks,omitempty"`

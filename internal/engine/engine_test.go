@@ -22,6 +22,7 @@ func testEngine(t *testing.T) (*Engine, string) {
 		t.Fatalf("unexpected command execution: %s %v", name, args)
 		return nil
 	}
+	e.EnsureNet = func(ctx context.Context, name string) error { return nil }
 	return e, root
 }
 

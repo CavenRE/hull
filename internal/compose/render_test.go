@@ -106,7 +106,7 @@ func TestGoldenOutputIsValidCompose(t *testing.T) {
 				t.Fatal("no services rendered")
 			}
 			for name, svc := range doc.Services {
-				for _, field := range []string{"environment", "labels", "volumes", "networks", "extra_hosts"} {
+				for _, field := range []string{"environment", "labels", "volumes", "networks", "extra_hosts", "ports"} {
 					raw, ok := svc[field]
 					if !ok {
 						continue

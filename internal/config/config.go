@@ -25,8 +25,31 @@ type Config struct {
 	TLD string `yaml:"tld"`
 	// Roots are the directories scanned for projects (Sites, Apps, ...).
 	Roots []string `yaml:"roots"`
+	// Router configures the embedded HTTPS router (Phase 4); disabled
+	// means the v1 caddy-docker-proxy stack keeps routing.
+	Router RouterConfig `yaml:"router,omitempty"`
+	// DNS configures the embedded wildcard resolver.
+	DNS DNSConfig `yaml:"dns,omitempty"`
 	// HullHome is the resolved Hull home directory (not stored in the file).
 	HullHome string `yaml:"-"`
+}
+
+// RouterConfig controls the embedded Caddy router run by hulld.
+type RouterConfig struct {
+	Enabled   bool `yaml:"enabled"`
+	HTTPPort  int  `yaml:"http_port,omitempty"`
+	HTTPSPort int  `yaml:"https_port,omitempty"`
+}
+
+// DNSConfig controls the embedded wildcard DNS server run by hulld.
+type DNSConfig struct {
+	Enabled bool `yaml:"enabled"`
+	Port    int  `yaml:"port,omitempty"`
+}
+
+// RouterDataDir is where the embedded router stores its CA and certs.
+func (c *Config) RouterDataDir() string {
+	return filepath.Join(c.HullHome, "caddy")
 }
 
 // HomeDir resolves the Hull home directory: $HULL_HOME or ~/.hull.
@@ -79,6 +102,15 @@ func loadV1Env(cfg *Config, content string) {
 func (c *Config) applyDefaults() {
 	if c.TLD == "" {
 		c.TLD = "test"
+	}
+	if c.Router.HTTPPort == 0 {
+		c.Router.HTTPPort = 80
+	}
+	if c.Router.HTTPSPort == 0 {
+		c.Router.HTTPSPort = 443
+	}
+	if c.DNS.Port == 0 {
+		c.DNS.Port = 53
 	}
 	if len(c.Roots) == 0 {
 		if home, err := os.UserHomeDir(); err == nil {

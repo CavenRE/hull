@@ -23,10 +23,22 @@ type Engine struct {
 	Config *config.Config
 	// Run executes host commands; defaults to dockerx.Exec.
 	Run dockerx.Runner
+	// EnsureNet creates a docker network if missing; defaults to
+	// dockerx.EnsureNetwork (stubbed in tests).
+	EnsureNet func(ctx context.Context, name string) error
 }
 
 func New(cfg *config.Config) *Engine {
-	return &Engine{Config: cfg, Run: dockerx.Exec}
+	return &Engine{Config: cfg, Run: dockerx.Exec, EnsureNet: dockerx.EnsureNetwork}
+}
+
+// prepareNetworks creates the external networks generated compose files
+// reference — a fresh v2 machine has no v1 setup to have made them.
+func (e *Engine) prepareNetworks(ctx context.Context) error {
+	if e.EnsureNet == nil {
+		return nil
+	}
+	return e.EnsureNet(ctx, "caddy")
 }
 
 // ComposeContext returns the render context for this machine.
@@ -109,6 +121,9 @@ func (e *Engine) NewProject(ctx context.Context, opts NewOptions) (string, error
 		if err := templates.EnsureSystemFiles(e.Config.HullHome); err != nil {
 			return dir, err
 		}
+		if err := e.prepareNetworks(ctx); err != nil {
+			return dir, err
+		}
 		if err := e.compose(dir).Up(ctx); err != nil {
 			return dir, err
 		}
@@ -145,6 +160,9 @@ func (e *Engine) Render(m *manifest.Manifest, dir string) error {
 // the artifact always tracks the manifest).
 func (e *Engine) Up(ctx context.Context, p *state.Project) error {
 	if err := templates.EnsureSystemFiles(e.Config.HullHome); err != nil {
+		return err
+	}
+	if err := e.prepareNetworks(ctx); err != nil {
 		return err
 	}
 	if p.Manifest != nil {

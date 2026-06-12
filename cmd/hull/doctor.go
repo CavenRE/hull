@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CavenRE/hull/internal/api"
+	"github.com/CavenRE/hull/internal/certs"
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/templates"
 )
@@ -80,7 +81,7 @@ func init() {
 				results = append(results, pass("xdebug.ini", "present"))
 			}
 
-			// Routing prerequisites (v1 router era, until Phase 4).
+			// Routing: v2 embedded router when enabled, else the v1 stack.
 			if out, err := dockerx.Output(ctx, "", "docker", "network", "ls", "--format", "{{.Name}}"); err == nil {
 				if containsLine(out, "caddy") {
 					results = append(results, pass("caddy network", "exists"))
@@ -88,11 +89,22 @@ func init() {
 					results = append(results, warn("caddy network", "missing — created automatically on first service/project start"))
 				}
 			}
-			if out, err := dockerx.Output(ctx, "", "docker", "ps", "--format", "{{.Names}}"); err == nil {
+			if a.Config.Router.Enabled {
+				if portListening(a.Config.Router.HTTPSPort) {
+					results = append(results, pass("router (embedded)", fmt.Sprintf("listening on :%d", a.Config.Router.HTTPSPort)))
+				} else {
+					results = append(results, warn("router (embedded)", fmt.Sprintf("enabled but :%d not listening — start the daemon (hulld)", a.Config.Router.HTTPSPort)))
+				}
+				if certs.Trusted(a.Config.RouterDataDir()) {
+					results = append(results, pass("certificate", "local CA provisioned (trust install: hull trust)"))
+				} else {
+					results = append(results, warn("certificate", "no local CA yet — run: hull trust"))
+				}
+			} else if out, err := dockerx.Output(ctx, "", "docker", "ps", "--format", "{{.Names}}"); err == nil {
 				if containsLine(out, "hull-router") {
 					results = append(results, pass("router", "hull-router running (v1 stack)"))
 				} else {
-					results = append(results, warn("router", "hull-router not running — https://*."+a.Config.TLD+" routing is down (v2 embedded router lands in Phase 4)"))
+					results = append(results, warn("router", "no router active — run `hull setup` to enable v2-native routing"))
 				}
 			}
 
@@ -129,6 +141,15 @@ func init() {
 			return nil
 		},
 	})
+}
+
+func portListening(port int) bool {
+	conn, err := net.DialTimeout("tcp", "127.0.0.1:"+fmt.Sprintf("%d", port), 400*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 func containsLine(out, want string) bool {

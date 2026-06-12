@@ -28,6 +28,9 @@ type Server struct {
 	RunningProjects func(ctx context.Context) ([]string, error)
 	// OnShutdown is invoked when POST /v1/shutdown is received.
 	OnShutdown func()
+	// SyncRoutes reconciles the embedded router after lifecycle changes
+	// (no-op when networking is disabled).
+	SyncRoutes func()
 }
 
 // NewServer wires a server around a config.
@@ -170,6 +173,9 @@ func (s *Server) handleProjectAction(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
+	}
+	if s.SyncRoutes != nil {
+		go s.SyncRoutes()
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

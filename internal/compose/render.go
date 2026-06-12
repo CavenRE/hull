@@ -97,6 +97,7 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 			"./:" + webrootMount,
 			xdebugMount(ctx, def.XdebugTarget),
 		},
+		Ports:      []string{loopbackPublish(def.UpstreamPort)},
 		ExtraHosts: []string{"host.docker.internal:host-gateway"},
 		Labels:     caddyLabels(m.Domain+"."+ctx.TLD, def.UpstreamPort),
 		Networks:   []string{"default", caddyNetwork},
@@ -148,6 +149,7 @@ func containerService(m *manifest.Manifest, key string, c *manifest.Container, c
 			if c.Port != 0 {
 				port = c.Port
 			}
+			svc.Ports = []string{loopbackPublish(port)}
 			svc.Labels = caddyLabels(c.Domain+"."+ctx.TLD, port)
 			svc.Networks = append(svc.Networks, caddyNetwork)
 		}
@@ -162,10 +164,18 @@ func containerService(m *manifest.Manifest, key string, c *manifest.Container, c
 		Networks:    []string{"default"},
 	}
 	if c.Domain != "" {
+		svc.Ports = []string{loopbackPublish(c.Port)}
 		svc.Labels = caddyLabels(c.Domain+"."+ctx.TLD, c.Port)
 		svc.Networks = append(svc.Networks, caddyNetwork)
 	}
 	return svc, nil
+}
+
+// loopbackPublish exposes a container port on an ephemeral 127.0.0.1 host
+// port for the host-process router (ADR 0007). Loopback-only keeps dev
+// sites off the LAN; the daemon discovers the assigned port after start.
+func loopbackPublish(containerPort int) string {
+	return fmt.Sprintf("127.0.0.1::%d", containerPort)
 }
 
 // caddyLabels routes a domain to the container via the Caddy ingress

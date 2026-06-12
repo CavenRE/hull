@@ -52,6 +52,15 @@ func Serve(ctx context.Context, cfg *config.Config, logf func(format string, a .
 		once.Do(func() { close(shutdownCh) })
 	}
 
+	stopNet, syncNow, err := startNetworking(ctx, cfg, server.Engine, logf)
+	if err != nil {
+		_ = ln.Close()
+		RemoveDaemonFile(cfg.HullHome)
+		return err
+	}
+	defer stopNet()
+	server.SyncRoutes = syncNow
+
 	httpServer := &http.Server{Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	errCh := make(chan error, 1)
 	go func() { errCh <- httpServer.Serve(ln) }()

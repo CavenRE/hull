@@ -95,6 +95,26 @@ func ForceRemoveProject(ctx context.Context, project string) error {
 	return nil
 }
 
+// PublishedPort returns the host port docker assigned to a service's
+// published container port (ADR 0007 ephemeral loopback publishing).
+func PublishedPort(ctx context.Context, dir, service string, containerPort int) (int, error) {
+	out, err := Output(ctx, dir, "docker", "compose", "port", service, fmt.Sprintf("%d", containerPort))
+	if err != nil {
+		return 0, err
+	}
+	// Output like "127.0.0.1:55001" (possibly multiple lines; first wins).
+	line, _, _ := strings.Cut(out, "\n")
+	idx := strings.LastIndex(strings.TrimSpace(line), ":")
+	if idx < 0 {
+		return 0, fmt.Errorf("unexpected docker compose port output %q", out)
+	}
+	var port int
+	if _, err := fmt.Sscanf(line[idx+1:], "%d", &port); err != nil || port == 0 {
+		return 0, fmt.Errorf("unexpected docker compose port output %q", out)
+	}
+	return port, nil
+}
+
 // EnsureNetwork creates the named docker network if it does not exist.
 func EnsureNetwork(ctx context.Context, name string) error {
 	if out, err := Output(ctx, "", "docker", "network", "ls", "--filter", "name=^"+name+"$", "--format", "{{.Name}}"); err == nil {

@@ -12,6 +12,8 @@ services:
     volumes:
       - ./:/var/www/html
       - /home/test/.hull/system/php/xdebug.ini:/usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini:ro
+    ports:
+      - 127.0.0.1::80
     extra_hosts:
       - host.docker.internal:host-gateway
     labels:
