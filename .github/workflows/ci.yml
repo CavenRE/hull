@@ -21,7 +21,16 @@ jobs:
           go-version: stable
       - run: go build ./...
       - run: go vet ./...
-      - run: go test ./...
+      - name: go test
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! go test ./... 2>&1 | tee test-output.txt; then
+            msg=$(grep -E -A 12 '^(--- FAIL|FAIL|panic)' test-output.txt | tail -c 3000)
+            msg="${msg//$'\n'/%0A}"
+            echo "::error title=go test failed::${msg}"
+            exit 1
+          fi
 
   lint:
     name: lint
