@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/CavenRE/hull/internal/bundle"
 	"github.com/CavenRE/hull/internal/manifest"
+	"github.com/CavenRE/hull/internal/state"
 	"github.com/CavenRE/hull/internal/templates"
 	"github.com/CavenRE/hull/internal/wpconfig"
 )
@@ -132,4 +134,59 @@ func backup(path string) error {
 		return err
 	}
 	return os.WriteFile(path+".hull-backup", data, 0o644)
+}
+
+// ImportExisting turns an unmanaged folder or legacy v1 project into a
+// managed one and boots it — the GUI's one-click Import. Progress goes to
+// log; SQL dump restore stays interactive (CLI hull import) for now.
+func (e *Engine) ImportExisting(ctx context.Context, p *state.Project, log func(string)) error {
+	if p.Manifest != nil {
+		return fmt.Errorf("%s is already managed by Hull", p.Name)
+	}
+
+	if p.Legacy {
+		log("legacy v1 compose detected — migrating")
+		m, err := e.MigrateV1(p)
+		if err != nil {
+			return err
+		}
+		log(fmt.Sprintf("adopted as %s (old compose saved as *.v1-backup)", m.Template))
+	} else {
+		det := bundle.Detect(p.Dir)
+		log(fmt.Sprintf("detected: %s (php %s, db %s)", det.Template, orDefault(det.PHP, "default"), orDefault(det.DB, "none")))
+		m, err := BuildImportManifest(p.Name, det, NewOptions{})
+		if err != nil {
+			return err
+		}
+		if err := e.Adopt(m, p.Dir); err != nil {
+			return err
+		}
+		log("hull.yaml written, framework config patched (backups: *.hull-backup)")
+	}
+
+	fresh, err := state.Find(e.Config.Roots, p.Name)
+	if err != nil {
+		return err
+	}
+	log("starting containers...")
+	if err := e.Up(ctx, fresh); err != nil {
+		return err
+	}
+
+	if dumps := bundle.FindDumps(p.Dir); len(dumps) > 0 {
+		names := make([]string, len(dumps))
+		for i, d := range dumps {
+			names[i] = filepath.Base(d)
+		}
+		log("found database dump(s): " + strings.Join(names, ", "))
+		log("restore interactively with: hull import " + p.Name + " (dump wizard lands in the GUI soon)")
+	}
+	return nil
+}
+
+func orDefault(v, fallback string) string {
+	if v == "" {
+		return fallback
+	}
+	return v
 }

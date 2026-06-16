@@ -14,11 +14,96 @@ type StatusInfo struct {
 type ProjectInfo struct {
 	Name    string `json:"name"`
 	Dir     string `json:"dir"`
-	Kind    string `json:"kind"` // template name, "app", or "legacy"
+	Kind    string `json:"kind"` // template name, "app", "legacy", "folder", "invalid"
 	URL     string `json:"url,omitempty"`
 	Running bool   `json:"running"`
 	Legacy  bool   `json:"legacy,omitempty"`
 	Error   string `json:"error,omitempty"`
+	PHP     string `json:"php,omitempty"`
+	// Served is whether the project has a routed domain (serve toggle).
+	Served bool `json:"served"`
+	// Group is the virtual group label this project belongs to ("" = none).
+	Group string `json:"group,omitempty"`
+	// Services are the manifest-declared service links.
+	Services []ProjectServiceInfo `json:"services,omitempty"`
+	// Routes are a cluster's served subdomains (type: cluster only).
+	Routes []ClusterRouteInfo `json:"routes,omitempty"`
+}
+
+// ClusterRouteInfo is one subdomain→service route of a cluster.
+type ClusterRouteInfo struct {
+	Key       string `json:"key"`
+	Subdomain string `json:"subdomain"`
+	Service   string `json:"service"`
+	Port      int    `json:"port"`
+	Served    bool   `json:"served"`
+}
+
+// DetectInfo answers GET /v1/detect — file-based project detection.
+type DetectInfo struct {
+	Kind     string `json:"kind"`     // laravel|wordpress|plain|python|node|go|docker|static
+	Template string `json:"template"` // PHP site template (laravel|wordpress|plain)
+	PHP      string `json:"php,omitempty"`
+	DB       string `json:"db,omitempty"`
+	Redis    bool   `json:"redis,omitempty"`
+	PHPKind  bool   `json:"php_kind"` // true → importable as a PHP site
+}
+
+// AdoptClusterRequest answers POST /v1/clusters.
+type AdoptClusterRequest struct {
+	Dir          string   `json:"dir"`
+	Name         string   `json:"name,omitempty"`
+	ComposeRoot  string   `json:"compose_root,omitempty"`
+	ComposeFiles []string `json:"compose_files,omitempty"`
+	Profiles     []string `json:"profiles,omitempty"`
+}
+
+// CreateClusterRequest answers POST /v1/clusters/create (a job).
+type CreateClusterRequest struct {
+	Name        string                 `json:"name"`
+	Root        string                 `json:"root,omitempty"`
+	ComposeRoot string                 `json:"compose_root,omitempty"`
+	Managed     bool                   `json:"managed"`
+	Containers  []ClusterContainerSpec `json:"containers"`
+}
+
+// ClusterContainerSpec is one wizard container card.
+type ClusterContainerSpec struct {
+	Name     string                   `json:"name"`
+	Template string                   `json:"template,omitempty"`
+	Image    string                   `json:"image,omitempty"`
+	Version  string                   `json:"version,omitempty"`
+	Port     int                      `json:"port,omitempty"`
+	Serve    bool                     `json:"serve,omitempty"`
+	Services []ClusterCardServiceSpec `json:"services,omitempty"`
+}
+
+// ClusterCardServiceSpec is one linked service on a container card.
+type ClusterCardServiceSpec struct {
+	Engine  string `json:"engine"`
+	Version string `json:"version,omitempty"`
+}
+
+// ProjectServiceInfo is one service link in a project manifest.
+type ProjectServiceInfo struct {
+	Key      string `json:"key"` // db, redis, mail
+	Engine   string `json:"engine"`
+	Version  string `json:"version,omitempty"`
+	Mode     string `json:"mode"`               // dedicated | shared
+	Instance string `json:"instance,omitempty"` // shared instance name
+}
+
+// UnlinkRequest answers POST /v1/projects/{name}/unlink.
+type UnlinkRequest struct {
+	Key string `json:"key"`
+}
+
+// SetupStepResult answers the setup endpoints.
+type SetupStepResult struct {
+	Done bool `json:"done"`
+	// Manual carries step-by-step instructions when elevation was not
+	// available (the GUI shows them instead of failing).
+	Manual string `json:"manual,omitempty"`
 }
 
 // CreateProjectRequest answers POST /v1/projects (a job).
@@ -30,12 +115,73 @@ type CreateProjectRequest struct {
 	Redis     bool   `json:"redis,omitempty"`
 	PHP       string `json:"php,omitempty"`
 	Version   string `json:"version,omitempty"`
+	Serve     *bool  `json:"serve,omitempty"`
 	SkipStart bool   `json:"skip_start,omitempty"`
 }
 
 // JobRef points a client at a started job.
 type JobRef struct {
 	Job jobs.Info `json:"job"`
+}
+
+// ImportRequest answers POST /v1/imports (a job): adopt an unmanaged
+// folder or legacy project already inside a root.
+type ImportRequest struct {
+	Name string `json:"name"`
+}
+
+// ServiceInfo answers GET /v1/services.
+type ServiceInfo struct {
+	Name      string `json:"name"`    // postgres-16
+	Engine    string `json:"engine"`  // postgres
+	Version   string `json:"version"` // 16
+	Container string `json:"container"`
+	Running   bool   `json:"running"`
+	// URL is the instance's web UI when it has one (mailpit, adminer).
+	URL string `json:"url,omitempty"`
+	// Connection details for desktop tools (stable loopback publishing).
+	Host     string `json:"host,omitempty"`
+	HostPort int    `json:"host_port,omitempty"`
+	Username string `json:"username,omitempty"`
+	// LinkedProjects are manifest-declared consumers of this instance.
+	LinkedProjects []string `json:"linked_projects,omitempty"`
+}
+
+// ConfigInfo answers GET/PUT /v1/config.
+type ConfigInfo struct {
+	TLD      string   `json:"tld"`
+	Roots    []string `json:"roots"`
+	Defaults struct {
+		PHP    string `json:"php"`
+		Editor string `json:"editor"`
+		DBTool string `json:"db_tool"`
+	} `json:"defaults"`
+	// RestartRequired (response only): changed fields needing a daemon
+	// restart to apply.
+	RestartRequired []string `json:"restart_required,omitempty"`
+}
+
+// OpenRequest answers POST /v1/projects/{name}/open.
+type OpenRequest struct {
+	Target string `json:"target"` // folder | editor
+}
+
+// PatchProjectRequest answers PATCH /v1/projects/{name}.
+type PatchProjectRequest struct {
+	PHP    *string `json:"php,omitempty"`
+	Domain *string `json:"domain,omitempty"`
+	Serve  *bool   `json:"serve,omitempty"`
+}
+
+// AddServiceRequest answers POST /v1/services (a job — image pulls).
+type AddServiceRequest struct {
+	Engine  string `json:"engine"`
+	Version string `json:"version,omitempty"`
+}
+
+// LinkRequest answers POST /v1/services/{name}/link (a job).
+type LinkRequest struct {
+	Project string `json:"project"`
 }
 
 // Event is one message on GET /v1/events.

@@ -1,12 +1,20 @@
 package dockerx
 
-import "context"
+import (
+	"context"
+	"strings"
+)
 
 // Compose drives `docker compose` for one project directory.
 type Compose struct {
 	Dir string
 	// Run executes commands; defaults to Exec when nil (tests inject).
 	Run Runner
+	// Files are extra `-f` compose files (for wrapped cluster stacks). Empty
+	// means docker auto-detects compose.yaml/docker-compose.yml in Dir.
+	Files []string
+	// Profiles are `--profile` selections (cluster dev/test/prod gating).
+	Profiles []string
 }
 
 func (c Compose) run(ctx context.Context, args ...string) error {
@@ -14,7 +22,15 @@ func (c Compose) run(ctx context.Context, args ...string) error {
 	if runner == nil {
 		runner = Exec
 	}
-	return runner(ctx, c.Dir, "docker", append([]string{"compose"}, args...)...)
+	full := []string{"compose"}
+	for _, f := range c.Files {
+		full = append(full, "-f", f)
+	}
+	for _, p := range c.Profiles {
+		full = append(full, "--profile", p)
+	}
+	full = append(full, args...)
+	return runner(ctx, c.Dir, "docker", full...)
 }
 
 // Up starts the project detached.
@@ -32,9 +48,33 @@ func (c Compose) DownVolumes(ctx context.Context) error {
 	return c.run(ctx, "down", "-v")
 }
 
+// Build (re)builds the project's images. noCache forces a clean rebuild.
+func (c Compose) Build(ctx context.Context, noCache bool) error {
+	args := []string{"build"}
+	if noCache {
+		args = append(args, "--no-cache")
+	}
+	return c.run(ctx, args...)
+}
+
 // Restart restarts the project's containers.
 func (c Compose) Restart(ctx context.Context) error {
 	return c.run(ctx, "restart")
+}
+
+// Volumes lists the project's named volumes (for a destructive-reset preview).
+func (c Compose) Volumes(ctx context.Context) ([]string, error) {
+	out, err := Output(ctx, c.Dir, "docker", "compose", "config", "--volumes")
+	if err != nil {
+		return nil, err
+	}
+	var vols []string
+	for _, line := range strings.Split(out, "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			vols = append(vols, line)
+		}
+	}
+	return vols, nil
 }
 
 // Logs tails the project's logs.
@@ -45,7 +85,14 @@ func (c Compose) Logs(ctx context.Context, follow bool) error {
 	return c.run(ctx, "logs")
 }
 
-// ExecIn runs a command inside a service container.
+// ExecIn runs a command inside a service container (interactive TTY).
 func (c Compose) ExecIn(ctx context.Context, service string, cmd ...string) error {
 	return c.run(ctx, append([]string{"exec", service}, cmd...)...)
+}
+
+// ExecNoTTY runs a command inside a service container without a TTY — for
+// programmatic/daemon use (interactive `compose exec` fails when stdin is not
+// a terminal). Used by post-create steps like `artisan migrate`.
+func (c Compose) ExecNoTTY(ctx context.Context, service string, cmd ...string) error {
+	return c.run(ctx, append([]string{"exec", "-T", service}, cmd...)...)
 }

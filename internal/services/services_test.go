@@ -168,6 +168,111 @@ func TestCreateDatabaseMariaDB(t *testing.T) {
 	}
 }
 
+func TestStablePortPersistsAcrossReAdd(t *testing.T) {
+	f := &fake{}
+	m := f.manager(t.TempDir())
+	if _, err := m.Add(context.Background(), "postgres", "16"); err != nil {
+		t.Fatal(err)
+	}
+	instances, err := m.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := instances[0].HostPort
+	if first < 54320 || first >= 54520 {
+		t.Fatalf("postgres host port = %d, want 54320..", first)
+	}
+
+	// Re-add must keep the same port.
+	if _, err := m.Add(context.Background(), "postgres", "16"); err != nil {
+		t.Fatal(err)
+	}
+	instances, _ = m.List(context.Background())
+	if instances[0].HostPort != first {
+		t.Errorf("port moved on re-add: %d -> %d", first, instances[0].HostPort)
+	}
+
+	// A second instance gets a different port.
+	if _, err := m.Add(context.Background(), "postgres", "14"); err != nil {
+		t.Fatal(err)
+	}
+	instances, _ = m.List(context.Background())
+	ports := map[int]bool{}
+	for _, in := range instances {
+		ports[in.HostPort] = true
+	}
+	if len(ports) != 2 {
+		t.Errorf("instances share a host port: %+v", instances)
+	}
+}
+
+func TestAddAdminerMountsPluginNoVolume(t *testing.T) {
+	f := &fake{}
+	m := f.manager(t.TempDir())
+	name, err := m.Add(context.Background(), "adminer", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(m.Dir(name), "compose.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "hull-login.php:/var/www/html/plugins-enabled/hull-login.php:ro") {
+		t.Errorf("plugin mount missing:\n%s", text)
+	}
+	if strings.Contains(text, "data:") {
+		t.Errorf("adminer should have no data volume:\n%s", text)
+	}
+	if !strings.Contains(text, "127.0.0.1::8080") {
+		t.Errorf("UI port missing:\n%s", text)
+	}
+	if _, err := os.Stat(filepath.Join(m.HullHome, "system", "adminer", "hull-login.php")); err != nil {
+		t.Error("plugin file not provisioned")
+	}
+}
+
+func TestAddSearchAndStorageEngines(t *testing.T) {
+	cases := []struct {
+		engine    string
+		wantImage string
+		wantCmd   string
+		wantUI    bool
+	}{
+		{"meilisearch", "getmeili/meilisearch:v1.11", "", true},
+		{"typesense", "typesense/typesense:27.1", "--data-dir /data --api-key=hullTypesenseKey --enable-cors", false},
+		{"minio", "minio/minio:latest", "server /data --console-address :9001", true},
+		{"memcached", "memcached:alpine", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.engine, func(t *testing.T) {
+			f := &fake{}
+			m := f.manager(t.TempDir())
+			name, err := m.Add(context.Background(), tc.engine, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if name != tc.engine {
+				t.Errorf("instance name = %q, want clean %q", name, tc.engine)
+			}
+			data, err := os.ReadFile(filepath.Join(m.Dir(name), "compose.yaml"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := string(data)
+			if !strings.Contains(text, "image: "+tc.wantImage) {
+				t.Errorf("missing image %q:\n%s", tc.wantImage, text)
+			}
+			if tc.wantCmd != "" && !strings.Contains(text, tc.wantCmd) {
+				t.Errorf("missing command %q:\n%s", tc.wantCmd, text)
+			}
+			if tc.wantUI && !strings.Contains(text, "127.0.0.1::") {
+				t.Errorf("expected a UI port publish:\n%s", text)
+			}
+		})
+	}
+}
+
 func TestCreateDatabaseRejectsRedis(t *testing.T) {
 	f := &fake{}
 	m := f.manager(t.TempDir())

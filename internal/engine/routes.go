@@ -2,6 +2,8 @@ package engine
 
 import (
 	"context"
+	"path/filepath"
+	"sort"
 	"strconv"
 
 	"github.com/CavenRE/hull/internal/dockerx"
@@ -27,10 +29,23 @@ func ComputeRoutes(ctx context.Context, projects []state.Project, tld string, ru
 		}
 		m := p.Manifest
 		switch m.Type {
+		case "cluster":
+			for _, key := range m.RouteKeys() {
+				rt := m.Routes[key]
+				if !rt.Served() {
+					continue
+				}
+				if hostPort, err := ports(ctx, filepath.Join(p.Dir, m.ComposeRoot), rt.Service, rt.Port); err == nil {
+					routes = append(routes, router.Route{
+						Domain:   rt.Subdomain + "." + tld,
+						Upstream: loopback(hostPort),
+					})
+				}
+			}
 		case "app":
 			for _, key := range m.ContainerKeys() {
 				c := m.Containers[key]
-				if c.Domain == "" {
+				if c.Domain == "" || !c.Served() {
 					continue
 				}
 				upstream := c.Port
@@ -47,6 +62,9 @@ func ComputeRoutes(ctx context.Context, projects []state.Project, tld string, ru
 				}
 			}
 		default: // site
+			if !m.Served() {
+				continue
+			}
 			def, ok := templates.Site(m.Template)
 			if !ok {
 				continue
@@ -64,6 +82,41 @@ func ComputeRoutes(ctx context.Context, projects []state.Project, tld string, ru
 
 func loopback(port int) string {
 	return "127.0.0.1:" + strconv.Itoa(port)
+}
+
+// AllDomains lists every routed hostname of every managed project,
+// running or not — the hosts-file block must cover stopped sites so they
+// resolve the moment they start.
+func AllDomains(projects []state.Project, tld string) []string {
+	var domains []string
+	for i := range projects {
+		m := projects[i].Manifest
+		if m == nil {
+			continue
+		}
+		if m.Type == "cluster" {
+			for _, key := range m.RouteKeys() {
+				if rt := m.Routes[key]; rt.Served() {
+					domains = append(domains, rt.Subdomain+"."+tld)
+				}
+			}
+			continue
+		}
+		if m.Type == "app" {
+			for _, key := range m.ContainerKeys() {
+				if c := m.Containers[key]; c.Domain != "" && c.Served() {
+					domains = append(domains, c.Domain+"."+tld)
+				}
+			}
+			continue
+		}
+		if !m.Served() {
+			continue
+		}
+		domains = append(domains, m.Domain+"."+tld)
+	}
+	sort.Strings(domains)
+	return domains
 }
 
 // Routes computes the live route table for this engine's config.

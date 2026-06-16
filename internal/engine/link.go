@@ -23,9 +23,21 @@ func (e *Engine) Link(ctx context.Context, p *state.Project, spec string, svcs *
 		return "", err
 	}
 
-	key := "redis"
-	if def.IsDatabase {
+	// Manifest service key by role, so a project has at most one of each.
+	key := def.Name
+	switch {
+	case def.IsDatabase:
 		key = "db"
+	case def.Name == "redis":
+		key = "redis"
+	case def.Name == "mailpit":
+		key = "mail"
+	case def.Category == "search":
+		key = "search"
+	case def.Category == "storage":
+		key = "storage"
+	case def.Category == "cache":
+		key = "cache"
 	}
 	m := p.Manifest
 	if m.Services == nil {

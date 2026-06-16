@@ -97,6 +97,9 @@ func init() {
 			if err != nil {
 				return err
 			}
+			if client, viaDaemon := a.client(); viaDaemon {
+				return client.ProjectAction(cmd.Context(), p.Name, "restart")
+			}
 			return a.Engine.Restart(cmd.Context(), p)
 		},
 	})
@@ -124,7 +127,7 @@ func init() {
 // candidateLister produces the option list for the interactive picker.
 type candidateLister func(cmd *cobra.Command, a *app) ([]string, error)
 
-// availableProjects lists every project in the registry.
+// availableProjects lists every startable project in the registry.
 func availableProjects(_ *cobra.Command, a *app) ([]string, error) {
 	projects, err := state.Scan(a.Config.Roots)
 	if err != nil {
@@ -132,6 +135,9 @@ func availableProjects(_ *cobra.Command, a *app) ([]string, error) {
 	}
 	names := make([]string, 0, len(projects))
 	for _, p := range projects {
+		if p.Unmanaged {
+			continue // plain folders are import candidates, not targets
+		}
 		names = append(names, p.Name)
 	}
 	return names, nil
@@ -182,6 +188,9 @@ func resolveTargets(cmd *cobra.Command, a *app, names []string, all bool, pickTi
 		}
 		targets := make([]*state.Project, 0, len(projects))
 		for i := range projects {
+			if projects[i].Unmanaged {
+				continue
+			}
 			targets = append(targets, &projects[i])
 		}
 		return targets, nil

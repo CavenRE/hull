@@ -10,12 +10,21 @@ import (
 
 func startTestServer(t *testing.T) *Server {
 	t.Helper()
-	s := &Server{TLD: "test", Addr: "127.0.0.1:0"}
-	if err := s.Start(); err != nil {
-		t.Fatal(err)
+	// The OS picks the UDP port; the matching TCP port may be reserved
+	// (Windows excluded ranges) — retry until both protocols bind.
+	for attempt := 0; attempt < 10; attempt++ {
+		s := &Server{TLD: "test", Addr: "127.0.0.1:0"}
+		if err := s.Start(); err != nil {
+			t.Fatal(err)
+		}
+		if s.TCPErr == nil {
+			t.Cleanup(s.Stop)
+			return s
+		}
+		s.Stop()
 	}
-	t.Cleanup(s.Stop)
-	return s
+	t.Skip("could not find a port with both UDP and TCP free")
+	return nil
 }
 
 func query(t *testing.T, addr, name string, qtype uint16) *mdns.Msg {

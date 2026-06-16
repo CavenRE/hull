@@ -4,6 +4,12 @@ name: oldblog
 services:
   app:
     image: wordpress:6.4
+    entrypoint:
+      - bash
+      - -c
+      - chmod -R a+rX /var/www/html 2>/dev/null || true; exec docker-entrypoint.sh "$@"
+      - --
+    command: apache2-foreground
     environment:
       - WORDPRESS_DB_HOST=db
       - WORDPRESS_DB_NAME=oldblog

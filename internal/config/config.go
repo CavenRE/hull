@@ -30,8 +30,21 @@ type Config struct {
 	Router RouterConfig `yaml:"router,omitempty"`
 	// DNS configures the embedded wildcard resolver.
 	DNS DNSConfig `yaml:"dns,omitempty"`
+	// Defaults are user preferences applied to new things.
+	Defaults Defaults `yaml:"defaults,omitempty"`
 	// HullHome is the resolved Hull home directory (not stored in the file).
 	HullHome string `yaml:"-"`
+}
+
+// Defaults are user preferences (Settings page).
+type Defaults struct {
+	// PHP version for new sites (empty = templates.DefaultPHP).
+	PHP string `yaml:"php,omitempty"`
+	// Editor command for "Open in editor" (e.g. "code").
+	Editor string `yaml:"editor,omitempty"`
+	// DBTool for "Open with" on database instances:
+	// tableplus | adminer | none.
+	DBTool string `yaml:"db_tool,omitempty"`
 }
 
 // RouterConfig controls the embedded Caddy router run by hulld.
@@ -122,8 +135,16 @@ func (c *Config) applyDefaults() {
 	}
 }
 
-// Save writes config.yaml into the Hull home directory.
+// Save writes config.yaml into the Hull home directory. It expands and cleans
+// root paths and refuses to persist an empty roots list (keeping the daemon
+// and in-process CLI paths consistent).
 func (c *Config) Save() error {
+	for i, r := range c.Roots {
+		c.Roots[i] = expandPath(r)
+	}
+	if len(c.Roots) == 0 {
+		return fmt.Errorf("at least one project root is required")
+	}
 	if err := os.MkdirAll(c.HullHome, 0o755); err != nil {
 		return err
 	}
@@ -133,6 +154,10 @@ func (c *Config) Save() error {
 	}
 	return os.WriteFile(filepath.Join(c.HullHome, Filename), data, 0o644)
 }
+
+// ExpandPath expands $VARS, a leading ~, and cleans a path — exported so the
+// API/CLI can normalize roots before persisting.
+func ExpandPath(p string) string { return expandPath(p) }
 
 // expandPath expands $VARS, a leading ~, and cleans the result. v1 .env
 // files contain literal "$HOME/Work/Sites".

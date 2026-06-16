@@ -3,10 +3,13 @@
 /dist/
 *.exe
 coverage.out
+gui/src-tauri/target/
+gui/src-tauri/gen/
 
-# Local working notes (never push)
-INGEST.md
-ROADMAP.md
+# Docs & working notes — only README.md is tracked in git.
+# (ADRs, api.md, ROADMAP, TODO, INGEST, design briefs, etc. stay local.)
+*.md
+!README.md
 
 # IDE / OS
 .idea/

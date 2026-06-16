@@ -2,14 +2,21 @@ package api
 
 import (
 	"context"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/CavenRE/hull/internal/config"
 	"github.com/CavenRE/hull/internal/dns"
+	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/engine"
+	"github.com/CavenRE/hull/internal/platform"
 	"github.com/CavenRE/hull/internal/router"
+	"github.com/CavenRE/hull/internal/services"
+	"github.com/CavenRE/hull/internal/state"
+	"github.com/CavenRE/hull/internal/templates"
 )
 
 // RouteSyncInterval is how often the daemon reconciles the route table.
@@ -30,11 +37,16 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 	if cfg.DNS.Enabled {
 		server := &dns.Server{TLD: cfg.TLD, Addr: "127.0.0.1:" + strconv.Itoa(cfg.DNS.Port)}
 		if err := server.Start(); err != nil {
-			stop()
-			return nil, nil, err
+			// Degrade, never die: routing is the critical path, and hosts
+			// file entries keep resolving without us.
+			logf("dns: DISABLED — %v (names in the hosts file still resolve; router unaffected)", err)
+		} else {
+			if server.TCPErr != nil {
+				logf("dns: udp-only — %v (fine for resolver lookups)", server.TCPErr)
+			}
+			logf("dns: answering *.%s on %s", cfg.TLD, server.LocalAddr())
+			stops = append(stops, server.Stop)
 		}
-		logf("dns: answering *.%s on %s", cfg.TLD, server.LocalAddr())
-		stops = append(stops, server.Stop)
 	}
 
 	if cfg.Router.Enabled {
@@ -44,18 +56,43 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 			DataDir:   cfg.RouterDataDir(),
 		}
 		lastFingerprint := "\x00never-applied" // force the first Apply even with zero routes
+		lastHosts := "\x00never-synced"
+		var syncMu sync.Mutex
 		sync := func() {
-			routes := eng.Routes(ctx)
+			// Serialize reconciles: the ticker, initial call, and many
+			// handlers (several via `go SyncRoutes()`) plus rebuild/reset jobs
+			// can overlap, and SyncHosts shells out to edit the hosts file.
+			syncMu.Lock()
+			defer syncMu.Unlock()
+			svcRoutes, svcDomains := serviceUI(ctx, cfg)
+			routes := append(eng.Routes(ctx), svcRoutes...)
 			fp := fingerprint(routes)
-			if fp == lastFingerprint {
-				return
+			if fp != lastFingerprint {
+				if err := router.Apply(routes, opts); err != nil {
+					logf("router: apply failed: %v", err)
+				} else {
+					lastFingerprint = fp
+					logf("router: %d route(s) active", len(routes))
+				}
 			}
-			if err := router.Apply(routes, opts); err != nil {
-				logf("router: apply failed: %v", err)
-				return
+
+			// Hosts block covers ALL managed sites and service UIs
+			// (running or not): browsers bypass NRPT on Windows, so this
+			// is the layer that makes names resolve. No-op (and no UAC)
+			// when unchanged.
+			if projects, err := state.Scan(cfg.Roots); err == nil {
+				domains := append(engine.AllDomains(projects, cfg.TLD), svcDomains...)
+				sort.Strings(domains)
+				hostsKey := strings.Join(domains, ";")
+				if hostsKey != lastHosts {
+					if err := platform.SyncHosts(domains); err != nil {
+						logf("hosts: %v", err)
+					} else {
+						lastHosts = hostsKey
+						logf("hosts: block synced (%d domain(s))", len(domains))
+					}
+				}
 			}
-			lastFingerprint = fp
-			logf("router: %d route(s) active", len(routes))
 		}
 		sync() // initial table (also boots the router with zero routes)
 		syncNow = sync
@@ -83,6 +120,30 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 	}
 
 	return stop, syncNow, nil
+}
+
+// serviceUI lists routes and hostnames for shared instances with embedded
+// web UIs (mailpit at mail.<tld>; adminer later).
+func serviceUI(ctx context.Context, cfg *config.Config) (routes []router.Route, domains []string) {
+	instances, err := services.NewManager(cfg).List(ctx)
+	if err != nil {
+		return nil, nil
+	}
+	for _, in := range instances {
+		def, ok := templates.Engine(in.Engine)
+		if !ok || def.UIPort == 0 || def.UISubdomain == "" {
+			continue
+		}
+		domain := def.UISubdomain + "." + cfg.TLD
+		domains = append(domains, domain)
+		if !in.Running {
+			continue
+		}
+		if port, err := dockerx.PublishedPort(ctx, in.Dir, def.Name, def.UIPort); err == nil {
+			routes = append(routes, router.Route{Domain: domain, Upstream: "127.0.0.1:" + strconv.Itoa(port)})
+		}
+	}
+	return routes, domains
 }
 
 func fingerprint(routes []router.Route) string {

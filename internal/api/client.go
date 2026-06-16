@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/CavenRE/hull/internal/groups"
 	"github.com/CavenRE/hull/internal/jobs"
 )
 
@@ -137,6 +138,60 @@ func (c *Client) WaitJob(ctx context.Context, id string, print func(string)) (jo
 		case <-time.After(300 * time.Millisecond):
 		}
 	}
+}
+
+// Config fetches the daemon's configuration view.
+func (c *Client) Config(ctx context.Context) (*ConfigInfo, error) {
+	var info ConfigInfo
+	if err := c.do(ctx, http.MethodGet, "/v1/config", nil, &info); err != nil {
+		return nil, err
+	}
+	return &info, nil
+}
+
+// PutConfig replaces the daemon configuration, returning the updated view
+// (including any restart_required fields).
+func (c *Client) PutConfig(ctx context.Context, req ConfigInfo) (*ConfigInfo, error) {
+	var info ConfigInfo
+	if err := c.do(ctx, http.MethodPut, "/v1/config", req, &info); err != nil {
+		return nil, err
+	}
+	return &info, nil
+}
+
+// PatchProject updates a managed project's fields (php/domain/serve).
+func (c *Client) PatchProject(ctx context.Context, name string, req PatchProjectRequest) error {
+	return c.do(ctx, http.MethodPatch, "/v1/projects/"+name, req, nil)
+}
+
+// Groups fetches the virtual-group store.
+func (c *Client) Groups(ctx context.Context) (*groups.Store, error) {
+	var s groups.Store
+	if err := c.do(ctx, http.MethodGet, "/v1/groups", nil, &s); err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// PutGroups saves the virtual-group store.
+func (c *Client) PutGroups(ctx context.Context, s *groups.Store) error {
+	return c.do(ctx, http.MethodPut, "/v1/groups", s, nil)
+}
+
+// SetProjectGroup assigns a project to a group ("" to ungroup).
+func (c *Client) SetProjectGroup(ctx context.Context, name, group string) error {
+	return c.do(ctx, http.MethodPost, "/v1/projects/"+name+"/group", map[string]string{"group": group}, nil)
+}
+
+// AdoptCluster adopts an existing compose project as a Hull cluster.
+func (c *Client) AdoptCluster(ctx context.Context, req AdoptClusterRequest) (string, error) {
+	var out struct {
+		Name string `json:"name"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/v1/clusters", req, &out); err != nil {
+		return "", err
+	}
+	return out.Name, nil
 }
 
 // Shutdown asks the daemon to exit.

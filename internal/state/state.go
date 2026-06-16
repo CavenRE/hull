@@ -20,6 +20,10 @@ type Project struct {
 	// Legacy marks a v1-era project (compose file, no manifest). It can be
 	// started/stopped but not rendered until adopted (hull migrate-v1).
 	Legacy bool
+	// Unmanaged marks a plain folder under a root: visible in listings
+	// with an import affordance, but never touched by docker until the
+	// user imports it.
+	Unmanaged bool
 	// Err records a manifest that exists but fails to parse; the project
 	// is still listed so the problem is visible.
 	Err error
@@ -27,7 +31,10 @@ type Project struct {
 
 // Scan walks the registered roots and returns all projects, sorted by name.
 // Roots that do not exist are skipped silently (a machine may register a
-// Sites and an Apps root before both exist).
+// Sites and an Apps root before both exist). When two roots contain a
+// project of the same name, the first one found wins and later duplicates
+// are skipped — a name collision across roots must never break the listing
+// (a developer can easily have the same folder name in two places).
 func Scan(roots []string) ([]Project, error) {
 	var projects []Project
 	seen := map[string]string{}
@@ -48,8 +55,8 @@ func Scan(roots []string) ([]Project, error) {
 			if !ok {
 				continue
 			}
-			if prev, dup := seen[p.Name]; dup {
-				return nil, fmt.Errorf("duplicate project name %q (%s and %s)", p.Name, prev, dir)
+			if _, dup := seen[p.Name]; dup {
+				continue // first root wins; skip the collision
 			}
 			seen[p.Name] = dir
 			projects = append(projects, p)
@@ -59,7 +66,7 @@ func Scan(roots []string) ([]Project, error) {
 	return projects, nil
 }
 
-// load classifies a single directory. ok=false means it is not a project.
+// load classifies a single directory.
 func load(dir, dirName string) (Project, bool) {
 	if _, err := os.Stat(filepath.Join(dir, manifest.Filename)); err == nil {
 		m, err := manifest.Load(dir)
@@ -73,7 +80,9 @@ func load(dir, dirName string) (Project, bool) {
 			return Project{Name: dirName, Dir: dir, Legacy: true}, true
 		}
 	}
-	return Project{}, false
+	// Plain folder: listed so the user can see and import it, but no
+	// docker activity until they do.
+	return Project{Name: dirName, Dir: dir, Unmanaged: true}, true
 }
 
 // Find returns the project with the given name from the registered roots.

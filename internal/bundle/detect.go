@@ -13,16 +13,25 @@ import (
 // Detection is what auto-discovery learned about an existing project —
 // the Go port of v1's import sniffing.
 type Detection struct {
-	Template string // laravel | wordpress | plain
+	Template string // laravel | wordpress | plain (PHP site template)
 	PHP      string // "" = default
 	DB       string // engine name, "" = none
 	Database string // database name, "" = derive from project name
 	Redis    bool
+	// Kind is the broader project kind for non-PHP projects too:
+	// laravel | wordpress | plain | python | node | go | docker | static.
+	// PHP kinds map to a site Template; the rest are container/cluster apps.
+	Kind string
+}
+
+// PHPKind reports whether a detected kind is a PHP site Hull can import as-is.
+func (d Detection) PHPKind() bool {
+	return d.Kind == "laravel" || d.Kind == "wordpress" || d.Kind == "plain"
 }
 
 // Detect inspects a project directory.
 func Detect(dir string) Detection {
-	d := Detection{Template: detectTemplate(dir)}
+	d := Detection{Template: detectTemplate(dir), Kind: DetectKind(dir)}
 	d.PHP = detectPHP(dir)
 	switch d.Template {
 	case "laravel", "plain":
@@ -63,6 +72,43 @@ func detectTemplate(dir string) string {
 	}
 	if exists("wp-config.php") || exists("wp-config-sample.php") || exists("wp-includes") {
 		return "wordpress"
+	}
+	return "plain"
+}
+
+// DetectKind classifies a project by the files it ships — used so the GUI
+// stops defaulting everything to Laravel. PHP frameworks win first; then
+// language/runtime markers; then a generic "static"/"plain" fallback.
+func DetectKind(dir string) string {
+	exists := func(name string) bool {
+		_, err := os.Stat(filepath.Join(dir, name))
+		return err == nil
+	}
+	switch {
+	case exists("artisan"):
+		return "laravel"
+	case exists("wp-config.php") || exists("wp-config-sample.php") || exists("wp-includes"):
+		return "wordpress"
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "composer.json")); err == nil {
+		if strings.Contains(string(data), "laravel/framework") {
+			return "laravel"
+		}
+		return "plain" // PHP project without a framework
+	}
+	switch {
+	case exists("manage.py") || exists("requirements.txt") || exists("pyproject.toml") || exists("Pipfile"):
+		return "python"
+	case exists("package.json"):
+		return "node"
+	case exists("go.mod"):
+		return "go"
+	case exists("Dockerfile") || exists("docker-compose.yml") || exists("docker-compose.yaml") || exists("compose.yaml") || exists("compose.yml"):
+		return "docker"
+	case exists("index.php"):
+		return "plain"
+	case exists("index.html"):
+		return "static"
 	}
 	return "plain"
 }

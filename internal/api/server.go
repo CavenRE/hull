@@ -11,8 +11,12 @@ import (
 	"github.com/CavenRE/hull/internal/config"
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/engine"
+	"github.com/CavenRE/hull/internal/groups"
 	"github.com/CavenRE/hull/internal/jobs"
+	"github.com/CavenRE/hull/internal/registry"
+	"github.com/CavenRE/hull/internal/services"
 	"github.com/CavenRE/hull/internal/state"
+	"github.com/CavenRE/hull/internal/templates"
 	"github.com/CavenRE/hull/internal/version"
 )
 
@@ -31,6 +35,19 @@ type Server struct {
 	// SyncRoutes reconciles the embedded router after lifecycle changes
 	// (no-op when networking is disabled).
 	SyncRoutes func()
+	// NewJobEngine builds the engine a background job uses, with command
+	// output captured into the job log. Injectable for tests.
+	NewJobEngine func(log func(string)) *engine.Engine
+	// Services returns the shared-services manager. Injectable for tests.
+	Services func() *services.Manager
+	// JobServices returns a manager whose command output lands in a job
+	// log. Injectable for tests.
+	JobServices func(log func(string)) *services.Manager
+	// LogStream follows container logs for a compose dir (injectable for
+	// tests; nil = docker compose logs --follow).
+	LogStream func(ctx context.Context, dir string, tail int, onLine func(string)) error
+	// Registry queries Docker Hub for live image versions and search.
+	Registry *registry.Client
 }
 
 // NewServer wires a server around a config.
@@ -41,6 +58,20 @@ func NewServer(cfg *config.Config, token string) *Server {
 		Jobs:            jobs.NewManager(),
 		Token:           token,
 		RunningProjects: dockerx.RunningComposeProjects,
+		NewJobEngine: func(log func(string)) *engine.Engine {
+			e := engine.New(cfg)
+			e.Run = captureRunner(log)
+			return e
+		},
+		Services: func() *services.Manager {
+			return services.NewManager(cfg)
+		},
+		JobServices: func(log func(string)) *services.Manager {
+			m := services.NewManager(cfg)
+			m.Run = captureRunner(log)
+			return m
+		},
+		Registry: registry.New(),
 	}
 }
 
@@ -50,7 +81,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/status", s.handleStatus)
 	mux.HandleFunc("GET /v1/projects", s.handleProjects)
 	mux.HandleFunc("POST /v1/projects", s.handleCreateProject)
+	mux.HandleFunc("GET /v1/projects/{name}/volumes", s.handleProjectVolumes)
 	mux.HandleFunc("POST /v1/projects/{name}/{action}", s.handleProjectAction)
+	mux.HandleFunc("POST /v1/imports", s.handleImport)
+	mux.HandleFunc("POST /v1/clusters", s.handleAdoptCluster)
+	mux.HandleFunc("POST /v1/clusters/create", s.handleCreateCluster)
+	s.registerServiceRoutes(mux)
+	s.registerManageRoutes(mux)
+	s.registerSetupRoutes(mux)
+	s.registerRegistryRoutes(mux)
+	s.registerGroupRoutes(mux)
 	mux.HandleFunc("GET /v1/jobs", s.handleJobs)
 	mux.HandleFunc("GET /v1/jobs/{id}", s.handleJob)
 	mux.HandleFunc("GET /v1/jobs/{id}/stream", s.handleJobStream)
@@ -61,7 +101,28 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if subtleEqual(r.Header.Get("Authorization"), "Bearer "+s.Token) {
+		// CORS for the GUI webview (tauri://localhost etc.). Safe because
+		// the bearer token — not the origin — is the access control, and
+		// the server only listens on loopback.
+		if origin := r.Header.Get("Origin"); origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Vary", "Origin")
+		}
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		token := ""
+		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+			token = strings.TrimPrefix(h, "Bearer ")
+		} else if q := r.URL.Query().Get("token"); q != "" {
+			// EventSource cannot set headers; SSE clients pass ?token=.
+			token = q
+		}
+		if subtleEqual(token, s.Token) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -117,6 +178,7 @@ func ProjectList(ctx context.Context, cfg *config.Config, running func(context.C
 			}
 		}
 	}
+	grp, _ := groups.Load(cfg.HullHome) // best-effort; nil-safe below
 	infos := make([]ProjectInfo, 0, len(projects))
 	for _, p := range projects {
 		info := ProjectInfo{
@@ -125,18 +187,51 @@ func ProjectList(ctx context.Context, cfg *config.Config, running func(context.C
 			Running: runningSet[p.Name],
 			Legacy:  p.Legacy,
 		}
+		if grp != nil {
+			info.Group = grp.GroupOf(p.Dir)
+		}
 		switch {
 		case p.Err != nil:
 			info.Kind = "invalid"
 			info.Error = p.Err.Error()
+		case p.Unmanaged:
+			info.Kind = "folder" // import candidate; docker never touched
 		case p.Legacy:
 			info.Kind = "legacy"
 			info.URL = "https://" + p.Name + "." + cfg.TLD
+			info.Served = true
 		case p.Manifest.Type == "app":
 			info.Kind = "app"
+		case p.Manifest.Type == "cluster":
+			info.Kind = "cluster"
+			info.Served = true
 		default:
 			info.Kind = string(p.Manifest.Template)
-			info.URL = "https://" + p.Manifest.Domain + "." + cfg.TLD
+			if p.Manifest.Served() {
+				info.URL = "https://" + p.Manifest.Domain + "." + cfg.TLD
+			}
+		}
+		if m := p.Manifest; m != nil && m.Type == "cluster" {
+			for _, k := range m.RouteKeys() {
+				rt := m.Routes[k]
+				info.Routes = append(info.Routes, ClusterRouteInfo{
+					Key: k, Subdomain: rt.Subdomain, Service: rt.Service, Port: rt.Port, Served: rt.Served(),
+				})
+			}
+		}
+		if m := p.Manifest; m != nil {
+			info.PHP = m.PHP
+			info.Served = m.Served()
+			for _, key := range m.ServiceKeys() {
+				svc := m.Services[key]
+				link := ProjectServiceInfo{
+					Key: key, Engine: svc.Engine, Version: svc.Version, Mode: string(svc.Mode),
+				}
+				if string(svc.Mode) == "shared" {
+					link.Instance = templates.InstanceName(svc.Engine, svc.Version)
+				}
+				info.Services = append(info.Services, link)
+			}
 		}
 		infos = append(infos, info)
 	}
@@ -159,6 +254,30 @@ func (s *Server) handleProjectAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
+	// rebuild/reset can be slow (image builds, volume teardown) — run them as
+	// background jobs with streamed logs, like create/destroy.
+	switch action {
+	case "rebuild", "reset":
+		noCache := r.URL.Query().Get("no_cache") != ""
+		job := s.Jobs.Start(action+":"+p.Name, func(log func(string)) error {
+			eng := s.NewJobEngine(log)
+			var jerr error
+			if action == "rebuild" {
+				log("rebuilding " + p.Name + (map[bool]string{true: " (no cache)"}[noCache]))
+				jerr = eng.Rebuild(context.Background(), p, noCache)
+			} else {
+				log("resetting " + p.Name + " (removing named volumes)...")
+				jerr = eng.Reset(context.Background(), p)
+			}
+			if jerr == nil && s.SyncRoutes != nil {
+				s.SyncRoutes()
+			}
+			return jerr
+		})
+		writeJSON(w, http.StatusAccepted, JobRef{Job: job.Snapshot()})
+		return
+	}
+
 	switch action {
 	case "start":
 		err = s.Engine.Up(r.Context(), p)
@@ -180,6 +299,26 @@ func (s *Server) handleProjectAction(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleProjectVolumes lists a project's named volumes (Reset blast radius).
+func (s *Server) handleProjectVolumes(w http.ResponseWriter, r *http.Request) {
+	p, err := state.Find(s.Config.Roots, r.PathValue("name"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	vols, err := s.Engine.Volumes(r.Context(), p)
+	if err != nil {
+		// Surface the error — a destructive Reset must not be confirmed
+		// against a misleading empty "nothing to delete" list.
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if vols == nil {
+		vols = []string{}
+	}
+	writeJSON(w, http.StatusOK, vols)
+}
+
 func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	var req CreateProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -187,8 +326,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	job := s.Jobs.Start("create:"+req.Name, func(log func(string)) error {
-		jobEngine := engine.New(s.Config)
-		jobEngine.Run = captureRunner(log)
+		jobEngine := s.NewJobEngine(log)
 		// Jobs outlive the request that started them — background context.
 		dir, err := jobEngine.NewProject(context.Background(), engine.NewOptions{
 			Name:      req.Name,
@@ -198,12 +336,102 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 			Redis:     req.Redis,
 			PHP:       req.PHP,
 			Version:   req.Version,
+			Serve:     req.Serve,
 			SkipStart: req.SkipStart,
 		})
 		if err != nil {
 			return err
 		}
 		log("created " + dir)
+		// Install the route + hosts entry now, so the site is reachable
+		// immediately instead of 503-ing until the next lifecycle action.
+		if !req.SkipStart && s.SyncRoutes != nil {
+			s.SyncRoutes()
+		}
+		return nil
+	})
+	writeJSON(w, http.StatusAccepted, JobRef{Job: job.Snapshot()})
+}
+
+func (s *Server) handleAdoptCluster(w http.ResponseWriter, r *http.Request) {
+	var req AdoptClusterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	m, err := s.Engine.AdoptCluster(engine.ClusterOptions{
+		Dir:          req.Dir,
+		Name:         req.Name,
+		ComposeRoot:  req.ComposeRoot,
+		ComposeFiles: req.ComposeFiles,
+		Profiles:     req.Profiles,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if s.SyncRoutes != nil {
+		go s.SyncRoutes()
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"name": m.Name})
+}
+
+func (s *Server) handleCreateCluster(w http.ResponseWriter, r *http.Request) {
+	var req CreateClusterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	specs := make([]engine.ContainerSpec, 0, len(req.Containers))
+	for _, c := range req.Containers {
+		svcs := make([]engine.ClusterServiceSpec, 0, len(c.Services))
+		for _, sv := range c.Services {
+			svcs = append(svcs, engine.ClusterServiceSpec{Engine: sv.Engine, Version: sv.Version})
+		}
+		specs = append(specs, engine.ContainerSpec{
+			Name: c.Name, Template: c.Template, Image: c.Image, Version: c.Version, Port: c.Port, Serve: c.Serve, Services: svcs,
+		})
+	}
+	job := s.Jobs.Start("create-cluster:"+req.Name, func(log func(string)) error {
+		eng := s.NewJobEngine(log)
+		dir, err := eng.NewCluster(context.Background(), engine.NewClusterOptions{
+			Name: req.Name, Root: req.Root, ComposeRoot: req.ComposeRoot, Managed: req.Managed, Containers: specs,
+		})
+		if err != nil {
+			return err
+		}
+		log("created cluster at " + dir)
+		if s.SyncRoutes != nil {
+			s.SyncRoutes()
+		}
+		return nil
+	})
+	writeJSON(w, http.StatusAccepted, JobRef{Job: job.Snapshot()})
+}
+
+func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
+	var req ImportRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	p, err := state.Find(s.Config.Roots, req.Name)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	if p.Manifest != nil {
+		writeError(w, http.StatusConflict, fmt.Errorf("%s is already managed by Hull", p.Name))
+		return
+	}
+	job := s.Jobs.Start("import:"+p.Name, func(log func(string)) error {
+		jobEngine := s.NewJobEngine(log)
+		if err := jobEngine.ImportExisting(context.Background(), p, log); err != nil {
+			return err
+		}
+		if s.SyncRoutes != nil {
+			s.SyncRoutes()
+		}
 		return nil
 	})
 	writeJSON(w, http.StatusAccepted, JobRef{Job: job.Snapshot()})

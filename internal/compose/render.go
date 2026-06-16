@@ -69,17 +69,21 @@ func Render(m *manifest.Manifest, ctx Context) (*File, error) {
 		if eng.JoinsCaddy {
 			networks = append(networks, caddyNetwork)
 		}
-		volume := key + "_data"
-		f.Services[key] = &ServiceDef{
+		svc := &ServiceDef{
 			Image:       eng.Image(s.Version),
+			Command:     eng.Command,
 			Environment: eng.Env(s.Database),
-			Volumes:     []string{volume + ":" + eng.DataPath},
 			Networks:    networks,
 		}
-		if f.Volumes == nil {
-			f.Volumes = map[string]*Volume{}
+		if eng.DataPath != "" {
+			volume := key + "_data"
+			svc.Volumes = []string{volume + ":" + eng.DataPath}
+			if f.Volumes == nil {
+				f.Volumes = map[string]*Volume{}
+			}
+			f.Volumes[volume] = nil
 		}
-		f.Volumes[volume] = nil
+		f.Services[key] = svc
 	}
 
 	return f, nil
@@ -97,10 +101,25 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 			"./:" + webrootMount,
 			xdebugMount(ctx, def.XdebugTarget),
 		},
-		Ports:      []string{loopbackPublish(def.UpstreamPort)},
 		ExtraHosts: []string{"host.docker.internal:host-gateway"},
-		Labels:     caddyLabels(m.Domain+"."+ctx.TLD, def.UpstreamPort),
-		Networks:   []string{"default", caddyNetwork},
+		Networks:   []string{"default"},
+	}
+	// Unserved sites (serve: false) still build and run; they just get no
+	// loopback publish, no caddy route, and no caddy network membership.
+	if m.Served() {
+		svc.Ports = []string{loopbackPublish(def.UpstreamPort)}
+		svc.Labels = caddyLabels(m.Domain+"."+ctx.TLD, def.UpstreamPort)
+		svc.Networks = append(svc.Networks, caddyNetwork)
+	}
+
+	if m.Template == "wordpress" {
+		// Best-effort fix for the Windows bind-mount Apache error
+		// "unable to read htaccess file, denying access to be safe": make the
+		// webroot world-readable on boot, then run the image's normal
+		// entrypoint. (Wrapper pattern; chmod is a no-op on mounts that ignore
+		// it, but resolves the denial where it applies.)
+		svc.Entrypoint = []string{"bash", "-c", "chmod -R a+rX /var/www/html 2>/dev/null || true; exec docker-entrypoint.sh \"$@\"", "--"}
+		svc.Command = "apache2-foreground"
 	}
 
 	env := append([]string{}, def.ExtraEnv...)
@@ -144,7 +163,7 @@ func containerService(m *manifest.Manifest, key string, c *manifest.Container, c
 			Environment: mergeEnv(def.ExtraEnv, m.Env, c.Env),
 			Networks:    []string{"default"},
 		}
-		if c.Domain != "" {
+		if c.Domain != "" && c.Served() {
 			port := def.UpstreamPort
 			if c.Port != 0 {
 				port = c.Port
@@ -163,7 +182,7 @@ func containerService(m *manifest.Manifest, key string, c *manifest.Container, c
 		Environment: mergeEnv(nil, m.Env, c.Env),
 		Networks:    []string{"default"},
 	}
-	if c.Domain != "" {
+	if c.Domain != "" && c.Served() {
 		svc.Ports = []string{loopbackPublish(c.Port)}
 		svc.Labels = caddyLabels(c.Domain+"."+ctx.TLD, c.Port)
 		svc.Networks = append(svc.Networks, caddyNetwork)

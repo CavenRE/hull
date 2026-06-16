@@ -21,6 +21,7 @@ type ServiceDef struct {
 	Image         string   `yaml:"image,omitempty"`
 	Build         string   `yaml:"build,omitempty"`
 	ContainerName string   `yaml:"container_name,omitempty"`
+	Entrypoint    []string `yaml:"entrypoint,omitempty"`
 	Command       string   `yaml:"command,omitempty"`
 	Environment   []string `yaml:"environment,omitempty"`
 	Volumes       []string `yaml:"volumes,omitempty"`

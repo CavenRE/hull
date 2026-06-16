@@ -77,31 +77,82 @@ func (d SiteDef) Image(php, version string) string {
 	return fmt.Sprintf("serversideup/php:%s-fpm-nginx", php)
 }
 
-// EngineDef describes a built-in service engine, ported from v1's
-// templates/services/*.yaml.
+// EngineDef describes a built-in service engine. Data-driven: adding an
+// engine is a map entry, no switch edits.
 type EngineDef struct {
 	Name           string
+	Category       string // database | cache | search | storage | mail | tool
 	DefaultVersion string
+	// imageRepo is the image without tag; the tag is the version.
+	imageRepo string
+	// imageTagSuffix is appended to the version in the tag (e.g. "-alpine").
+	imageTagSuffix string
+	// defaultTag is the image tag when no version is given AND
+	// DefaultVersion is empty (lets non-db services keep clean instance
+	// names while still pinning an image, e.g. redis "" -> redis:alpine).
+	defaultTag string
 	// DataPath is the in-container directory persisted to a named volume.
 	DataPath string
-	// JoinsCaddy: database engines join the caddy network so the global
-	// Adminer can reach them (v1 behavior).
+	// Command overrides the container command (e.g. minio "server").
+	Command string
+	// fixedEnv is instance environment that does not depend on a database.
+	fixedEnv []string
+	// JoinsCaddy: the instance joins the caddy network (reachable by other
+	// shared services and the router).
 	JoinsCaddy bool
 	IsDatabase bool
+	// containerPort is the primary in-network port (string for env wiring).
+	containerPort string
+	// UIPort is the container port of an embedded web UI (0 = none).
+	UIPort int
+	// UISubdomain serves that UI at <sub>.<tld> through the daemon router.
+	UISubdomain string
+	// HostPortBase: instances publish their primary port on a STABLE
+	// loopback host port scanned upward from here (0 = no primary publish).
+	HostPortBase int
 }
 
 var engines = map[string]EngineDef{
-	"postgres": {Name: "postgres", DefaultVersion: "16", DataPath: "/var/lib/postgresql/data", JoinsCaddy: true, IsDatabase: true},
-	"mysql":    {Name: "mysql", DefaultVersion: "8.0", DataPath: "/var/lib/mysql", JoinsCaddy: true, IsDatabase: true},
-	"mariadb":  {Name: "mariadb", DefaultVersion: "lts", DataPath: "/var/lib/mysql", JoinsCaddy: true, IsDatabase: true},
-	"redis":    {Name: "redis", DataPath: "/data"},
+	"postgres": {Name: "postgres", Category: "database", DefaultVersion: "16", imageRepo: "postgres", imageTagSuffix: "-alpine", DataPath: "/var/lib/postgresql/data", JoinsCaddy: true, IsDatabase: true, containerPort: "5432", HostPortBase: 54320,
+		fixedEnv: []string{"POSTGRES_HOST_AUTH_METHOD=trust", "POSTGRES_USER=postgres"}},
+	"mysql": {Name: "mysql", Category: "database", DefaultVersion: "8.0", imageRepo: "mysql", DataPath: "/var/lib/mysql", JoinsCaddy: true, IsDatabase: true, containerPort: "3306", HostPortBase: 53360,
+		fixedEnv: []string{"MYSQL_ALLOW_EMPTY_PASSWORD=yes"}},
+	"mariadb": {Name: "mariadb", Category: "database", DefaultVersion: "lts", imageRepo: "mariadb", DataPath: "/var/lib/mysql", JoinsCaddy: true, IsDatabase: true, containerPort: "3306", HostPortBase: 53390,
+		fixedEnv: []string{"MYSQL_ALLOW_EMPTY_PASSWORD=yes"}},
+	"redis":   {Name: "redis", Category: "cache", imageRepo: "redis", defaultTag: "alpine", DataPath: "/data", containerPort: "6379", HostPortBase: 56379},
+	"mailpit": {Name: "mailpit", Category: "mail", imageRepo: "axllent/mailpit", defaultTag: "latest", DataPath: "/data", JoinsCaddy: true, containerPort: "1025", UIPort: 8025, UISubdomain: "mail", HostPortBase: 52525, fixedEnv: []string{"MP_DATABASE=/data/mailpit.db"}},
+	"adminer": {Name: "adminer", Category: "tool", imageRepo: "adminer", defaultTag: "latest", JoinsCaddy: true, UIPort: 8080, UISubdomain: "db"},
+
+	// Herd-parity additions (Wave H). Non-db engines keep clean instance
+	// names (empty DefaultVersion) but pin an image via defaultTag.
+	"memcached": {Name: "memcached", Category: "cache", imageRepo: "memcached", defaultTag: "alpine", containerPort: "11211", HostPortBase: 51121},
+	"meilisearch": {Name: "meilisearch", Category: "search", imageRepo: "getmeili/meilisearch", defaultTag: "v1.11", DataPath: "/meili_data", JoinsCaddy: true,
+		containerPort: "7700", UIPort: 7700, UISubdomain: "search", HostPortBase: 57700,
+		fixedEnv: []string{"MEILI_ENV=development", "MEILI_MASTER_KEY=hullMasterKey", "MEILI_NO_ANALYTICS=true"}},
+	"typesense": {Name: "typesense", Category: "search", imageRepo: "typesense/typesense", defaultTag: "27.1", DataPath: "/data", JoinsCaddy: true,
+		containerPort: "8108", HostPortBase: 58108, Command: "--data-dir /data --api-key=hullTypesenseKey --enable-cors"},
+	"minio": {Name: "minio", Category: "storage", imageRepo: "minio/minio", defaultTag: "latest", DataPath: "/data", JoinsCaddy: true,
+		containerPort: "9000", UIPort: 9001, UISubdomain: "storage", HostPortBase: 59000, Command: "server /data --console-address :9001",
+		fixedEnv: []string{"MINIO_ROOT_USER=hull", "MINIO_ROOT_PASSWORD=hullsecret"}},
 }
+
+// SitePHPRepo is the Docker Hub repo Hull's PHP site image comes from.
+const SitePHPRepo = "serversideup/php"
+
+// PHPVersionRepo drives the live PHP-version picker. Hull's site image is
+// serversideup/php, but that repo's recent tags are mostly beta builds;
+// the official php image exposes clean X.Y tags for the same minors.
+const PHPVersionRepo = "php"
 
 // Engine returns the built-in engine definition for name.
 func Engine(name string) (EngineDef, bool) {
 	e, ok := engines[name]
 	return e, ok
 }
+
+// Repo is the Docker Hub repository for the engine's image (used for live
+// version lookups). Empty when the engine has no published versions.
+func (e EngineDef) Repo() string { return e.imageRepo }
 
 // EngineKeys returns the built-in engine names, sorted.
 func EngineKeys() []string {
@@ -119,44 +170,33 @@ func (e EngineDef) Image(version string) string {
 	if version == "" {
 		version = e.DefaultVersion
 	}
-	switch e.Name {
-	case "postgres":
-		return "postgres:" + version + "-alpine"
-	case "mysql":
-		return "mysql:" + version
-	case "mariadb":
-		return "mariadb:" + version
-	case "redis":
-		if version == "" {
-			return "redis:alpine"
-		}
-		return "redis:" + version + "-alpine"
+	if e.imageRepo == "" {
+		return ""
 	}
-	return ""
+	if version == "" {
+		tag := e.defaultTag
+		if tag == "" {
+			tag = "latest"
+		}
+		return e.imageRepo + ":" + tag
+	}
+	return e.imageRepo + ":" + version + e.imageTagSuffix
 }
 
-// Env returns the engine's container environment (KEY=value pairs, sorted)
-// for the given database name. An empty database omits the create-database
-// variable — shared instances create databases per linked project instead.
+// Env returns the engine's container environment (KEY=value pairs) for the
+// given database name. An empty database omits the create-database variable
+// — shared instances create databases per linked project instead.
 func (e EngineDef) Env(database string) []string {
-	switch e.Name {
-	case "postgres":
-		env := []string{
-			"POSTGRES_HOST_AUTH_METHOD=trust",
-			"POSTGRES_USER=postgres",
-		}
-		if database != "" {
+	env := append([]string(nil), e.fixedEnv...)
+	if e.IsDatabase && database != "" {
+		switch e.Name {
+		case "postgres":
 			env = append([]string{"POSTGRES_DB=" + database}, env...)
-		}
-		return env
-	case "mysql", "mariadb":
-		env := []string{"MYSQL_ALLOW_EMPTY_PASSWORD=yes"}
-		if database != "" {
+		case "mysql", "mariadb":
 			env = append(env, "MYSQL_DATABASE="+database)
 		}
-		return env
 	}
-	return nil
+	return env
 }
 
 // InstanceName names a shared service instance for an engine+version, e.g.
@@ -182,15 +222,7 @@ func InstanceContainerName(engine, version string) string {
 }
 
 // DefaultPort is the engine's in-network port, used when wiring project
-// env files to shared instances.
+// env files to shared instances and publishing the stable host port.
 func (e EngineDef) DefaultPort() string {
-	switch e.Name {
-	case "postgres":
-		return "5432"
-	case "mysql", "mariadb":
-		return "3306"
-	case "redis":
-		return "6379"
-	}
-	return ""
+	return e.containerPort
 }

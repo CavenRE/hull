@@ -22,6 +22,11 @@ type Server struct {
 
 	udp *mdns.Server
 	tcp *mdns.Server
+
+	// TCPErr records a failed TCP bind, leaving the server in UDP-only
+	// mode. Common on Windows where wslrelay holds TCP 127.0.0.1:53.
+	// UDP alone serves resolver lookups — Hull's answers never truncate.
+	TCPErr error
 }
 
 // Start binds UDP and TCP listeners and serves in the background.
@@ -59,21 +64,20 @@ func (s *Server) Start() error {
 	})
 
 	// Bind explicitly first so port conflicts surface as errors here, not
-	// in a goroutine.
+	// in a goroutine. UDP is required; TCP is best-effort.
 	pc, err := net.ListenPacket("udp", s.Addr)
 	if err != nil {
 		return fmt.Errorf("dns udp listen %s: %w", s.Addr, err)
 	}
-	ln, err := net.Listen("tcp", pc.LocalAddr().String())
-	if err != nil {
-		_ = pc.Close()
-		return fmt.Errorf("dns tcp listen: %w", err)
-	}
-
 	s.udp = &mdns.Server{PacketConn: pc, Handler: handler}
-	s.tcp = &mdns.Server{Listener: ln, Handler: handler}
 	go func() { _ = s.udp.ActivateAndServe() }()
-	go func() { _ = s.tcp.ActivateAndServe() }()
+
+	if ln, err := net.Listen("tcp", pc.LocalAddr().String()); err != nil {
+		s.TCPErr = fmt.Errorf("dns tcp listen: %w", err)
+	} else {
+		s.tcp = &mdns.Server{Listener: ln, Handler: handler}
+		go func() { _ = s.tcp.ActivateAndServe() }()
+	}
 	return nil
 }
 

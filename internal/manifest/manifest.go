@@ -25,8 +25,9 @@ const Filename = "hull.yaml"
 type Type string
 
 const (
-	TypeSite Type = "site"
-	TypeApp  Type = "app"
+	TypeSite    Type = "site"
+	TypeApp     Type = "app"
+	TypeCluster Type = "cluster"
 )
 
 // Mode says whether a service is a project-private container or a link to a
@@ -47,11 +48,40 @@ type Manifest struct {
 	Domain   string `yaml:"domain,omitempty"`   // sites only; defaults to Name
 	PHP      string `yaml:"php,omitempty"`      // sites only (laravel/plain)
 	Version  string `yaml:"version,omitempty"`  // sites only (wordpress image tag)
+	// Serve controls whether Hull gives this project a routed domain (vhost
+	// + cert + DNS). nil = heuristic default; explicit wins. (Wired in J1.)
+	Serve *bool `yaml:"serve,omitempty"`
 
 	Containers map[string]*Container `yaml:"containers,omitempty"` // apps only
 	Services   map[string]*Service   `yaml:"services,omitempty"`
 	Env        map[string]string     `yaml:"env,omitempty"`
 	Hooks      Hooks                 `yaml:"hooks,omitempty"`
+
+	// Cluster fields (type: cluster) — Hull wraps an existing compose project
+	// rather than generating one. Orchestration stays with docker compose.
+	ComposeRoot  string                   `yaml:"compose_root,omitempty"`  // dir holding the compose file, relative to the project (default ".")
+	ComposeFiles []string                 `yaml:"compose_files,omitempty"` // extra -f files (base auto-detected if empty)
+	Profiles     []string                 `yaml:"profiles,omitempty"`      // active compose profiles
+	Routes       map[string]*ClusterRoute `yaml:"routes,omitempty"`        // served subdomains → service:port
+}
+
+// ClusterRoute maps a subdomain to one of the cluster's compose services.
+type ClusterRoute struct {
+	Service   string `yaml:"service"`             // compose service name
+	Port      int    `yaml:"port"`                // container port to proxy
+	Subdomain string `yaml:"subdomain,omitempty"` // defaults to the route key
+	Serve     *bool  `yaml:"serve,omitempty"`     // nil = served
+}
+
+// Served reports whether this route gets a routed domain (default true).
+func (r *ClusterRoute) Served() bool {
+	if r == nil {
+		return false
+	}
+	if r.Serve != nil {
+		return *r.Serve
+	}
+	return true
 }
 
 // Container is one container of a type:app project. Exactly one source must
@@ -67,6 +97,9 @@ type Container struct {
 	Port     int               `yaml:"port,omitempty"` // upstream port; required for routed raw containers
 	Command  string            `yaml:"command,omitempty"`
 	Env      map[string]string `yaml:"env,omitempty"`
+	// Serve controls whether this container gets a routed domain. nil =
+	// heuristic default (a domain/port implies served).
+	Serve *bool `yaml:"serve,omitempty"`
 }
 
 // Service declares infrastructure the project needs (database, cache).
@@ -76,6 +109,9 @@ type Service struct {
 	Version  string `yaml:"version,omitempty"`
 	Mode     Mode   `yaml:"mode,omitempty"`
 	Database string `yaml:"database,omitempty"`
+	// Serve controls whether a service with a web UI is routed. nil =
+	// heuristic (UISubdomain engines served, plain datastores not).
+	Serve *bool `yaml:"serve,omitempty"`
 }
 
 // Hooks are project lifecycle commands (executed from Phase 2 onward).
@@ -91,6 +127,51 @@ var (
 	phpRE    = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
 	envKeyRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
+
+// Slug normalizes a display name to a domain-safe label matching nameRE:
+// lowercase, spaces/underscores/dots → hyphens, other chars dropped,
+// collapsed and trimmed hyphens. The result may still start with a digit
+// (rare); validation reports that with a friendly message.
+func Slug(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	var b strings.Builder
+	lastHyphen := false
+	for _, r := range s {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'):
+			b.WriteRune(r)
+			lastHyphen = false
+		case r == ' ' || r == '_' || r == '-' || r == '.':
+			if b.Len() > 0 && !lastHyphen {
+				b.WriteByte('-')
+				lastHyphen = true
+			}
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+// Served reports whether an app container is routed. Explicit Serve wins;
+// the default is "served when it declares a domain".
+func (c *Container) Served() bool {
+	if c == nil {
+		return false
+	}
+	if c.Serve != nil {
+		return *c.Serve
+	}
+	return c.Domain != ""
+}
+
+// Served reports whether Hull should give this project a routed domain
+// (vhost + cert + DNS). Explicit Serve wins; the default is true — sites are
+// web-facing. Workers/headless apps set serve: false.
+func (m *Manifest) Served() bool {
+	if m.Serve != nil {
+		return *m.Serve
+	}
+	return true
+}
 
 // Load reads, normalizes, and validates the manifest at path, which may be a
 // project directory (containing hull.yaml) or the manifest file itself.
@@ -148,6 +229,16 @@ func (m *Manifest) normalize() {
 			c.PHP = templates.DefaultPHP
 		}
 	}
+	if m.Type == TypeCluster {
+		if m.ComposeRoot == "" {
+			m.ComposeRoot = "."
+		}
+		for key, rt := range m.Routes {
+			if rt != nil && rt.Subdomain == "" {
+				rt.Subdomain = key
+			}
+		}
+	}
 	for _, s := range m.Services {
 		if s == nil {
 			continue
@@ -195,8 +286,10 @@ func (m *Manifest) Validate() error {
 		m.validateSite(fail)
 	case TypeApp:
 		m.validateApp(fail)
+	case TypeCluster:
+		m.validateCluster(fail)
 	default:
-		fail("invalid type %q: must be %q or %q", m.Type, TypeSite, TypeApp)
+		fail("invalid type %q: must be %q, %q, or %q", m.Type, TypeSite, TypeApp, TypeCluster)
 	}
 
 	m.validateServices(fail)
@@ -287,6 +380,44 @@ func (m *Manifest) validateApp(fail func(string, ...any)) {
 			}
 		}
 	}
+}
+
+func (m *Manifest) validateCluster(fail func(string, ...any)) {
+	if m.Template != "" || m.PHP != "" || m.Version != "" || m.Domain != "" {
+		fail("'template', 'php', 'version', and 'domain' are not valid for type: cluster")
+	}
+	if len(m.Containers) > 0 {
+		fail("'containers' is not valid for type: cluster (it wraps an existing compose project)")
+	}
+	if len(m.Services) > 0 {
+		fail("'services' is not valid for type: cluster (use the wrapped compose project's services)")
+	}
+	for key, rt := range m.Routes {
+		if !keyRE.MatchString(key) {
+			fail("invalid route key %q", key)
+			continue
+		}
+		if rt == nil || rt.Service == "" {
+			fail("route %q: 'service' is required", key)
+			continue
+		}
+		if rt.Port < 1 || rt.Port > 65535 {
+			fail("route %q: invalid port %d", key, rt.Port)
+		}
+		if rt.Subdomain != "" && !nameRE.MatchString(rt.Subdomain) {
+			fail("route %q: invalid subdomain %q", key, rt.Subdomain)
+		}
+	}
+}
+
+// RouteKeys returns cluster route keys in sorted order.
+func (m *Manifest) RouteKeys() []string {
+	keys := make([]string, 0, len(m.Routes))
+	for k := range m.Routes {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func (m *Manifest) validateServices(fail func(string, ...any)) {

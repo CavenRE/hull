@@ -4,8 +4,10 @@ The cross-platform rewrite of Hull: a Docker-based local development
 environment for Windows, macOS, and Linux (Debian/Arch), with a CLI-first
 core and an optional Tauri tray/GUI app.
 
-**Status: Phase 0 — groundwork.** Nothing usable on this branch yet.
-The working bash version of Hull (v1, Linux/WSL2) lives on [`main`](../../tree/main).
+**Status: working.** The Go daemon + CLI run sites (Laravel/WordPress/plain),
+shared service instances, and multi-container clusters, with embedded HTTPS
+routing, wildcard `*.test` DNS, and a Tauri GUI. The original bash version of
+Hull (v1, Linux/WSL2) lives on [`main`](../../tree/main).
 
 ## Architecture
 
@@ -24,9 +26,8 @@ The working bash version of Hull (v1, Linux/WSL2) lives on [`main`](../../tree/m
 ```
 cmd/hull/        CLI entrypoint
 cmd/hulld/       daemon entrypoint
-internal/        core packages (see each package's doc.go for its role and phase)
-docs/adr/        architecture decision records
-gui/             Tauri app (arrives in Phase 7)
+internal/        core packages (see each package's doc.go for its role)
+gui/             Tauri tray + GUI app
 ```
 
 ## Building

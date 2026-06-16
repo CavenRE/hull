@@ -113,6 +113,41 @@ func TestLinkInvalidCombinationRollsBack(t *testing.T) {
 	}
 }
 
+func TestLinkSearchWritesScoutEnv(t *testing.T) {
+	e, p, mgr, _ := linkFixture(t)
+	if _, err := e.Link(context.Background(), p, "meilisearch", mgr); err != nil {
+		t.Fatal(err)
+	}
+	m, err := manifest.Load(p.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Services["search"] == nil || m.Services["search"].Engine != "meilisearch" {
+		t.Fatalf("search service = %+v", m.Services["search"])
+	}
+	envData, _ := os.ReadFile(filepath.Join(p.Dir, ".env"))
+	env := string(envData)
+	for _, want := range []string{"SCOUT_DRIVER=meilisearch", "MEILISEARCH_HOST=http://hull-meilisearch:7700", "MEILISEARCH_KEY=hullMasterKey"} {
+		if !strings.Contains(env, want) {
+			t.Errorf(".env missing %q:\n%s", want, env)
+		}
+	}
+}
+
+func TestLinkStorageWritesS3Env(t *testing.T) {
+	e, p, mgr, _ := linkFixture(t)
+	if _, err := e.Link(context.Background(), p, "minio", mgr); err != nil {
+		t.Fatal(err)
+	}
+	envData, _ := os.ReadFile(filepath.Join(p.Dir, ".env"))
+	env := string(envData)
+	for _, want := range []string{"FILESYSTEM_DISK=s3", "AWS_ENDPOINT=http://hull-minio:9000", "AWS_USE_PATH_STYLE_ENDPOINT=true"} {
+		if !strings.Contains(env, want) {
+			t.Errorf(".env missing %q:\n%s", want, env)
+		}
+	}
+}
+
 func TestUnlink(t *testing.T) {
 	e, p, mgr, _ := linkFixture(t)
 	if _, err := e.Link(context.Background(), p, "redis", mgr); err != nil {

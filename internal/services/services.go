@@ -3,9 +3,12 @@ package services
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/CavenRE/hull/internal/compose"
@@ -22,6 +25,9 @@ type Instance struct {
 	Container string // hull-postgres-16
 	Dir       string
 	Running   bool
+	// HostPort is the stable loopback port the primary service port is
+	// published on (0 = none) — what desktop tools connect to.
+	HostPort int
 }
 
 // Manager owns shared service instances under <hullHome>/services. Each
@@ -95,19 +101,47 @@ func (m *Manager) Add(ctx context.Context, engineName, version string) (string, 
 		return "", err
 	}
 
+	svc := &compose.ServiceDef{
+		Image:         def.Image(version),
+		ContainerName: templates.InstanceContainerName(def.Name, version),
+		Command:       def.Command,
+		Environment:   def.Env(""),
+		Networks:      []string{sharedNetwork},
+	}
+	if def.DataPath != "" {
+		svc.Volumes = []string{"data:" + def.DataPath}
+	}
+	if def.Name == "adminer" {
+		// Auto-login plugin: empty passwords are the local-dev norm.
+		if err := templates.EnsureSystemFiles(m.HullHome); err != nil {
+			return "", err
+		}
+		plugin := strings.ReplaceAll(templates.AdminerPluginPath(m.HullHome), "\\", "/")
+		svc.Volumes = append(svc.Volumes, plugin+":/var/www/html/plugins-enabled/hull-login.php:ro")
+	}
+
+	// Primary port on a STABLE loopback host port: desktop tools
+	// (TablePlus, DataGrip) connect here; survives instance restarts.
+	if def.HostPortBase > 0 && def.DefaultPort() != "" {
+		hostPort := existingHostPort(dir, def.DefaultPort())
+		if hostPort == 0 {
+			hostPort = m.pickStablePort(def.HostPortBase)
+		}
+		svc.Ports = append(svc.Ports, fmt.Sprintf("127.0.0.1:%d:%s", hostPort, def.DefaultPort()))
+	}
+	if def.UIPort > 0 {
+		// Embedded web UI rides the host router (ADR 0007): publish on a
+		// loopback ephemeral port; the daemon routes <UISubdomain>.<tld>.
+		svc.Ports = append(svc.Ports, fmt.Sprintf("127.0.0.1::%d", def.UIPort))
+	}
+
 	file := &compose.File{
-		Name: composeProject(name),
-		Services: map[string]*compose.ServiceDef{
-			def.Name: {
-				Image:         def.Image(version),
-				ContainerName: templates.InstanceContainerName(def.Name, version),
-				Environment:   def.Env(""),
-				Volumes:       []string{"data:" + def.DataPath},
-				Networks:      []string{sharedNetwork},
-			},
-		},
+		Name:     composeProject(name),
+		Services: map[string]*compose.ServiceDef{def.Name: svc},
 		Networks: map[string]*compose.Network{sharedNetwork: {External: true}},
-		Volumes:  map[string]*compose.Volume{"data": nil},
+	}
+	if def.DataPath != "" {
+		file.Volumes = map[string]*compose.Volume{"data": nil}
 	}
 	data, err := compose.Marshal(file)
 	if err != nil {
@@ -152,14 +186,18 @@ func (m *Manager) List(ctx context.Context) ([]Instance, error) {
 		}
 		name := e.Name()
 		engineName, version, _ := strings.Cut(name, "-")
-		instances = append(instances, Instance{
+		in := Instance{
 			Name:      name,
 			Engine:    engineName,
 			Version:   version,
 			Container: "hull-" + name,
 			Dir:       m.Dir(name),
 			Running:   running[composeProject(name)],
-		})
+		}
+		if def, ok := templates.Engine(engineName); ok && def.DefaultPort() != "" {
+			in.HostPort = existingHostPort(in.Dir, def.DefaultPort())
+		}
+		instances = append(instances, in)
 	}
 	sort.Slice(instances, func(i, j int) bool { return instances[i].Name < instances[j].Name })
 	return instances, nil
@@ -190,6 +228,58 @@ func (m *Manager) Remove(ctx context.Context, instance string) error {
 		return err
 	}
 	return os.RemoveAll(m.Dir(instance))
+}
+
+// stablePortRE matches "127.0.0.1:HOST:CONTAINER" published ports.
+var stablePortRE = regexp.MustCompile(`127\.0\.0\.1:(\d+):(\d+)`)
+
+// existingHostPort returns the stable host port already persisted in an
+// instance's compose file for the given container port — re-adding an
+// instance must never move its port.
+func existingHostPort(dir, containerPort string) int {
+	data, err := os.ReadFile(filepath.Join(dir, "compose.yaml"))
+	if err != nil {
+		return 0
+	}
+	for _, match := range stablePortRE.FindAllStringSubmatch(string(data), -1) {
+		if match[2] == containerPort {
+			port, _ := strconv.Atoi(match[1])
+			return port
+		}
+	}
+	return 0
+}
+
+// pickStablePort scans upward from base for a port not claimed by another
+// instance and currently bindable.
+func (m *Manager) pickStablePort(base int) int {
+	taken := map[int]bool{}
+	if entries, err := os.ReadDir(m.servicesDir()); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			if data, err := os.ReadFile(filepath.Join(m.Dir(e.Name()), "compose.yaml")); err == nil {
+				for _, match := range stablePortRE.FindAllStringSubmatch(string(data), -1) {
+					if p, err := strconv.Atoi(match[1]); err == nil {
+						taken[p] = true
+					}
+				}
+			}
+		}
+	}
+	for port := base; port < base+200; port++ {
+		if taken[port] {
+			continue
+		}
+		ln, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(port))
+		if err != nil {
+			continue
+		}
+		_ = ln.Close()
+		return port
+	}
+	return base // last resort; compose will surface the conflict
 }
 
 func (m *Manager) exists(instance string) error {

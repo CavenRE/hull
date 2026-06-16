@@ -34,7 +34,7 @@ func TestScanMixedRoots(t *testing.T) {
 	for _, p := range projects {
 		names = append(names, p.Name)
 	}
-	want := "alpha,beta,legacy"
+	want := "alpha,beta,legacy,notes"
 	if got := strings.Join(names, ","); got != want {
 		t.Errorf("projects = %s, want %s", got, want)
 	}
@@ -44,9 +44,13 @@ func TestScanMixedRoots(t *testing.T) {
 			if !p.Legacy {
 				t.Error("legacy project not marked Legacy")
 			}
+		case "notes":
+			if !p.Unmanaged {
+				t.Error("plain folder not marked Unmanaged")
+			}
 		default:
-			if p.Legacy || p.Manifest == nil {
-				t.Errorf("project %s: Legacy=%v Manifest=%v", p.Name, p.Legacy, p.Manifest)
+			if p.Legacy || p.Unmanaged || p.Manifest == nil {
+				t.Errorf("project %s: Legacy=%v Unmanaged=%v Manifest=%v", p.Name, p.Legacy, p.Unmanaged, p.Manifest)
 			}
 		}
 	}
@@ -64,13 +68,18 @@ func TestScanBrokenManifestIsVisible(t *testing.T) {
 	}
 }
 
-func TestScanDuplicateNames(t *testing.T) {
+func TestScanDuplicateNamesFirstWins(t *testing.T) {
 	a := t.TempDir()
 	b := t.TempDir()
 	writeFile(t, filepath.Join(a, "dup", "hull.yaml"), "schema: 1\nname: dup\ntemplate: plain\n")
 	writeFile(t, filepath.Join(b, "dup", "hull.yaml"), "schema: 1\nname: dup\ntemplate: plain\n")
-	if _, err := Scan([]string{a, b}); err == nil || !strings.Contains(err.Error(), "duplicate") {
-		t.Errorf("expected duplicate error, got %v", err)
+	// A name collision across roots must NOT break the scan — first wins.
+	projects, err := Scan([]string{a, b})
+	if err != nil {
+		t.Fatalf("duplicate names should not error: %v", err)
+	}
+	if len(projects) != 1 || projects[0].Dir != filepath.Join(a, "dup") {
+		t.Errorf("expected the first root to win, got %+v", projects)
 	}
 }
 

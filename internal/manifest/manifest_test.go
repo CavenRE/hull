@@ -5,6 +5,36 @@ import (
 	"testing"
 )
 
+func TestSlug(t *testing.T) {
+	cases := map[string]string{
+		"My App":         "my-app",
+		"Bad_Name":       "bad-name",
+		"  spaced  out ": "spaced-out",
+		"already-slug":   "already-slug",
+		"Foo.Bar_Baz":    "foo-bar-baz",
+		"@@@":            "",
+		"UPPER":          "upper",
+		"a--b__c":        "a-b-c",
+	}
+	for in, want := range cases {
+		if got := Slug(in); got != want {
+			t.Errorf("Slug(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestServedDefault(t *testing.T) {
+	m := &Manifest{}
+	if !m.Served() {
+		t.Error("nil Serve should default to served")
+	}
+	no := false
+	m.Serve = &no
+	if m.Served() {
+		t.Error("explicit serve:false should not be served")
+	}
+}
+
 func parse(t *testing.T, src string) *Manifest {
 	t.Helper()
 	m, err := Parse([]byte(src))

@@ -15,6 +15,7 @@ import (
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/engine"
 	"github.com/CavenRE/hull/internal/jobs"
+	"github.com/CavenRE/hull/internal/services"
 )
 
 type recorded struct {
@@ -37,6 +38,30 @@ func testServer(t *testing.T) (*Server, *Client, *recorded) {
 	s.Engine = engine.New(cfg)
 	s.Engine.Run = rec.runner()
 	s.Engine.EnsureNet = func(ctx context.Context, name string) error { return nil }
+	s.NewJobEngine = func(log func(string)) *engine.Engine {
+		e := engine.New(cfg)
+		e.Run = func(ctx context.Context, dir, name string, args ...string) error {
+			log("$ " + name + " " + strings.Join(args, " "))
+			rec.commands = append(rec.commands, name+" "+strings.Join(args, " "))
+			return nil
+		}
+		e.EnsureNet = func(ctx context.Context, name string) error { return nil }
+		return e
+	}
+	fakeServices := func() *services.Manager {
+		return &services.Manager{
+			HullHome: cfg.HullHome,
+			Run:      rec.runner(),
+			Output: func(ctx context.Context, dir, name string, args ...string) (string, error) {
+				rec.commands = append(rec.commands, name+" "+strings.Join(args, " "))
+				return "", nil
+			},
+			EnsureNet:       func(ctx context.Context, name string) error { return nil },
+			RunningProjects: func(ctx context.Context) ([]string, error) { return []string{"hull-mailpit"}, nil },
+		}
+	}
+	s.Services = fakeServices
+	s.JobServices = func(log func(string)) *services.Manager { return fakeServices() }
 	s.RunningProjects = func(ctx context.Context) ([]string, error) { return []string{"alpha"}, nil }
 
 	ts := httptest.NewServer(s.Handler())
@@ -65,6 +90,54 @@ func TestAuthRequired(t *testing.T) {
 	}
 	if _, err := client.Status(context.Background()); err != nil {
 		t.Fatalf("correct token rejected: %v", err)
+	}
+}
+
+func TestQueryTokenAndCORS(t *testing.T) {
+	_, client, _ := testServer(t)
+
+	// SSE-style query token authenticates.
+	resp, err := client.HTTP.Get(client.BaseURL + "/v1/status?token=secret-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("query token status = %d", resp.StatusCode)
+	}
+	resp, err = client.HTTP.Get(client.BaseURL + "/v1/status?token=wrong")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Errorf("wrong query token status = %d", resp.StatusCode)
+	}
+
+	// CORS preflight needs no token and reflects the origin.
+	req, _ := http.NewRequest(http.MethodOptions, client.BaseURL+"/v1/projects", nil)
+	req.Header.Set("Origin", "tauri://localhost")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	resp, err = client.HTTP.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Errorf("preflight status = %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "tauri://localhost" {
+		t.Errorf("allow-origin = %q", got)
+	}
+	// The webview uses PUT (config) and PATCH (project) — preflight must allow them.
+	methods := resp.Header.Get("Access-Control-Allow-Methods")
+	for _, m := range []string{"PUT", "PATCH", "DELETE"} {
+		if !strings.Contains(methods, m) {
+			t.Errorf("allow-methods %q missing %s", methods, m)
+		}
+	}
+	if h := resp.Header.Get("Access-Control-Allow-Headers"); !strings.Contains(h, "Authorization") {
+		t.Errorf("allow-headers = %q", h)
 	}
 }
 
@@ -146,8 +219,9 @@ func TestCreateProjectJob(t *testing.T) {
 
 func TestCreateProjectJobFailure(t *testing.T) {
 	_, client, _ := testServer(t)
+	// "@@@" slugifies to empty → unsalvageable → the create job must fail.
 	job, err := client.CreateProject(context.Background(), CreateProjectRequest{
-		Name: "Bad_Name", Template: "plain", SkipStart: true,
+		Name: "@@@", Template: "plain", SkipStart: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -158,6 +232,127 @@ func TestCreateProjectJobFailure(t *testing.T) {
 	}
 	if final.Status != jobs.StatusFailed || final.Error == "" {
 		t.Errorf("job = %+v", final)
+	}
+}
+
+func TestImportUnmanagedFolder(t *testing.T) {
+	s, client, _ := testServer(t)
+	dir := filepath.Join(s.Config.Roots[0], "oldsite")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "index.php"), []byte("<?php"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Listed as an unstarted folder before import.
+	infos, err := client.Projects(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 1 || infos[0].Kind != "folder" {
+		t.Fatalf("pre-import listing = %+v", infos)
+	}
+
+	var ref JobRef
+	if err := client.do(context.Background(), http.MethodPost, "/v1/imports", ImportRequest{Name: "oldsite"}, &ref); err != nil {
+		t.Fatal(err)
+	}
+	final, err := client.WaitJob(context.Background(), ref.Job.ID, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.Status != jobs.StatusDone {
+		t.Fatalf("import job = %+v", final)
+	}
+	infos, err = client.Projects(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 1 || infos[0].Kind != "plain" {
+		t.Errorf("post-import listing = %+v", infos)
+	}
+
+	// Re-import must refuse.
+	err = client.do(context.Background(), http.MethodPost, "/v1/imports", ImportRequest{Name: "oldsite"}, &ref)
+	if err == nil {
+		t.Error("second import should conflict")
+	}
+}
+
+func TestServicesEndpoints(t *testing.T) {
+	s, client, _ := testServer(t)
+
+	// Empty at first.
+	var infos []ServiceInfo
+	if err := client.do(context.Background(), http.MethodGet, "/v1/services", nil, &infos); err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 0 {
+		t.Fatalf("initial services = %+v", infos)
+	}
+
+	// Add mailpit as a job.
+	var ref JobRef
+	if err := client.do(context.Background(), http.MethodPost, "/v1/services", AddServiceRequest{Engine: "mailpit"}, &ref); err != nil {
+		t.Fatal(err)
+	}
+	final, err := client.WaitJob(context.Background(), ref.Job.ID, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.Status != jobs.StatusDone {
+		t.Fatalf("add job = %+v", final)
+	}
+
+	if err := client.do(context.Background(), http.MethodGet, "/v1/services", nil, &infos); err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 1 || infos[0].Name != "mailpit" || !infos[0].Running {
+		t.Fatalf("services = %+v", infos)
+	}
+	if infos[0].URL != "https://mail.test" {
+		t.Errorf("mailpit url = %q", infos[0].URL)
+	}
+
+	// Unknown engine rejected up front.
+	err = client.do(context.Background(), http.MethodPost, "/v1/services", AddServiceRequest{Engine: "mongo"}, &ref)
+	if err == nil {
+		t.Error("unknown engine should 400")
+	}
+
+	// Link a project to it.
+	writeProject(t, s.Config.Roots[0], "shop")
+	if err := client.do(context.Background(), http.MethodPost, "/v1/services/mailpit/link", LinkRequest{Project: "shop"}, &ref); err != nil {
+		t.Fatal(err)
+	}
+	final, err = client.WaitJob(context.Background(), ref.Job.ID, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.Status != jobs.StatusDone {
+		t.Fatalf("link job = %+v (lines %v)", final, final.Lines)
+	}
+	data, err := os.ReadFile(filepath.Join(s.Config.Roots[0], "shop", "hull.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "mailpit") || !strings.Contains(string(data), "shared") {
+		t.Errorf("manifest after link:\n%s", data)
+	}
+
+	// Stop and remove.
+	if err := client.do(context.Background(), http.MethodPost, "/v1/services/mailpit/stop", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.do(context.Background(), http.MethodDelete, "/v1/services/mailpit", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.do(context.Background(), http.MethodGet, "/v1/services", nil, &infos); err != nil {
+		t.Fatal(err)
+	}
+	if len(infos) != 0 {
+		t.Fatalf("services after remove = %+v", infos)
 	}
 }
 

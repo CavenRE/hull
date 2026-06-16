@@ -8,19 +8,22 @@ import (
 
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/engine"
+	"github.com/CavenRE/hull/internal/services"
 	"github.com/CavenRE/hull/internal/templates"
 )
 
 func init() {
 	var (
-		db          string
-		noDB        bool
-		withRedis   bool
-		php         string
-		fwVersion   string
-		dbVersion   string
-		interactive bool
-		noStart     bool
+		db           string
+		noDB         bool
+		withRedis    bool
+		php          string
+		fwVersion    string
+		dbVersion    string
+		serviceFlags []string
+		serve        bool
+		interactive  bool
+		noStart      bool
 	)
 
 	cmd := &cobra.Command{
@@ -28,8 +31,9 @@ func init() {
 		Short: "Scaffold a new project",
 		Long: `Scaffold a new project from a template (laravel, wordpress, plain).
 
-Smart defaults: laravel gets PostgreSQL, wordpress gets MariaDB, plain gets
-no database. Override with --db / --no-db / --redis.`,
+Smart defaults: laravel uses SQLite (no DB container, like a fresh Laravel
+install), wordpress gets MariaDB, plain gets no database. Add a database with
+--db / --service, or skip with --no-db.`,
 		Example: `  hull new myapp laravel
   hull new shop laravel --db mysql --redis
   hull new blog wordpress --version 6.4
@@ -54,11 +58,35 @@ no database. Override with --db / --no-db / --redis.`,
 					return err
 				}
 			}
+
+			// Repeatable --service <engine[@version]>: a database engine
+			// becomes the db, redis sets the redis shorthand, anything else
+			// is an extra service. Explicit services suppress the smart db.
+			var extra []engine.ServiceSpec
+			for _, spec := range serviceFlags {
+				def, version, err := services.Resolve(spec)
+				if err != nil {
+					return err
+				}
+				switch {
+				case def.IsDatabase:
+					if db == "" {
+						db = def.Name
+						if dbVersion == "" {
+							dbVersion = version
+						}
+					}
+				case def.Name == "redis":
+					withRedis = true
+				default:
+					extra = append(extra, engine.ServiceSpec{Engine: def.Name, Version: version})
+				}
+			}
+
 			if db == "" && !noDB && !interactive {
-				switch template {
-				case "laravel":
-					db = "postgres"
-				case "wordpress":
+				// Laravel defaults to SQLite (no service) like a fresh Laravel
+				// install; only WordPress needs a database by default.
+				if template == "wordpress" {
 					db = "mariadb"
 				}
 			}
@@ -66,15 +94,21 @@ no database. Override with --db / --no-db / --redis.`,
 				db = ""
 			}
 
+			var servePtr *bool
+			if cmd.Flags().Changed("serve") {
+				servePtr = &serve
+			}
 			dir, err := a.Engine.NewProject(cmd.Context(), engine.NewOptions{
-				Name:      name,
-				Template:  template,
-				DB:        db,
-				DBVersion: dbVersion,
-				Redis:     withRedis,
-				PHP:       php,
-				Version:   fwVersion,
-				SkipStart: noStart,
+				Name:          name,
+				Template:      template,
+				DB:            db,
+				DBVersion:     dbVersion,
+				Redis:         withRedis,
+				PHP:           php,
+				Version:       fwVersion,
+				ExtraServices: extra,
+				Serve:         servePtr,
+				SkipStart:     noStart,
 			})
 			if err != nil {
 				return err
@@ -93,6 +127,8 @@ no database. Override with --db / --no-db / --redis.`,
 	cmd.Flags().StringVar(&php, "php", "", "PHP version (e.g. 8.3)")
 	cmd.Flags().StringVar(&fwVersion, "version", "", "framework version (wordpress tag or laravel constraint)")
 	cmd.Flags().StringVar(&dbVersion, "db-version", "", "database engine version")
+	cmd.Flags().StringArrayVar(&serviceFlags, "service", nil, "add a service: engine[@version] (repeatable), e.g. --service postgres --service redis")
+	cmd.Flags().BoolVar(&serve, "serve", true, "give the project a routed domain (use --serve=false for headless)")
 	cmd.Flags().BoolVarP(&interactive, "interactive", "i", false, "pick infrastructure interactively")
 	cmd.Flags().BoolVar(&noStart, "no-start", false, "create without booting containers")
 	rootCmd.AddCommand(cmd)

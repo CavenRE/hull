@@ -15,19 +15,36 @@ var plainIndex string
 //go:embed assets/xdebug.ini
 var xdebugINI string
 
+//go:embed assets/hull-login.php
+var adminerLogin string
+
 // EnsureSystemFiles writes Hull-owned support files (the shared xdebug.ini
-// every PHP container mounts) into the Hull home directory if missing, so a
-// fresh v2 machine works without a v1 installation. Existing files are left
-// untouched — they may carry user tweaks.
+// every PHP container mounts, Adminer's auto-login plugin) into the Hull
+// home directory if missing, so a fresh v2 machine works without a v1
+// installation. Existing files are left untouched — they may carry user
+// tweaks.
 func EnsureSystemFiles(hullHome string) error {
-	target := filepath.Join(hullHome, "system", "php", "xdebug.ini")
-	if _, err := os.Stat(target); err == nil {
-		return nil
+	files := map[string]string{
+		filepath.Join(hullHome, "system", "php", "xdebug.ini"):         xdebugINI,
+		filepath.Join(hullHome, "system", "adminer", "hull-login.php"): adminerLogin,
 	}
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return err
+	for target, content := range files {
+		if _, err := os.Stat(target); err == nil {
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
+			return err
+		}
 	}
-	return os.WriteFile(target, []byte(xdebugINI), 0o644)
+	return nil
+}
+
+// AdminerPluginPath is where the auto-login plugin lives in the Hull home.
+func AdminerPluginPath(hullHome string) string {
+	return filepath.Join(hullHome, "system", "adminer", "hull-login.php")
 }
 
 // Runner executes a host command (docker run ...). Injected so scaffold
@@ -69,10 +86,14 @@ func scaffoldLaravel(ctx context.Context, opts ScaffoldOptions) error {
 		target = fmt.Sprintf("laravel/laravel=^%s", opts.Version)
 	}
 
+	// Docker's -v parser wants forward slashes even on Windows (a backslash
+	// drive path like W:\Sites\app:/app misparses against the : separator).
+	mount := filepath.ToSlash(opts.Dir) + ":/app"
+
 	args := []string{"run", "--rm"}
 	args = append(args, userFlag()...)
 	args = append(args,
-		"-v", opts.Dir+":/app",
+		"-v", mount,
 		"-w", "/app",
 		"composer:latest",
 		"sh", "-c", fmt.Sprintf("composer create-project %s tmp && cp -a tmp/. . && rm -rf tmp", target),
@@ -85,7 +106,7 @@ func scaffoldLaravel(ctx context.Context, opts ScaffoldOptions) error {
 	// matching v1's laravel-init.sh.
 	chown := []string{
 		"run", "--rm",
-		"-v", opts.Dir + ":/app",
+		"-v", mount,
 		"-w", "/app",
 		"alpine", "sh", "-c", "chown -R 33:33 storage bootstrap/cache",
 	}

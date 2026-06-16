@@ -1,6 +1,7 @@
 package dockerx
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -34,6 +35,31 @@ func ExecStdin(ctx context.Context, dir string, r io.Reader, name string, args .
 		return commandError(name, args, errBuf.String(), err)
 	}
 	return nil
+}
+
+// StreamLines runs a command and delivers each stdout line to onLine until
+// the command exits or ctx is canceled (container log following).
+func StreamLines(ctx context.Context, dir string, onLine func(string), name string, args ...string) error {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	cmd.Stderr = cmd.Stdout // interleave; docker logs writes to both
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		onLine(scanner.Text())
+	}
+	err = cmd.Wait()
+	if ctx.Err() != nil {
+		return nil // client went away; not an error
+	}
+	return err
 }
 
 func commandError(name string, args []string, stderr string, err error) error {

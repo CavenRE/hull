@@ -26,6 +26,108 @@ func testEngine(t *testing.T) (*Engine, string) {
 	return e, root
 }
 
+func TestNewClusterManaged(t *testing.T) {
+	e, root := testEngine(t)
+	dir, err := e.NewCluster(context.Background(), NewClusterOptions{
+		Name:      "stack",
+		Managed:   true,
+		SkipStart: true,
+		Containers: []ContainerSpec{
+			{Name: "web", Image: "nginx", Version: "1.27", Port: 80, Serve: true},
+			{Name: "worker", Image: "redis", Serve: false},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := manifest.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Type != manifest.TypeApp || len(m.Containers) != 2 {
+		t.Fatalf("manifest = %+v", m)
+	}
+	if web := m.Containers["web"]; web == nil || web.Image != "nginx:1.27" || web.Domain != "web" || !web.Served() {
+		t.Errorf("web container = %+v", m.Containers["web"])
+	}
+	if wk := m.Containers["worker"]; wk == nil || wk.Served() {
+		t.Errorf("worker should be unserved: %+v", wk)
+	}
+	if root == "" {
+		t.Fatal("no root")
+	}
+}
+
+func TestNewClusterOwned(t *testing.T) {
+	e, _ := testEngine(t)
+	dir, err := e.NewCluster(context.Background(), NewClusterOptions{
+		Name:        "owned",
+		ComposeRoot: "core",
+		Managed:     false,
+		SkipStart:   true,
+		Containers: []ContainerSpec{
+			{Name: "api", Image: "node", Version: "22", Port: 3000, Serve: true},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := manifest.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Type != manifest.TypeCluster || m.ComposeRoot != "core" {
+		t.Fatalf("manifest = %+v", m)
+	}
+	if r := m.Routes["api"]; r == nil || r.Service != "api" || r.Port != 3000 {
+		t.Errorf("api route = %+v", m.Routes["api"])
+	}
+	if _, err := os.Stat(filepath.Join(dir, "core", "compose.yaml")); err != nil {
+		t.Errorf("owned compose not written: %v", err)
+	}
+}
+
+func TestAdoptClusterParsesCaddyfile(t *testing.T) {
+	e, root := testEngine(t)
+	dir := filepath.Join(root, "tapkit")
+	core := filepath.Join(dir, "core")
+	if err := os.MkdirAll(core, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(core, "docker-compose.yml"), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	caddy := `api.tapkit.local {
+	import tls_local
+	reverse_proxy tapkit_management_api:8081
+}
+t.tapkit.local {
+	reverse_proxy tapkit_edge_router:8080
+}
+`
+	if err := os.WriteFile(filepath.Join(core, "Caddyfile"), []byte(caddy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := e.AdoptCluster(ClusterOptions{Dir: dir, ComposeRoot: "core"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Type != manifest.TypeCluster || m.Name != "tapkit" || m.ComposeRoot != "core" {
+		t.Fatalf("manifest = %+v", m)
+	}
+	if len(m.Routes) != 2 {
+		t.Fatalf("routes = %+v", m.Routes)
+	}
+	if r := m.Routes["api"]; r == nil || r.Service != "tapkit_management_api" || r.Port != 8081 {
+		t.Errorf("api route = %+v", m.Routes["api"])
+	}
+	// Re-adopt must refuse (hull.yaml now exists).
+	if _, err := e.AdoptCluster(ClusterOptions{Dir: dir, ComposeRoot: "core"}); err == nil {
+		t.Error("expected re-adopt to fail")
+	}
+}
+
 func TestNewProjectWritesArtifacts(t *testing.T) {
 	e, root := testEngine(t)
 	dir, err := e.NewProject(context.Background(), NewOptions{
@@ -78,8 +180,10 @@ func TestNewProjectRejectsExisting(t *testing.T) {
 
 func TestNewProjectValidatesBeforeTouchingDisk(t *testing.T) {
 	e, root := testEngine(t)
+	// "@@@" slugifies to empty, so it cannot be normalized and must still be
+	// rejected before any directory is created.
 	_, err := e.NewProject(context.Background(), NewOptions{
-		Name: "Bad_Name", Template: "laravel", SkipScaffold: true, SkipStart: true,
+		Name: "@@@", Template: "laravel", SkipScaffold: true, SkipStart: true,
 	})
 	if err == nil {
 		t.Fatal("expected validation error")

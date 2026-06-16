@@ -97,7 +97,11 @@ func ConfigJSON(routes []Route, o Options) ([]byte, error) {
 				"servers": map[string]any{
 					"hull": map[string]any{
 						"listen": []string{fmt.Sprintf(":%d", o.HTTPSPort)},
-						"routes": caddyRoutes,
+						// h3 would add a QUIC/UDP listener — pointless for
+						// a loopback dev proxy, and Windows reserves large
+						// UDP port ranges that make those binds flaky.
+						"protocols": []string{"h1", "h2"},
+						"routes":    caddyRoutes,
 					},
 				},
 			},
