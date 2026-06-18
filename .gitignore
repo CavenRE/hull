@@ -11,3 +11,5 @@ system/caddy/*.key
 # Local working notes (never push)
 INGEST.md
 ROADMAP.md
+
+.idea/
