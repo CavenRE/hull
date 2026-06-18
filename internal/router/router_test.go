@@ -45,10 +45,17 @@ func TestConfigJSONShape(t *testing.T) {
 		`"https_port":8443`, `"http_port":8080`,
 		`"host":["a.test"]`, `"dial":"127.0.0.1:1"`,
 		`"install_trust":false`, `"X-Forwarded-Proto"`,
+		// Loopback-only binding (coexists with other local proxies, off-LAN).
+		`"127.0.0.1:8443"`, `"[::1]:8443"`, `"127.0.0.1:8080"`,
+		`"disable_redirects":true`,
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("config missing %s", want)
 		}
+	}
+	// Must never bind all interfaces.
+	if strings.Contains(text, `":8443"`) || strings.Contains(text, `":8080"`) {
+		t.Error("router binds all interfaces; expected loopback only")
 	}
 	// Deterministic: a.test sorts before b.test.
 	if strings.Index(text, "a.test") > strings.Index(text, "b.test") {
@@ -57,6 +64,22 @@ func TestConfigJSONShape(t *testing.T) {
 	// Rejects invalid routes.
 	if _, err := ConfigJSON([]Route{{Domain: "", Upstream: "x"}}, Options{}); err == nil {
 		t.Error("empty domain accepted")
+	}
+}
+
+func TestBindHostListen(t *testing.T) {
+	cfg, err := ConfigJSON([]Route{{Domain: "a.test", Upstream: "127.0.0.1:1"}},
+		Options{HTTPPort: 8080, HTTPSPort: 8443, DataDir: "/d", BindHost: "127.0.0.3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(cfg)
+	if !strings.Contains(text, `"127.0.0.3:8443"`) || !strings.Contains(text, `"127.0.0.3:8080"`) {
+		t.Errorf("bind host not honored:\n%s", text)
+	}
+	// A moved bind has no IPv6 loopback peer.
+	if strings.Contains(text, `::1`) {
+		t.Error("moved bind must not add IPv6 ::1")
 	}
 }
 

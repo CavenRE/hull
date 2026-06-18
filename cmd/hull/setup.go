@@ -79,17 +79,25 @@ project is served at https://<name>.<tld> with a trusted certificate.`,
 			}
 			cfg := a.Config
 
+			// --skip-dns means this machine resolves *.tld another way (e.g. an
+			// existing dnsmasq/NetworkManager setup), so don't enable the
+			// embedded resolver — otherwise the daemon would try to bind :53
+			// and collide with the resolver already there.
 			fmt.Println("> Enabling embedded router and DNS in config")
 			cfg.Router.Enabled = true
-			cfg.DNS.Enabled = true
+			cfg.DNS.Enabled = !skipDNS
 			if err := cfg.Save(); err != nil {
 				return err
 			}
 			if err := templates.EnsureSystemFiles(cfg.HullHome); err != nil {
 				return err
 			}
-			fmt.Printf("  ✔ %s updated (router :%d/:%d, dns :%d)\n",
-				"config.yaml", cfg.Router.HTTPPort, cfg.Router.HTTPSPort, cfg.DNS.Port)
+			dnsState := fmt.Sprintf("dns :%d", cfg.DNS.Port)
+			if !cfg.DNS.Enabled {
+				dnsState = "dns off (resolve *." + cfg.TLD + " elsewhere)"
+			}
+			fmt.Printf("  ✔ %s updated (router :%d/:%d, %s)\n",
+				"config.yaml", cfg.Router.HTTPPort, cfg.Router.HTTPSPort, dnsState)
 
 			if !skipTrust {
 				fmt.Println("> Installing certificate trust (confirm the OS prompt)")

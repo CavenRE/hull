@@ -106,6 +106,20 @@ type SetupStepResult struct {
 	Manual string `json:"manual,omitempty"`
 }
 
+// ReapplyStep is one line of a re-run-setup result.
+type ReapplyStep struct {
+	Name   string `json:"name"`
+	Status string `json:"status"` // ok | warn | manual
+	Detail string `json:"detail"`
+	Manual string `json:"manual,omitempty"` // command to run when elevation is needed
+}
+
+// ReapplyResult answers POST /v1/setup/reapply: everything the daemon could
+// re-apply without elevation, plus the commands for the steps that need it.
+type ReapplyResult struct {
+	Steps []ReapplyStep `json:"steps"`
+}
+
 // CreateProjectRequest answers POST /v1/projects (a job).
 type CreateProjectRequest struct {
 	Name      string `json:"name"`
@@ -151,6 +165,9 @@ type ServiceInfo struct {
 type ConfigInfo struct {
 	TLD      string   `json:"tld"`
 	Roots    []string `json:"roots"`
+	// Loopback is the router/DNS bind address (127.0.0.x); editable in
+	// Settings › Local domain. Empty in a request leaves it unchanged.
+	Loopback string `json:"loopback,omitempty"`
 	Defaults struct {
 		PHP    string `json:"php"`
 		Editor string `json:"editor"`

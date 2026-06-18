@@ -97,6 +97,10 @@
   function runCleanups() { cleanups.forEach(fn => { try { fn(); } catch (e) {} }); cleanups = []; }
   function mount(r) {
     runCleanups();
+    // Keep the scroll position when re-rendering the same screen (e.g. after a
+    // settings save reloads state); reset it when navigating elsewhere.
+    const sameRoute = r === route;
+    const prevScroll = sameRoute ? (main.querySelector(".page-body")?.scrollTop || 0) : 0;
     route = r;
     renderNav();
     const screen = document.createElement("div");
@@ -104,6 +108,7 @@
     main.innerHTML = "";
     main.appendChild(screen);
     renderInto(screen, r);
+    if (prevScroll) { const pb = main.querySelector(".page-body"); if (pb) pb.scrollTop = prevScroll; }
   }
   function go(r) { if (r === route && main.firstChild) return; mount(r); }
   function rerender() { if (connected) { ensureRoute(); mount(route); } }
@@ -303,7 +308,7 @@
 
   window.App = {
     go, toast, copyText, openDialog, closeDialog, openExternal, pick,
-    api, reload, act, recentSites, touchSite, wireVersionField,
+    api, reload, act, restartDaemon, stopDaemon, recentSites, touchSite, wireVersionField,
     siteCount: () => window.HULL.ROOTS.reduce((n, r) => n + r.managed.length, 0),
     serviceRunning: () => { const s = window.HULL.SERVICES; return { on: s.filter(x => x.status === "running").length, total: s.length }; },
     readPicks, onLeave: fn => cleanups.push(fn), theme: { get: currentTheme, set: setTheme },
@@ -390,6 +395,34 @@
   async function boot() {
     setPill(false, "Connecting…");
     if (!(await tryConnect())) showOffline();
+  }
+
+  /* ---------------- DAEMON LIFECYCLE (start/stop/restart) ---------------- */
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  // Ask the daemon to exit, then wait until it has removed its discovery file
+  // and released its ports — so a fresh one can start cleanly.
+  async function shutdownDaemon() {
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    if (events) { events.close(); events = null; }
+    connected = false;
+    try { await window.HULL.api("POST", "/v1/shutdown"); } catch (e) {}
+    for (let i = 0; i < 20; i++) {
+      await sleep(300);
+      try { await window.__TAURI__.core.invoke("daemon_info"); } catch (e) { break; } // file gone → down
+    }
+    await sleep(400); // let the OS release ports 80/443
+  }
+  async function stopDaemon() {
+    setPill(false, "Stopping…");
+    await shutdownDaemon();
+    showOffline("Stopped — start it again when you need it.");
+  }
+  async function restartDaemon() {
+    setPill(false, "Restarting…");
+    await shutdownDaemon();
+    try { await window.__TAURI__.core.invoke("start_daemon"); } catch (e) {}
+    for (let i = 0; i < 25; i++) { await sleep(600); if (await tryConnect()) { toast("Hull restarted"); return; } }
+    showOffline("Restart timed out — try Start.");
   }
   // Clicking the daemon pill forces an immediate reconnect attempt.
   if (daemonPill) daemonPill.addEventListener("click", () => { if (!connected) { if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; } tryConnect().then(ok => { if (!ok) scheduleReconnect(); }); } });

@@ -19,6 +19,30 @@ type Context struct {
 	// HullHome is the absolute path to the Hull home directory (for the
 	// shared xdebug.ini mount). Forward slashes work on all engines.
 	HullHome string
+	// HostUID/HostGID, when non-empty, are emitted as PUID/PGID on
+	// serversideup/php containers so the in-container user matches the host
+	// and can write bind-mounted files. Set only on native Linux Docker;
+	// empty on macOS/Windows, where Docker Desktop remaps ownership.
+	HostUID string
+	HostGID string
+}
+
+// applyIDRemap makes a serversideup/php container write host-owned bind mounts
+// on native Linux. The image bakes www-data as uid 33, which can't write files
+// owned by the host user; its docker-php-serversideup-set-id helper remaps
+// www-data to the host uid/gid but must run as root. So we start the container
+// as root and wrap the normal entrypoint to remap first, then hand off to the
+// image's own entrypoint (which runs the entrypoint.d scripts and drops fpm
+// workers back to the now-correct www-data). No-op on non-Linux (Docker
+// Desktop remaps in its VM) or for non-serversideup images.
+func applyIDRemap(svc *ServiceDef, ctx Context, def templates.SiteDef) {
+	if ctx.HostUID == "" || !def.ServersideUp() {
+		return
+	}
+	setID := fmt.Sprintf("docker-php-serversideup-set-id www-data %s:%s 2>/dev/null || true", ctx.HostUID, ctx.HostGID)
+	svc.User = "0:0"
+	svc.Entrypoint = []string{"sh", "-c", setID + `; exec docker-php-serversideup-entrypoint "$@"`, "--"}
+	svc.Command = "/init"
 }
 
 const (
@@ -122,6 +146,7 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 		svc.Command = "apache2-foreground"
 	}
 
+	applyIDRemap(svc, ctx, def)
 	env := append([]string{}, def.ExtraEnv...)
 	if m.Template == "wordpress" {
 		dbKey, db, ok := m.DatabaseService(def.RequiredDB...)
@@ -163,6 +188,7 @@ func containerService(m *manifest.Manifest, key string, c *manifest.Container, c
 			Environment: mergeEnv(def.ExtraEnv, m.Env, c.Env),
 			Networks:    []string{"default"},
 		}
+		applyIDRemap(svc, ctx, def)
 		if c.Domain != "" && c.Served() {
 			port := def.UpstreamPort
 			if c.Port != 0 {

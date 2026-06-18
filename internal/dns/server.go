@@ -19,6 +19,10 @@ type Server struct {
 	TLD string
 	// Addr to listen on, e.g. "127.0.0.1:53" ("127.0.0.1:0" in tests).
 	Addr string
+	// Answer is the IPv4 address returned for *.tld (default 127.0.0.1).
+	// AAAA (::1) is only returned when Answer is 127.0.0.1, since a moved
+	// loopback bind has no IPv6 counterpart.
+	Answer net.IP
 
 	udp *mdns.Server
 	tcp *mdns.Server
@@ -32,6 +36,12 @@ type Server struct {
 // Start binds UDP and TCP listeners and serves in the background.
 func (s *Server) Start() error {
 	zone := "." + strings.Trim(strings.ToLower(s.TLD), ".") + "."
+	answer := s.Answer
+	if answer == nil {
+		answer = net.IPv4(127, 0, 0, 1)
+	}
+	answerV4 := answer.To4()
+	isDefaultLoopback := answerV4 != nil && answerV4.Equal(net.IPv4(127, 0, 0, 1))
 
 	handler := mdns.HandlerFunc(func(w mdns.ResponseWriter, r *mdns.Msg) {
 		m := new(mdns.Msg)
@@ -53,10 +63,14 @@ func (s *Server) Start() error {
 		switch q.Qtype {
 		case mdns.TypeA:
 			header.Rrtype = mdns.TypeA
-			m.Answer = append(m.Answer, &mdns.A{Hdr: header, A: net.IPv4(127, 0, 0, 1)})
+			m.Answer = append(m.Answer, &mdns.A{Hdr: header, A: answerV4})
 		case mdns.TypeAAAA:
-			header.Rrtype = mdns.TypeAAAA
-			m.Answer = append(m.Answer, &mdns.AAAA{Hdr: header, AAAA: net.IPv6loopback})
+			// Only the default 127.0.0.1 bind has an IPv6 loopback peer; for a
+			// moved bind, return empty NOERROR so clients fall back to IPv4.
+			if isDefaultLoopback {
+				header.Rrtype = mdns.TypeAAAA
+				m.Answer = append(m.Answer, &mdns.AAAA{Hdr: header, AAAA: net.IPv6loopback})
+			}
 		default:
 			// Empty NOERROR: the name exists, the type has no records.
 		}

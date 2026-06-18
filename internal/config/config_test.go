@@ -83,3 +83,24 @@ func TestSaveRoundTrip(t *testing.T) {
 		t.Errorf("round trip mismatch: %+v vs %+v", loaded, cfg)
 	}
 }
+
+func TestValidLoopback(t *testing.T) {
+	for _, s := range []string{"127.0.0.1", "127.0.0.3", "127.0.0.8"} {
+		if !ValidLoopback(s) {
+			t.Errorf("%q should be valid", s)
+		}
+	}
+	for _, s := range []string{"", "127.0.0.0", "127.0.0.9", "127.0.1.1", "10.0.0.1", "::1", "nonsense"} {
+		if ValidLoopback(s) {
+			t.Errorf("%q should be invalid", s)
+		}
+	}
+}
+
+func TestLoopbackDefaultsTo1(t *testing.T) {
+	c := &Config{HullHome: t.TempDir(), Router: RouterConfig{Loopback: "bogus"}}
+	c.applyDefaults()
+	if c.Router.Loopback != "127.0.0.1" {
+		t.Errorf("expected default 127.0.0.1, got %q", c.Router.Loopback)
+	}
+}

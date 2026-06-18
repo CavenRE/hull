@@ -40,7 +40,7 @@
   };
 
   function renderTab(body) {
-    if (tab === "general")      body.innerHTML = appearanceCard() + foldersCard() + defaultsCard() + domainCard();
+    if (tab === "general")      body.innerHTML = appearanceCard() + foldersCard() + defaultsCard() + domainCard() + systemCard();
     else if (tab === "system")  body.innerHTML = startupCard() + doctorCard();
     else if (tab === "updates") body.innerHTML = updatesCard();
     else                        body.innerHTML = dangerCard();
@@ -96,22 +96,39 @@
   }
 
   function domainCard() {
+    const cfg = H().config || {};
+    const octet = String((cfg.loopback || "127.0.0.1").split(".")[3] || "1");
+    const tld = "." + String(cfg.tld || H().tld || "test").replace(/^\./, "");
     return `
       <div class="section-label">Local domain</div>
       <div class="card" style="margin-bottom:24px">
         <div class="form-row">
           <label class="field-label">Loopback address</label>
-          <div class="addr"><span class="octet ro">127</span><span class="dot">.</span><span class="octet ro">0</span><span class="dot">.</span><span class="octet ro">0</span><span class="dot">.</span><span class="octet-edit"><input class="octet-input mono" id="octet" value="1" readonly aria-label="Last octet (1–8)"><span class="octet-steps"><button type="button" data-step="up" aria-label="Increase"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"/></svg></button><button type="button" data-step="down" aria-label="Decrease"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button></span></span></div>
-          <p class="help">Only the final octet is editable (1–8).</p>
+          <div class="addr"><span class="octet ro">127</span><span class="octet-sep">.</span><span class="octet ro">0</span><span class="octet-sep">.</span><span class="octet ro">0</span><span class="octet-sep">.</span><span class="octet-edit"><input class="octet-input mono" id="octet" value="${octet}" readonly aria-label="Last octet (1–8)"><span class="octet-steps"><button type="button" data-step="up" aria-label="Increase"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"/></svg></button><button type="button" data-step="down" aria-label="Decrease"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button></span></span></div>
+          <p class="help">127.0.0.1–.8, to coexist with another local proxy. Needs Hull's DNS (or your resolver pointed here); restart Hull to apply.</p>
         </div>
         <div class="form-row">
           <label class="field-label">Top-level domain</label>
           <div style="display:flex;gap:10px;align-items:center">
-            <input class="input mono" value=".test" style="width:120px">
+            <input class="input mono" id="tldInput" value="${tld}" style="width:120px">
             <button class="btn" id="rerunSetup">${icon("restart",15)}Re-run setup</button>
           </div>
         </div>
         <p class="help">Changing these rewrites every site's domain and re-issues certificates — Hull will ask for one admin prompt to update DNS.</p>
+      </div>`;
+  }
+
+  function systemCard() {
+    return `
+      <div class="section-label">Hull service</div>
+      <div class="card" style="margin-bottom:24px">
+        <div class="setting-row" style="border:none;padding:0">
+          <div class="sr-info"><div class="sr-name">Daemon</div><div class="sr-desc">Restart to apply loopback or domain changes. Stopping pauses routing — your containers keep running.</div></div>
+          <div class="sr-ctrl" style="display:flex;gap:8px">
+            <button class="btn btn-sm" id="restartDaemon">${icon("restart",13)}Restart</button>
+            <button class="btn btn-sm btn-danger" id="stopDaemon">${icon("stop",13)}Stop</button>
+          </div>
+        </div>
       </div>`;
   }
 
@@ -189,7 +206,7 @@
   // Build a /v1/config PUT body from current live config + overrides.
   function cfgBody(over) {
     const c = H().config || { tld: H().tld, roots: [], defaults: {} };
-    return Object.assign({ tld: c.tld, roots: (c.roots || []).slice(), defaults: Object.assign({}, c.defaults) }, over || {});
+    return Object.assign({ tld: c.tld, roots: (c.roots || []).slice(), loopback: c.loopback, defaults: Object.assign({}, c.defaults) }, over || {});
   }
   function saveConfig(body, msg) { App.act(App.api("PUT", "/v1/config", body), msg || "Settings saved"); }
 
@@ -222,7 +239,58 @@
       b.defaults[sel.dataset.default] = sel.value;
       saveConfig(b, "Default saved");
     }));
-    el.querySelector("#rerunSetup")?.addEventListener("click", t("Run `hull setup` in a terminal to re-apply trust + DNS"));
+    // Loopback last octet (1–8): steppers save 127.0.0.<n>.
+    const octetInput = el.querySelector("#octet");
+    const saveOctet = (n) => {
+      n = Math.max(1, Math.min(8, n | 0));
+      if (octetInput) octetInput.value = n;
+      saveConfig(cfgBody({ loopback: "127.0.0." + n }), `Loopback 127.0.0.${n} saved — restart Hull to apply`);
+    };
+    el.querySelectorAll("[data-step]").forEach(btn => btn.addEventListener("click", () => {
+      const cur = parseInt(octetInput?.value || "1", 10) || 1;
+      saveOctet(cur + (btn.dataset.step === "up" ? 1 : -1));
+    }));
+
+    // Top-level domain: save on commit (blur/Enter), stripping a leading dot.
+    el.querySelector("#tldInput")?.addEventListener("change", (e) => {
+      const v = e.target.value.trim().replace(/^\.+/, "").toLowerCase();
+      const cur = (H().config?.tld || H().tld || "test");
+      if (v === cur) return;
+      if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(v)) {
+        App.toast("Enter a valid domain label, e.g. .test or .localhost");
+        e.target.value = "." + cur;
+        return;
+      }
+      saveConfig(cfgBody({ tld: v }), `Domain .${v} saved — restart Hull to apply`);
+    });
+
+    // Re-run setup: re-apply everything the daemon can, surface the rest.
+    el.querySelector("#rerunSetup")?.addEventListener("click", async () => {
+      App.toast("Re-applying setup…");
+      try {
+        const res = await App.api("POST", "/v1/setup/reapply");
+        const steps = (res && res.steps) || [];
+        const manual = steps.filter(s => s.status === "manual");
+        const ok = steps.filter(s => s.status === "ok").length;
+        if (manual.length) {
+          App.toast(`${ok} re-applied · run in a terminal: ${manual.map(m => m.manual).filter(Boolean).join("  ·  ")}`);
+        } else {
+          App.toast(`Setup re-applied — ${ok} step${ok === 1 ? "" : "s"} OK`);
+        }
+        App.reload();
+      } catch (e) { App.toast("Re-apply failed: " + (e && e.message ? e.message : e)); }
+    });
+
+    // Full-system lifecycle: restart applies pending loopback/TLD changes.
+    el.querySelector("#restartDaemon")?.addEventListener("click", (e) => {
+      e.currentTarget.disabled = true;
+      App.toast("Restarting Hull…");
+      App.restartDaemon();
+    });
+    el.querySelector("#stopDaemon")?.addEventListener("click", (e) => {
+      e.currentTarget.disabled = true;
+      App.stopDaemon();
+    });
     const oct = el.querySelector("#octet");
     if (oct) {
       const clamp = v => Math.max(1, Math.min(8, isNaN(v) ? 1 : v));

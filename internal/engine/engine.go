@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -44,10 +46,19 @@ func (e *Engine) prepareNetworks(ctx context.Context) error {
 
 // ComposeContext returns the render context for this machine.
 func (e *Engine) ComposeContext() compose.Context {
-	return compose.Context{
+	ctx := compose.Context{
 		TLD:      e.Config.TLD,
 		HullHome: filepath.ToSlash(e.Config.HullHome),
 	}
+	// On native Linux, bind-mounted files keep the host's uid/gid and the
+	// container's www-data (uid 33) cannot write them — so pass PUID/PGID to
+	// remap the container user. macOS/Windows Docker Desktop handle this in
+	// the VM, so leave the identity empty there.
+	if runtime.GOOS == "linux" {
+		ctx.HostUID = strconv.Itoa(os.Getuid())
+		ctx.HostGID = strconv.Itoa(os.Getgid())
+	}
+	return ctx
 }
 
 // compose returns the compose driver for a project directory.

@@ -7,6 +7,7 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,6 +53,13 @@ type RouterConfig struct {
 	Enabled   bool `yaml:"enabled"`
 	HTTPPort  int  `yaml:"http_port,omitempty"`
 	HTTPSPort int  `yaml:"https_port,omitempty"`
+	// Loopback is the 127.0.0.0/8 address the router (and embedded DNS)
+	// binds and resolves *.tld to. Defaults to 127.0.0.1; a different
+	// last octet (e.g. 127.0.0.3) lets Hull coexist with another local
+	// proxy bound to the same ports on a different loopback IP. Only
+	// effective when Hull's own DNS resolves *.tld — an external resolver
+	// must point at the same address.
+	Loopback string `yaml:"loopback,omitempty"`
 }
 
 // DNSConfig controls the embedded wildcard DNS server run by hulld.
@@ -125,6 +133,9 @@ func (c *Config) applyDefaults() {
 	if c.DNS.Port == 0 {
 		c.DNS.Port = 53
 	}
+	if !ValidLoopback(c.Router.Loopback) {
+		c.Router.Loopback = "127.0.0.1"
+	}
 	if len(c.Roots) == 0 {
 		if home, err := os.UserHomeDir(); err == nil {
 			c.Roots = []string{filepath.Join(home, "Work", "Sites")}
@@ -153,6 +164,20 @@ func (c *Config) Save() error {
 		return err
 	}
 	return os.WriteFile(filepath.Join(c.HullHome, Filename), data, 0o644)
+}
+
+// ValidLoopback reports whether s is a 127.0.0.x address with a last octet
+// in 1–8 — the range Hull's UI and DNS support for the router bind address.
+func ValidLoopback(s string) bool {
+	ip := net.ParseIP(s)
+	if ip == nil {
+		return false
+	}
+	v4 := ip.To4()
+	if v4 == nil || v4[0] != 127 || v4[1] != 0 || v4[2] != 0 {
+		return false
+	}
+	return v4[3] >= 1 && v4[3] <= 8
 }
 
 // ExpandPath expands $VARS, a leading ~, and cleans a path — exported so the

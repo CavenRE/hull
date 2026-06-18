@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -173,6 +174,63 @@ func TestPlainTemplateOnDefaultNetwork(t *testing.T) {
 	}
 	if !hasDefault {
 		t.Errorf("plain app service missing default network (v1 bug regression): %v", app.Networks)
+	}
+}
+
+// TestLinuxIDRemap locks in the native-Linux bind-mount fix: when a host
+// identity is supplied, serversideup/php sites start as root and wrap the
+// entrypoint to remap www-data to the host uid/gid. Without it (the default
+// testCtx, mirroring macOS/Windows) the service is untouched.
+func TestLinuxIDRemap(t *testing.T) {
+	m, err := manifest.Load(filepath.Join("testdata", "golden", "laravel-postgres"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// No host identity → no remap (keeps goldens/Docker Desktop behaviour).
+	plain, err := Render(m, testCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u := plain.Services["app"].User; u != "" {
+		t.Errorf("expected no user override without HostUID, got %q", u)
+	}
+
+	// Host identity → root + set-id entrypoint wrapper.
+	linux := testCtx
+	linux.HostUID, linux.HostGID = "1000", "1000"
+	f, err := Render(m, linux)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := f.Services["app"]
+	if app.User != "0:0" {
+		t.Errorf("expected user 0:0 for id-remap, got %q", app.User)
+	}
+	joined := strings.Join(app.Entrypoint, " ")
+	if !strings.Contains(joined, "docker-php-serversideup-set-id www-data 1000:1000") {
+		t.Errorf("entrypoint missing set-id remap: %v", app.Entrypoint)
+	}
+	if app.Command != "/init" {
+		t.Errorf("expected command /init to hand off to the image entrypoint, got %q", app.Command)
+	}
+}
+
+// TestWordPressNoIDRemap ensures the remap is scoped to serversideup images;
+// the upstream wordpress image must not be forced to root.
+func TestWordPressNoIDRemap(t *testing.T) {
+	m, err := manifest.Load(filepath.Join("testdata", "golden", "wordpress-mariadb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := testCtx
+	ctx.HostUID, ctx.HostGID = "1000", "1000"
+	f, err := Render(m, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u := f.Services["app"].User; u == "0:0" {
+		t.Errorf("wordpress must not be forced to root for id-remap")
 	}
 }
 

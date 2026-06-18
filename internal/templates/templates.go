@@ -46,6 +46,12 @@ var sites = map[string]SiteDef{
 	},
 }
 
+// ServersideUp reports whether the template runs on a serversideup/php
+// image, which honours PUID/PGID to match the container user to the host
+// (needed for writable bind mounts on native Linux Docker). WordPress uses
+// the upstream wordpress image, which does not.
+func (d SiteDef) ServersideUp() bool { return d.Key != "wordpress" }
+
 // Site returns the built-in site template for key.
 func Site(key string) (SiteDef, bool) {
 	d, ok := sites[key]

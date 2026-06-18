@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/CavenRE/hull/internal/bundle"
+	"github.com/CavenRE/hull/internal/config"
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/doctor"
 	"github.com/CavenRE/hull/internal/engine"
@@ -54,7 +55,7 @@ func (s *Server) handleDoctor(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) configInfo() ConfigInfo {
-	info := ConfigInfo{TLD: s.Config.TLD, Roots: s.Config.Roots}
+	info := ConfigInfo{TLD: s.Config.TLD, Roots: s.Config.Roots, Loopback: s.Config.Router.Loopback}
 	info.Defaults.PHP = s.Config.Defaults.PHP
 	info.Defaults.Editor = s.Config.Defaults.Editor
 	info.Defaults.DBTool = s.Config.Defaults.DBTool
@@ -80,6 +81,16 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 	if req.TLD != "" && req.TLD != s.Config.TLD {
 		restart = append(restart, "tld")
 		s.Config.TLD = req.TLD
+	}
+	if req.Loopback != "" && req.Loopback != s.Config.Router.Loopback {
+		if !config.ValidLoopback(req.Loopback) {
+			writeError(w, http.StatusBadRequest, fmt.Errorf("loopback must be 127.0.0.1–127.0.0.8"))
+			return
+		}
+		// The router/DNS bind address is read once at daemon start, so a
+		// change only takes effect after a restart.
+		restart = append(restart, "loopback")
+		s.Config.Router.Loopback = req.Loopback
 	}
 	s.Config.Roots = req.Roots
 	s.Config.Defaults.PHP = req.Defaults.PHP

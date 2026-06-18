@@ -26,10 +26,29 @@ type Options struct {
 	// DataDir stores the local CA and issued certificates
 	// (<hullHome>/caddy).
 	DataDir string
+	// BindHost is the loopback address to listen on (default 127.0.0.1).
+	// A non-default 127.0.0.x lets Hull coexist with another local proxy
+	// holding the same ports on a different loopback IP.
+	BindHost string
 }
 
 // CAName is the display name of Hull's local certificate authority.
 const CAName = "Hull Local CA"
+
+// loopbackListen returns the loopback listen addresses for a port. Binding
+// the specific loopback IP rather than ":port" avoids clashing with other
+// local proxies bound to a different loopback address. IPv6 ::1 is added only
+// for the default host, since a moved bind (127.0.0.x) has no v6 counterpart.
+func loopbackListen(host string, port int) []string {
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	addrs := []string{fmt.Sprintf("%s:%d", host, port)}
+	if host == "127.0.0.1" {
+		addrs = append(addrs, fmt.Sprintf("[::1]:%d", port))
+	}
+	return addrs
+}
 
 // ConfigJSON builds the full Caddy JSON config for a route set. Pure and
 // deterministic (routes sorted by domain) for testability.
@@ -96,12 +115,31 @@ func ConfigJSON(routes []Route, o Options) ([]byte, error) {
 				"https_port": o.HTTPSPort,
 				"servers": map[string]any{
 					"hull": map[string]any{
-						"listen": []string{fmt.Sprintf(":%d", o.HTTPSPort)},
+						// Bind loopback explicitly (v4 + v6), never 0.0.0.0:
+						// keeps dev sites off the LAN and lets Hull coexist with
+						// other local proxies bound to a different loopback IP
+						// (e.g. a stack on 127.0.0.2) — an all-interfaces bind
+						// would collide with those on the same port.
+						"listen": loopbackListen(o.BindHost, o.HTTPSPort),
 						// h3 would add a QUIC/UDP listener — pointless for
 						// a loopback dev proxy, and Windows reserves large
 						// UDP port ranges that make those binds flaky.
 						"protocols": []string{"h1", "h2"},
-						"routes":    caddyRoutes,
+						// We run our own redirect server below on the HTTP port.
+						"automatic_https": map[string]any{"disable_redirects": true},
+						"routes":          caddyRoutes,
+					},
+					"hull-http": map[string]any{
+						"listen": loopbackListen(o.BindHost, o.HTTPPort),
+						"routes": []map[string]any{{
+							"handle": []map[string]any{{
+								"handler":     "static_response",
+								"status_code": 308,
+								"headers": map[string][]string{
+									"Location": {"https://{http.request.host}{http.request.uri}"},
+								},
+							}},
+						}},
 					},
 				},
 			},

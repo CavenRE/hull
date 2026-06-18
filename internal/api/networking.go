@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"net"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,7 +36,7 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 	syncNow = func() {}
 
 	if cfg.DNS.Enabled {
-		server := &dns.Server{TLD: cfg.TLD, Addr: "127.0.0.1:" + strconv.Itoa(cfg.DNS.Port)}
+		server := &dns.Server{TLD: cfg.TLD, Addr: "127.0.0.1:" + strconv.Itoa(cfg.DNS.Port), Answer: net.ParseIP(cfg.Router.Loopback)}
 		if err := server.Start(); err != nil {
 			// Degrade, never die: routing is the critical path, and hosts
 			// file entries keep resolving without us.
@@ -54,6 +55,7 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 			HTTPPort:  cfg.Router.HTTPPort,
 			HTTPSPort: cfg.Router.HTTPSPort,
 			DataDir:   cfg.RouterDataDir(),
+			BindHost:  cfg.Router.Loopback,
 		}
 		lastFingerprint := "\x00never-applied" // force the first Apply even with zero routes
 		lastHosts := "\x00never-synced"
@@ -116,7 +118,11 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 			close(done)
 			_ = router.Stop()
 		})
-		logf("router: https on :%d (data %s)", opts.HTTPSPort, opts.DataDir)
+		bindHost := cfg.Router.Loopback
+		if bindHost == "" {
+			bindHost = "127.0.0.1"
+		}
+		logf("router: https on %s:%d (data %s)", bindHost, opts.HTTPSPort, opts.DataDir)
 	}
 
 	return stop, syncNow, nil
