@@ -599,7 +599,7 @@
           <p class="help" style="margin:0 0 12px">Wrap an existing docker compose project so Hull manages it as one unit (start/stop/rebuild/reset together). Your compose files are never modified.</p>
           <div class="form-row"><label class="field-label">Project folder</label>
             <div class="browse-row">
-              <input class="input mono" data-cl-dir placeholder="W:/Apps/TapKit">
+              <input class="input mono" data-cl-dir placeholder="path to a compose project">
               <button type="button" class="btn" data-cl-browse>${icon("folder",15)}Browse</button>
             </div></div>
           <div class="form-grid form-row">

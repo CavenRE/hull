@@ -89,7 +89,7 @@ func TestNewClusterOwned(t *testing.T) {
 
 func TestAdoptClusterParsesCaddyfile(t *testing.T) {
 	e, root := testEngine(t)
-	dir := filepath.Join(root, "tapkit")
+	dir := filepath.Join(root, "mystack")
 	core := filepath.Join(dir, "core")
 	if err := os.MkdirAll(core, 0o755); err != nil {
 		t.Fatal(err)
@@ -97,12 +97,12 @@ func TestAdoptClusterParsesCaddyfile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(core, "docker-compose.yml"), []byte("services: {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	caddy := `api.tapkit.local {
+	caddy := `api.mystack.local {
 	import tls_local
-	reverse_proxy tapkit_management_api:8081
+	reverse_proxy mystack_api:8081
 }
-t.tapkit.local {
-	reverse_proxy tapkit_edge_router:8080
+t.mystack.local {
+	reverse_proxy mystack_edge:8080
 }
 `
 	if err := os.WriteFile(filepath.Join(core, "Caddyfile"), []byte(caddy), 0o644); err != nil {
@@ -113,13 +113,13 @@ t.tapkit.local {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m.Type != manifest.TypeCluster || m.Name != "tapkit" || m.ComposeRoot != "core" {
+	if m.Type != manifest.TypeCluster || m.Name != "mystack" || m.ComposeRoot != "core" {
 		t.Fatalf("manifest = %+v", m)
 	}
 	if len(m.Routes) != 2 {
 		t.Fatalf("routes = %+v", m.Routes)
 	}
-	if r := m.Routes["api"]; r == nil || r.Service != "tapkit_management_api" || r.Port != 8081 {
+	if r := m.Routes["api"]; r == nil || r.Service != "mystack_api" || r.Port != 8081 {
 		t.Errorf("api route = %+v", m.Routes["api"])
 	}
 	// Re-adopt must refuse (hull.yaml now exists).

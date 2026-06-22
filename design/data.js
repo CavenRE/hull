@@ -57,9 +57,9 @@
     {
       path: "C:/Users/caven/Sites",
       managed: [
-        { name: "tapkit", kind: "laravel", php: "8.3", status: "running", url: "https://tapkit.test",
+        { name: "acme", kind: "laravel", php: "8.3", status: "running", url: "https://acme.test",
           services: [{ key: "db", instance: "postgres-16" }, { key: "cache", instance: "redis" }, { key: "mail", instance: "mailpit" }] },
-        { name: "playlabs", kind: "laravel", php: "8.3", status: "stopped", url: "https://playlabs.test",
+        { name: "atlas", kind: "laravel", php: "8.3", status: "stopped", url: "https://atlas.test",
           services: [{ key: "db", instance: "postgres-16" }, { key: "mail", instance: "mailpit" }] },
         { name: "shipyard", kind: "app", php: null, status: "running", url: "https://shipyard.test",
           services: [{ key: "db", instance: "mysql-8" }, { key: "cache", instance: "redis" }] },
@@ -100,7 +100,7 @@
   const SERVICES = [
     { name: "postgres-16", engine: "postgres", version: "16", status: "running",
       host: "127.0.0.1", host_port: 54320, username: "postgres", password: "", url: null,
-      linked: ["tapkit", "playlabs", "ledger-api", "feedreader"] },
+      linked: ["acme", "atlas", "ledger-api", "feedreader"] },
     { name: "mysql-8", engine: "mysql", version: "8.0", status: "running",
       host: "127.0.0.1", host_port: 33060, username: "root", password: "", url: null,
       linked: ["shipyard", "marketing", "acme-store"] },
@@ -109,7 +109,7 @@
       linked: ["pixel-press", "northwind-cms"] },
     { name: "redis", engine: "redis", version: "7", status: "running",
       host: "127.0.0.1", host_port: 63790, username: null, password: "", url: null,
-      linked: ["tapkit", "shipyard", "acme-store", "feedreader"] },
+      linked: ["acme", "shipyard", "acme-store", "feedreader"] },
     { name: "meilisearch", engine: "meilisearch", version: "1.8", status: "running",
       host: "127.0.0.1", host_port: 7700, username: null, password: "", url: "http://localhost:7700",
       linked: ["acme-store"] },
@@ -118,13 +118,13 @@
       linked: ["harbor-docs"] },
     { name: "mailpit", engine: "mailpit", version: "latest", status: "running",
       host: "127.0.0.1", host_port: 1025, username: null, password: "", url: "http://localhost:8025",
-      linked: ["tapkit", "playlabs", "acme-store"] },
+      linked: ["acme", "atlas", "acme-store"] },
   ];
 
   // Recent jobs for the dashboard activity feed
   const JOBS = [
     { t: "10:42:03", kind: "ok",   msg: "Started postgres-16", detail: "ready in 812ms" },
-    { t: "10:41:55", kind: "ok",   msg: "Started tapkit", detail: "php 8.3 · https://tapkit.test" },
+    { t: "10:41:55", kind: "ok",   msg: "Started acme", detail: "php 8.3 · https://acme.test" },
     { t: "10:40:12", kind: "warn", msg: "Certificate renewal due", detail: "*.test expires in 12 days" },
     { t: "10:38:41", kind: "ok",   msg: "Linked redis to feedreader", detail: "" },
     { t: "10:31:09", kind: "err",  msg: "marketing failed to boot", detail: "php-fpm exited (code 1)" },

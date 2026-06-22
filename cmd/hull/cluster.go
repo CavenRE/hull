@@ -31,7 +31,7 @@ hull up/down/restart/rebuild/reset <name> all operate on the whole cluster.`,
 		Use:   "add <dir>",
 		Short: "Adopt an existing compose project as a cluster",
 		Args:  cobra.ExactArgs(1),
-		Example: `  hull cluster add W:\Apps\TapKit --root core
+		Example: `  hull cluster add ./my-stack --root core
   hull cluster add . --profile dev`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()

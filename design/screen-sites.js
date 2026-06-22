@@ -151,7 +151,7 @@
       </div>`;
     }).join("") : `<div class="card" style="color:var(--text-dim)">No linked services. Add one from the <strong>Services</strong> tab.</div>`;
 
-    const dir = `C:/Users/caven/${s.name === "tapkit" ? "Sites/tapkit" : "Sites/" + s.name}`;
+    const dir = `C:/Users/caven/${s.name === "acme" ? "Sites/acme" : "Sites/" + s.name}`;
     body.innerHTML = `
       <div class="section-label">Linked services</div>
       <div class="grid-cards">${cards}</div>
