@@ -1,17 +1,33 @@
 # Build artifacts
 /bin/
 /dist/
+/hull
+/hulld
 *.exe
+*.test
 coverage.out
 gui/src-tauri/target/
 gui/src-tauri/gen/
+
+# Node (in case GUI tooling is added later)
+node_modules/
 
 # Docs & working notes — only README.md is tracked in git.
 # (ADRs, api.md, ROADMAP, TODO, INGEST, design briefs, etc. stay local.)
 *.md
 !README.md
 
-# IDE / OS
+# IDE / editors
 .idea/
 .vscode/
+*.swp
+*~
+
+# AI assistant scratch
+.claude/
+.aider*
+
+# OS junk
 .DS_Store
+Thumbs.db
+desktop.ini
