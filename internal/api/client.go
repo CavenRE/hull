@@ -194,6 +194,15 @@ func (c *Client) AdoptCluster(ctx context.Context, req AdoptClusterRequest) (str
 	return out.Name, nil
 }
 
+// Dependencies fetches dependency status (Docker + embedded components).
+func (c *Client) Dependencies(ctx context.Context) ([]DependencyInfo, error) {
+	var deps []DependencyInfo
+	if err := c.do(ctx, http.MethodGet, "/v1/dependencies", nil, &deps); err != nil {
+		return nil, err
+	}
+	return deps, nil
+}
+
 // Shutdown asks the daemon to exit.
 func (c *Client) Shutdown(ctx context.Context) error {
 	return c.do(ctx, http.MethodPost, "/v1/shutdown", nil, nil)

@@ -91,6 +91,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerSetupRoutes(mux)
 	s.registerRegistryRoutes(mux)
 	s.registerGroupRoutes(mux)
+	s.registerDependencyRoutes(mux)
 	mux.HandleFunc("GET /v1/jobs", s.handleJobs)
 	mux.HandleFunc("GET /v1/jobs/{id}", s.handleJob)
 	mux.HandleFunc("GET /v1/jobs/{id}/stream", s.handleJobStream)

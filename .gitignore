@@ -8,6 +8,7 @@
 coverage.out
 gui/src-tauri/target/
 gui/src-tauri/gen/
+gui/src-tauri/binaries/
 
 # Node (in case GUI tooling is added later)
 node_modules/

@@ -133,28 +133,28 @@
   }
 
   function updatesCard() {
-    const anyUpdate = H().DEPENDENCIES.some(d => d.status === "update" || d.status === "missing");
     return `
-      <div class="section-label">Dependencies &amp; updates</div>
+      <div class="section-label">Dependencies</div>
       <div class="card" style="margin-bottom:24px">
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
-          <p class="muted" style="margin:0;font-size:var(--fs-13);flex:1">Packages Hull installs and manages for you.</p>
-          <button class="btn btn-sm" id="checkUpdates">${icon("restart",13)}Check now</button>
-          ${anyUpdate ? `<button class="btn btn-sm btn-primary" id="updateAll">${icon("arrowup",13)}Update all</button>` : ""}
+          <p class="muted" style="margin:0;font-size:var(--fs-13);flex:1">Docker is the only external dependency; routing, DNS, and TLS are built into Hull.</p>
+          <button class="btn btn-sm" id="checkUpdates">${icon("restart",13)}Re-check</button>
         </div>
         ${H().DEPENDENCIES.map(d => depRow(d)).join("")}
       </div>`;
   }
   function depRow(d) {
-    const pill = d.status === "ok" ? `<span class="status-pill status-ok">${icon("check",12)}Up to date</span>`
-      : d.status === "update" ? `<span class="status-pill status-update">${icon("arrowup",12)}${d.latest}</span>`
+    const pill = d.status === "ok" ? `<span class="status-pill status-ok">${icon("check",12)}Running</span>`
+      : d.status === "embedded" ? `<span class="status-pill status-ok">${icon("check",12)}Built-in</span>`
+      : d.status === "stopped" ? `<span class="status-pill status-update">${icon("alert",12)}Not running</span>`
       : `<span class="status-pill status-missing">${icon("alert",12)}Not installed</span>`;
-    const btn = d.status === "update" ? `<button class="btn btn-sm btn-primary" data-update="${d.key}">Update</button>`
-      : d.status === "missing" ? `<button class="btn btn-sm btn-primary" data-install="${d.key}">Install</button>` : "";
-    const meta = d.installed ? `${d.blurb} · installed ${d.installed}` : `${d.blurb} · required`;
+    const btn = (d.status === "missing" || d.status === "stopped")
+      ? `<button class="btn btn-sm btn-primary" data-install="${d.key}">${d.status === "stopped" ? "Open Docker" : "Get Docker"}</button>` : "";
+    const ver = d.version ? " · " + d.version : "";
+    const hint = (d.status === "missing" && d.install_hint) ? `<div class="dep-meta mono" style="margin-top:3px">${d.install_hint}</div>` : "";
     return `<div class="dep-row">
       <span class="dep-ic">${icon("cube",16)}</span>
-      <div style="min-width:0"><div class="dep-name">${d.name}</div><div class="dep-meta">${meta}</div></div>
+      <div style="min-width:0"><div class="dep-name">${d.name}${ver}</div><div class="dep-meta">${d.blurb}</div>${hint}</div>
       <div class="dep-action">${pill}${btn}</div>
     </div>`;
   }
@@ -301,18 +301,13 @@
         else if (e.key === "ArrowDown") { e.preventDefault(); bump(-1); }
       });
     }
-    el.querySelector("#checkUpdates")?.addEventListener("click", t("Checking for updates…"));
-    el.querySelector("#updateAll")?.addEventListener("click", () => {
-      H().DEPENDENCIES.forEach(d => { if (d.status === "update") { d.installed = d.latest; d.status = "ok"; } });
-      App.toast("Updating all packages…"); window.renderSettings(rootEl);
-    });
-    el.querySelectorAll("[data-update]").forEach(b => b.addEventListener("click", () => {
-      const d = H().DEPENDENCIES.find(x => x.key === b.dataset.update); d.installed = d.latest; d.status = "ok";
-      App.toast(`Updated ${d.name}`); window.renderSettings(rootEl);
-    }));
+    el.querySelector("#checkUpdates")?.addEventListener("click", async () => { App.toast("Re-checking…"); await App.reload(); });
     el.querySelectorAll("[data-install]").forEach(b => b.addEventListener("click", () => {
-      if (b.dataset.install === "docker") App.openExternal("https://www.docker.com/products/docker-desktop/");
-      else App.toast("Hull provides this internally");
+      const d = H().DEPENDENCIES.find(x => x.key === b.dataset.install);
+      if (!d) return;
+      if (d.status === "stopped") { App.toast("Start Docker Desktop, then Re-check"); return; }
+      if (d.install_url) App.openExternal(d.install_url);
+      else App.toast("See Hull docs for install steps");
     }));
     el.querySelectorAll("[data-startup]").forEach(b => b.addEventListener("change", () => App.toast("Startup options arrive with the installer")));
     el.querySelector("#runDoctor")?.addEventListener("click", async () => { App.toast("Running checks…"); await App.reload(); });

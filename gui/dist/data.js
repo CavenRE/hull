@@ -103,12 +103,13 @@
       HULL.api("GET", "/v1/status"),
       HULL.api("GET", "/v1/config"),
     ]);
-    const [projects, services, doctor, jobs, groupDoc] = await Promise.all([
+    const [projects, services, doctor, jobs, groupDoc, deps] = await Promise.all([
       HULL.api("GET", "/v1/projects").catch(() => []),
       HULL.api("GET", "/v1/services").catch(() => []),
       HULL.api("GET", "/v1/doctor").catch(() => []),
       HULL.api("GET", "/v1/jobs").catch(() => []),
       HULL.api("GET", "/v1/groups").catch(() => ({ roots: {}, members: {} })),
+      HULL.api("GET", "/v1/dependencies").catch(() => []),
     ]);
     HULL.GROUPS = groupDoc || { roots: {}, members: {} };
     HULL.status = status;
@@ -175,15 +176,10 @@
     ];
     HULL._doctor = doctor || [];
 
-    // DEPENDENCIES — reframed: Docker is the only true external dep; the
-    // router/DNS/cert are embedded in the daemon (shown as built-in).
-    const dockerOk = eng && eng.status === "ok";
-    HULL.DEPENDENCIES = [
-      { name: "Docker Engine", key: "docker", installed: dockerOk ? (eng.detail || "installed") : null,
-        latest: "", status: dockerOk ? "ok" : "missing", blurb: "Container runtime — Hull's one external dependency" },
-      { name: "Caddy router", key: "caddy", installed: "embedded", latest: "embedded", status: "ok", blurb: "Built into the Hull daemon" },
-      { name: "Local DNS", key: "dns", installed: "embedded", latest: "embedded", status: "ok", blurb: "Built into the Hull daemon" },
-      { name: "Local CA (certs)", key: "ca", installed: "embedded", latest: "embedded", status: "ok", blurb: "Built into the Hull daemon" },
+    // DEPENDENCIES — live from /v1/dependencies (real Docker detection +
+    // embedded components). Falls back to a Docker stub if the call failed.
+    HULL.DEPENDENCIES = (deps && deps.length) ? deps : [
+      { name: "Docker Engine", key: "docker", status: "missing", blurb: "Container runtime — Hull's one external dependency.", install_url: "https://www.docker.com/products/docker-desktop/" },
     ];
 
     // JOBS → recent activity feed
