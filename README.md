@@ -9,6 +9,8 @@ Docker-based dev sites with automatic HTTPS domains, shared databases, and a one
 
 Runs on **Windows · macOS · Linux** (Arch & Debian/Ubuntu).
 
+<img src="design/screenshots/sites-overview.jpg" alt="Hull — Sites overview" width="860">
+
 </div>
 
 ---
@@ -220,7 +222,20 @@ Run `hull <command> --help` for full flags on any command.
 
 The optional Tauri app is a thin client over the same daemon API — every action it takes is one you can also do from the CLI. Close it to the tray and the daemon keeps your sites running.
 
-_Screenshots coming soon._
+<table>
+<tr>
+<td width="50%"><img src="design/screenshots/dashboard.jpg" alt="Dashboard"><br><sub>Dashboard — sites, services & system health at a glance</sub></td>
+<td width="50%"><img src="design/screenshots/sites-create-app.jpg" alt="Create a project"><br><sub>Create a site, app, or multi-container cluster</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="design/screenshots/services-list.jpg" alt="Shared services"><br><sub>Versioned shared database & cache instances</sub></td>
+<td width="50%"><img src="design/screenshots/service-create.jpg" alt="Add a service"><br><sub>Spin up a shared service in a click</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="design/screenshots/settings-domain.jpg" alt="Settings — local domain"><br><sub>Settings: loopback address, TLD & daemon control</sub></td>
+<td width="50%"><img src="design/screenshots/settings-light.jpg" alt="Light mode"><br><sub>Light & dark themes</sub></td>
+</tr>
+</table>
 
 Highlights: a project dashboard, shared-service management, a mail catcher, live logs, an onboarding/doctor panel, and **start / stop / restart** controls for the daemon itself.
 
