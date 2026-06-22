@@ -379,16 +379,36 @@
       if (!(await tryConnect())) scheduleReconnect();
     }, 1200);
   }
+  // first_run() is true until ~/.hull/config.yaml exists. The wizard writes
+  // it (via PUT /v1/config), so this only fires on a genuinely fresh install.
+  let wizardShown = false;
+  async function isFirstRun() {
+    try { return await window.__TAURI__.core.invoke("first_run"); } catch (e) { return false; }
+  }
+  function launchWizard() {
+    wizardShown = true;
+    document.body.classList.add("setup-mode");
+    window.renderWizard(main, {
+      config: window.HULL.config,
+      onDone: async (restart) => {
+        document.body.classList.remove("setup-mode");
+        if (restart) { await restartDaemon(); }   // rebinds new loopback/TLD
+        else { await reload(); ensureRoute(); mount(route); }
+      },
+    });
+  }
+
   async function tryConnect() {
     try {
       await window.HULL.connect();
       connected = true;
       setPill(true, "Daemon running");
       buildPopover();
+      startEvents();
+      if (!wizardShown && window.renderWizard && await isFirstRun()) { launchWizard(); return true; }
       ensureRoute();
       renderNav();
       mount(route);
-      startEvents();
       return true;
     } catch (e) { return false; }
   }
