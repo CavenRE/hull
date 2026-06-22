@@ -37,7 +37,24 @@
     el.querySelectorAll("[data-set-tab]").forEach(b => b.addEventListener("click", () => { tab = b.dataset.setTab; window.renderSettings(el); }));
     renderTab(el.querySelector("#setBody"));
     wire(el);
+    if (tab === "system") refreshStartup(el);
   };
+
+  // Startup toggles reflect real state: login item via the autostart plugin,
+  // the rest from ~/.hull/gui.json (read by the GUI shell on launch/close).
+  const PREF_KEY = { daemon: "start_daemon_on_launch", restore: "restore_running", tray: "close_to_tray", updates: "check_updates" };
+  function tinvoke(cmd, args) { const i = window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke; return i ? i(cmd, args) : Promise.reject(new Error("unavailable")); }
+  async function refreshStartup(el) {
+    try {
+      const [enabled, prefs] = await Promise.all([
+        tinvoke("plugin:autostart|is_enabled").catch(() => false),
+        tinvoke("get_gui_prefs").catch(() => ({})),
+      ]);
+      const set = (k, v) => { const cb = el.querySelector(`[data-startup="${k}"]`); if (cb) cb.checked = !!v; };
+      set("login", enabled);
+      Object.keys(PREF_KEY).forEach(k => set(k, prefs[PREF_KEY[k]] !== false));
+    } catch (e) {}
+  }
 
   function renderTab(body) {
     if (tab === "general")      body.innerHTML = appearanceCard() + foldersCard() + defaultsCard() + domainCard() + systemCard();
@@ -309,7 +326,14 @@
       if (d.install_url) App.openExternal(d.install_url);
       else App.toast("See Hull docs for install steps");
     }));
-    el.querySelectorAll("[data-startup]").forEach(b => b.addEventListener("change", () => App.toast("Startup options arrive with the installer")));
+    el.querySelectorAll("[data-startup]").forEach(b => b.addEventListener("change", async () => {
+      const key = b.dataset.startup, val = b.checked;
+      try {
+        if (key === "login") await tinvoke(val ? "plugin:autostart|enable" : "plugin:autostart|disable");
+        else await tinvoke("set_gui_pref", { key: PREF_KEY[key], value: val });
+        App.toast(val ? "On" : "Off");
+      } catch (e) { b.checked = !val; App.toast("Couldn't save that setting"); }
+    }));
     el.querySelector("#runDoctor")?.addEventListener("click", async () => { App.toast("Running checks…"); await App.reload(); });
     el.querySelector("#clearCaches")?.addEventListener("click", t("Caches cleared"));
     el.querySelector("#resetHull")?.addEventListener("click", t("Reset requires confirmation"));

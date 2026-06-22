@@ -414,7 +414,16 @@
   }
   async function boot() {
     setPill(false, "Connecting…");
-    if (!(await tryConnect())) showOffline();
+    if (await tryConnect()) return;
+    // Daemon down — auto-start it if the user opted in (Settings › Startup).
+    let auto = true;
+    try { const p = await window.__TAURI__.core.invoke("get_gui_prefs"); auto = p.start_daemon_on_launch !== false; } catch (e) {}
+    if (auto) {
+      setPill(false, "Starting daemon…");
+      try { await window.__TAURI__.core.invoke("start_daemon"); } catch (e) {}
+      for (let i = 0; i < 16; i++) { await new Promise(r => setTimeout(r, 600)); if (await tryConnect()) return; }
+    }
+    showOffline();
   }
 
   /* ---------------- DAEMON LIFECYCLE (start/stop/restart) ---------------- */

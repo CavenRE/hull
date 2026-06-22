@@ -50,6 +50,61 @@ fn first_run() -> bool {
     !hull_home().join("config.yaml").exists()
 }
 
+// ---- GUI startup preferences (~/.hull/gui.json) -------------------------
+// Behaviours the GUI owns (not daemon config): close-to-tray, auto-start the
+// daemon on launch, restore sites, update checks. Stored as a small JSON file
+// so both this process (window close) and the frontend (Settings) agree.
+fn prefs_path() -> PathBuf {
+    hull_home().join("gui.json")
+}
+
+fn default_prefs() -> serde_json::Value {
+    serde_json::json!({
+        "close_to_tray": true,
+        "start_daemon_on_launch": true,
+        "restore_running": true,
+        "check_updates": true,
+    })
+}
+
+/// Reads gui.json, filling any missing keys with their defaults.
+#[tauri::command]
+fn get_gui_prefs() -> serde_json::Value {
+    let def = default_prefs();
+    let mut v = fs::read_to_string(prefs_path())
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .unwrap_or_else(|| def.clone());
+    if let (Some(obj), Some(dobj)) = (v.as_object_mut(), def.as_object()) {
+        for (k, dv) in dobj {
+            obj.entry(k.clone()).or_insert_with(|| dv.clone());
+        }
+    } else {
+        v = def;
+    }
+    v
+}
+
+/// Persists a single boolean startup preference.
+#[tauri::command]
+fn set_gui_pref(key: String, value: bool) -> Result<(), String> {
+    let mut v = get_gui_prefs();
+    if let Some(obj) = v.as_object_mut() {
+        obj.insert(key, serde_json::Value::Bool(value));
+    }
+    let home = hull_home();
+    let _ = fs::create_dir_all(&home);
+    let data = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
+    fs::write(prefs_path(), data).map_err(|e| e.to_string())
+}
+
+fn close_to_tray() -> bool {
+    get_gui_prefs()
+        .get("close_to_tray")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true)
+}
+
 /// Spawns hulld: next to this exe (bundled), the dev tree, or PATH.
 #[tauri::command]
 fn start_daemon() -> Result<(), String> {
@@ -83,7 +138,17 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![daemon_info, first_run, start_daemon])
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
+        .invoke_handler(tauri::generate_handler![
+            daemon_info,
+            first_run,
+            start_daemon,
+            get_gui_prefs,
+            set_gui_pref
+        ])
         .setup(|app| {
             let show = MenuItem::with_id(app, "show", "Show Hull", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit Hull", true, None::<&str>)?;
@@ -108,9 +173,14 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                // Close-to-tray: hiding the GUI never touches the daemon.
-                let _ = window.hide();
-                api.prevent_close();
+                if close_to_tray() {
+                    // Hiding the GUI never touches the daemon; reopen from the tray.
+                    let _ = window.hide();
+                    api.prevent_close();
+                } else {
+                    // Tray disabled: closing the window quits Hull's UI.
+                    window.app_handle().exit(0);
+                }
             }
         })
         .run(tauri::generate_context!())
