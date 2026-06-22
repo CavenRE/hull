@@ -9,8 +9,6 @@ Docker-based dev sites with automatic HTTPS domains, shared databases, and a one
 
 Runs on **Windows · macOS · Linux** (Arch & Debian/Ubuntu).
 
-<img src="design/screenshots/02-light-dashboard.png" alt="Hull dashboard" width="820">
-
 </div>
 
 ---
@@ -222,16 +220,7 @@ Run `hull <command> --help` for full flags on any command.
 
 The optional Tauri app is a thin client over the same daemon API — every action it takes is one you can also do from the CLI. Close it to the tray and the daemon keeps your sites running.
 
-<table>
-<tr>
-<td width="50%"><img src="design/screenshots/new-project.png" alt="New project"><br><sub>Scaffold a project with databases & services</sub></td>
-<td width="50%"><img src="design/screenshots/add-instance.png" alt="Shared services"><br><sub>Run versioned shared database instances</sub></td>
-</tr>
-<tr>
-<td width="50%"><img src="design/screenshots/01-light-mail.png" alt="Mail"><br><sub>Built-in mail catcher</sub></td>
-<td width="50%"><img src="design/screenshots/loopback.png" alt="Settings"><br><sub>Settings: loopback address, domain, daemon control</sub></td>
-</tr>
-</table>
+_Screenshots coming soon._
 
 Highlights: a project dashboard, shared-service management, a mail catcher, live logs, an onboarding/doctor panel, and **start / stop / restart** controls for the daemon itself.
 
