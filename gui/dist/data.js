@@ -238,6 +238,9 @@
   // Each resolves to live data when the daemon can reach Docker Hub, and
   // falls back to the static catalog above so pickers are never empty.
   const _vcache = {};
+  // Drop the in-memory registry/version caches so the next lookups re-fetch
+  // from Docker Hub (the real work behind Settings › "Clear caches").
+  HULL.clearCaches = function () { Object.keys(_vcache).forEach(k => delete _vcache[k]); };
   function staticVersions(engine) {
     for (const g of CATALOG) for (const it of g.items)
       if (it.engine === engine) return it.versions.slice();

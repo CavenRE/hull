@@ -13,14 +13,6 @@
     { key: "updates", name: "Check for updates automatically", desc: "Notify when dependency updates are available.", on: true },
   ];
 
-  const DOCTOR = [
-    { name: "Docker engine reachable", status: "ok",   detail: "27.0.3 · 7 containers up" },
-    { name: "Router listening",        status: "ok",   detail: "Caddy bound to :80 and :443" },
-    { name: "*.test resolves",         status: "ok",   detail: "127.0.0.1 via local resolver" },
-    { name: "Local CA trusted",        status: "ok",   detail: "Hull root certificate in system store" },
-    { name: "Certificate validity",    status: "warn", detail: "Wildcard cert renews in 12 days" },
-    { name: "Disk space",              status: "ok",   detail: "142 GB free on system volume" },
-  ];
   const DXICON = { ok: "check", warn: "alert", err: "x" };
   const DXCOLOR = { ok: "var(--green)", warn: "var(--amber)", err: "var(--red)" };
 
@@ -188,8 +180,18 @@
   }
 
   function doctorCard() {
-    const checks = (H()._doctor && H()._doctor.length) ? H()._doctor : DOCTOR;
+    const checks = (H()._doctor && H()._doctor.length) ? H()._doctor : null;
     const norm = s => s === "ok" ? "ok" : s === "warn" ? "warn" : "err";
+    // No live data → say so honestly rather than render plausible-looking mocks.
+    const body = checks
+      ? checks.map(c => { const st = norm(c.status); return `<div class="doctor-row">
+          <span style="color:${DXCOLOR[st]};margin-top:1px">${icon(DXICON[st],16)}</span>
+          <div><div class="dx-name">${c.name}</div><div class="dx-detail">${c.detail}</div></div>
+        </div>`; }).join("")
+      : `<div class="doctor-row">
+          <span style="color:var(--text-faint);margin-top:1px">${icon("alert",16)}</span>
+          <div><div class="dx-name">Checks unavailable</div><div class="dx-detail">Couldn't reach the daemon's health checks — make sure it's running, then Run again.</div></div>
+        </div>`;
     return `
       <div class="section-label">Doctor</div>
       <div class="card" style="margin-bottom:24px">
@@ -197,10 +199,7 @@
           <p class="muted" style="margin:0;font-size:var(--fs-13);flex:1">Health checks for the local environment.</p>
           <button class="btn btn-sm" id="runDoctor">${icon("restart",13)}Run again</button>
         </div>
-        ${checks.map(c => { const st = norm(c.status); return `<div class="doctor-row">
-          <span style="color:${DXCOLOR[st]};margin-top:1px">${icon(DXICON[st],16)}</span>
-          <div><div class="dx-name">${c.name}</div><div class="dx-detail">${c.detail}</div></div>
-        </div>`; }).join("")}
+        ${body}
       </div>`;
   }
 
@@ -228,7 +227,6 @@
   function saveConfig(body, msg) { App.act(App.api("PUT", "/v1/config", body), msg || "Settings saved"); }
 
   function wire(el) {
-    const t = (m) => () => App.toast(m);
     el.querySelectorAll("[data-theme-opt]").forEach(b => b.addEventListener("click", () => {
       App.theme.set(b.dataset.themeOpt);
       el.querySelectorAll("#themeSeg .seg-btn").forEach(x => x.classList.toggle("active", x === b));
@@ -335,7 +333,26 @@
       } catch (e) { b.checked = !val; App.toast("Couldn't save that setting"); }
     }));
     el.querySelector("#runDoctor")?.addEventListener("click", async () => { App.toast("Running checks…"); await App.reload(); });
-    el.querySelector("#clearCaches")?.addEventListener("click", t("Caches cleared"));
-    el.querySelector("#resetHull")?.addEventListener("click", t("Reset requires confirmation"));
+    el.querySelector("#clearCaches")?.addEventListener("click", async () => {
+      if (window.HULL.clearCaches) window.HULL.clearCaches();
+      await App.reload();
+      App.toast("Caches cleared — projects re-detected");
+    });
+    el.querySelector("#resetHull")?.addEventListener("click", () => {
+      const cmds = "# 1. Quit Hull (Settings › Stop, or close the app)\n# 2. Remove Hull's home (config, local CA, certs, derived state):\nrm -rf ~/.hull\n# 3. Remove Hull's shared-service volumes via Docker:\ndocker volume ls -q --filter name=hull | xargs -r docker volume rm";
+      App.openDialog(`
+        <div class="dialog">
+          <div class="dialog-head"><h3>Reset Hull</h3></div>
+          <div class="dialog-body">
+            <p class="muted" style="margin:0 0 12px;font-size:var(--fs-13)">A full reset removes Hull's configuration, local certificate authority, and shared-service volumes. <b>Your project files are never touched.</b> This isn't automated from the app yet — run these manually:</p>
+            <pre class="codeblock" style="white-space:pre-wrap">${cmds.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</pre>
+          </div>
+          <div class="dialog-foot">
+            <button class="btn" data-dialog-close>Close</button>
+            <button class="btn btn-primary" id="copyReset">${icon("copy",14)}Copy commands</button>
+          </div>
+        </div>`);
+      document.getElementById("copyReset")?.addEventListener("click", (e) => App.copyText(cmds, e.currentTarget));
+    });
   }
 })();

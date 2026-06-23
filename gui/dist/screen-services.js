@@ -31,7 +31,7 @@
     grid.querySelectorAll(".copy-btn").forEach(b =>
       b.addEventListener("click", () => App.copyText(b.dataset.copy, b)));
     grid.querySelectorAll(".inst-url").forEach(b =>
-      b.addEventListener("click", () => App.toast(`Opening ${b.dataset.url}`)));
+      b.addEventListener("click", () => App.openExternal(b.dataset.url)));
   }
 
   function card(i) {
@@ -64,7 +64,6 @@
         <span class="chip chip-accent" style="margin-left:8px">${meta.label}${verLabel}</span>
         <div class="ih-actions">
           <button class="btn btn-sm" data-act="${running?"stop":"start"}" data-name="${i.name}">${running?icon("stop",13)+"Stop":icon("play",13)+"Start"}</button>
-          <button class="btn btn-sm btn-icon" data-act="edit" data-name="${i.name}" title="Edit settings">${icon("sliders",14)}</button>
         </div>
       </div>
       <div class="inst-body">
@@ -85,7 +84,6 @@
     const i = H().SERVICES.find(s => s.name === name);
     if (act === "start")     App.act(App.api("POST", `/v1/services/${name}/start`), `Starting ${name}…`);
     else if (act === "stop") App.act(App.api("POST", `/v1/services/${name}/stop`), `Stopping ${name}…`);
-    else if (act === "edit") openEdit(i);
     else if (act === "open-with") openOpenWith(i);
     else if (act === "link") openLinkProject(i);
     else if (act === "destroy") openDestroy(i);
@@ -136,71 +134,6 @@
       App.closeDialog();
       App.act(App.api("POST", "/v1/services", { engine: sel, version }), `Creating ${H().ENGINES[sel].label} instance…`);
     });
-  }
-
-  /* ---- Edit instance + advanced settings ---- */
-  function advancedFields(i) {
-    const cat = H().ENGINES[i.engine].cat;
-    let specific = "";
-    if (cat === "Database") {
-      specific = `<div class="form-grid form-row">
-        <div><label class="field-label">Max connections</label><input class="input mono" type="number" value="100"></div>
-        <div><label class="field-label">Initial database</label><input class="input mono" value="${i.linked[0] || "app"}"></div>
-      </div>`;
-    } else if (cat === "Cache") {
-      specific = `<div class="form-grid form-row">
-        <div><label class="field-label">Max memory</label><input class="input mono" value="256mb"></div>
-        <div><label class="field-label">Eviction policy</label><select class="select">${["noeviction","allkeys-lru","volatile-lru","allkeys-lfu"].map(o=>`<option>${o}</option>`).join("")}</select></div>
-      </div>`;
-    }
-    const env = i.engine === "postgres" ? "POSTGRES_USER=postgres\nPOSTGRES_PASSWORD="
-      : i.engine === "mysql" || i.engine === "mariadb" ? "MYSQL_ALLOW_EMPTY_PASSWORD=1"
-      : i.engine === "minio" ? "MINIO_ROOT_USER=minioadmin\nMINIO_ROOT_PASSWORD=minioadmin" : "";
-    return `${specific}
-      <div class="form-row"><label class="field-label">Data volume</label>
-        <input class="input mono" value="~/.hull/volumes/${i.name}"></div>
-      <div class="form-row"><label class="field-label">Custom environment</label>
-        <textarea class="input" rows="3" placeholder="KEY=value">${env}</textarea>
-        <p class="help">One KEY=value per line. Injected into the container.</p></div>`;
-  }
-
-  function openEdit(i) {
-    const meta = H().ENGINES[i.engine];
-    const catItem = H().CATALOG.flatMap(g => g.items).find(it => it.engine === i.engine);
-    const versions = catItem ? catItem.versions : [i.version];
-    App.openDialog(`
-      <div class="dialog dialog-lg">
-        <div class="dialog-head"><h3>Edit ${i.name}</h3><span class="chip chip-accent" style="margin-left:10px">${meta.label}</span></div>
-        <div class="dialog-body">
-          <div class="form-grid form-row">
-            <div><label class="field-label">Instance name</label><input class="input mono" value="${i.name}"></div>
-            <div><label class="field-label">Version</label><select class="select" id="editVer">${versions.map(v=>`<option ${v===i.version?"selected":""}>${v}</option>`).join("")}</select></div>
-          </div>
-          <div class="form-grid form-row">
-            <div><label class="field-label">Host port</label><input class="input mono" type="number" value="${i.host_port}"></div>
-            <div><label class="field-label">Username</label><input class="input mono" value="${i.username || ""}" ${i.username ? "" : "placeholder='(none)' disabled"}></div>
-          </div>
-          <div class="form-row"><label class="field-label">Password</label>
-            <input class="input mono" type="text" value="${i.password}" placeholder="(empty)"></div>
-          <div class="form-row" style="display:flex;gap:24px;padding-top:4px">
-            <label class="switch"><input type="checkbox" checked><span class="track"></span>Auto-start on launch</label>
-            <label class="switch"><input type="checkbox"><span class="track"></span>Expose on local network</label>
-          </div>
-          <hr class="hairline" style="margin:8px 0 0">
-          <button class="adv-toggle" type="button">${icon("chevright",16)}Advanced settings</button>
-          <div class="adv-body">${advancedFields(i)}</div>
-        </div>
-        <div class="dialog-foot">
-          <button class="btn" data-dialog-close>Cancel</button>
-          <button class="btn btn-primary" id="saveInst">Save changes</button>
-        </div>
-      </div>`);
-    (async () => {
-      const live = await H().versions(i.engine);
-      const sel = document.getElementById("editVer");
-      if (sel && live && live.length) sel.innerHTML = live.map(v => `<option ${v === i.version ? "selected" : ""}>${v}</option>`).join("");
-    })();
-    document.getElementById("saveInst").addEventListener("click", () => { App.closeDialog(); App.toast("Editing instances lands in the next drop"); });
   }
 
   function openOpenWith(i) {
