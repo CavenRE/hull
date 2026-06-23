@@ -147,10 +147,30 @@
     scrim.classList.add("open");
     const close = scrim.querySelector("[data-dialog-close]");
     if (close) close.addEventListener("click", closeDialog);
+    focusDialog();
   }
   function closeDialog() { detailOpen = false; scrim.classList.remove("open"); setTimeout(() => { scrim.innerHTML = ""; }, 200); }
   scrim.addEventListener("click", e => { if (e.target === scrim) closeDialog(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && scrim.classList.contains("open")) closeDialog(); });
+  // a11y: move keyboard focus into an opened dialog and trap Tab within it.
+  function focusable(root) {
+    return [...root.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')]
+      .filter(el => el.offsetParent !== null);
+  }
+  function focusDialog() {
+    const dlg = scrim.querySelector(".dialog");
+    if (!dlg) return;
+    const target = dlg.querySelector("input,select,textarea") || focusable(dlg)[0];
+    if (target) setTimeout(() => target.focus(), 30);
+  }
+  scrim.addEventListener("keydown", e => {
+    if (e.key !== "Tab" || !scrim.classList.contains("open")) return;
+    const f = focusable(scrim);
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  });
   document.addEventListener("click", e => {
     const adv = e.target.closest(".adv-toggle");
     if (adv) { adv.classList.toggle("open"); const body = adv.nextElementSibling; if (body && body.classList.contains("adv-body")) body.classList.toggle("open"); return; }
@@ -268,6 +288,7 @@
       </div>`;
     scrim.classList.add("open");
     scrim.querySelector("[data-dialog-close]").addEventListener("click", closeDialog);
+    focusDialog();
     paintDetail();
   }
   function paintDetail() {
