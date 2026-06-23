@@ -25,7 +25,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
-    "publisher": "Hull",
+    "publisher": "CavenRE",
     "shortDescription": "Docker-based local dev environments",
     "longDescription": "Hull provisions Docker-based local development environments with automatic HTTPS domains, databases, and framework scaffolding.",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],

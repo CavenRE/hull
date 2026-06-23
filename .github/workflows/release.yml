@@ -1,0 +1,88 @@
+name: Release
+
+# Tag a release to build installers for all three OSes and attach them to a
+# draft GitHub Release:  git tag v0.1.0 && git push origin v0.1.0
+# (Requires Actions enabled on the repo. Runs UNSIGNED until the signing
+# secrets below are added — then it signs/notarizes automatically.)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            triple: x86_64-unknown-linux-gnu
+            goos: linux
+            goarch: amd64
+            ext: ""
+            bundles: "appimage,deb"
+          - os: macos-latest
+            triple: aarch64-apple-darwin
+            goos: darwin
+            goarch: arm64
+            ext: ""
+            bundles: "dmg"
+          - os: windows-latest
+            triple: x86_64-pc-windows-msvc
+            goos: windows
+            goarch: amd64
+            ext: ".exe"
+            bundles: "nsis"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Linux GUI build dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Stage Go sidecars (daemon + CLI) for this target triple
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p gui/src-tauri/binaries
+          go build -ldflags "-s -w" -o "gui/src-tauri/binaries/hulld-${{ matrix.triple }}${{ matrix.ext }}" ./cmd/hulld
+          go build -ldflags "-s -w" -o "gui/src-tauri/binaries/hull-${{ matrix.triple }}${{ matrix.ext }}"  ./cmd/hull
+
+      - name: Build, bundle & attach to the release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # --- Updater signing (optional; add as repo secrets to enable) ---
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # --- macOS code signing + notarization (optional) ---
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: gui
+          tagName: ${{ github.ref_name }}
+          releaseName: "Hull ${{ github.ref_name }}"
+          releaseBody: "See CHANGELOG.md for what changed."
+          releaseDraft: true
+          prerelease: false
+          args: --bundles ${{ matrix.bundles }}
