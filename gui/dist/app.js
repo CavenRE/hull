@@ -183,7 +183,11 @@
   // App.api(method, path, body) → daemon; App.reload() refreshes state + view.
   async function api(method, path, body) { return window.HULL.api(method, path, body); }
   async function reload() {
-    try { await window.HULL.load(); } catch (e) { return; }
+    // A load failure here means status/config didn't come back. If we still
+    // believe we're connected, surface it — otherwise the reconnect path
+    // (events.onerror → scheduleReconnect) already owns the messaging.
+    try { await window.HULL.load(); }
+    catch (e) { if (connected) toast("Couldn't refresh — " + (e.message || "daemon error")); return; }
     renderNav();
     buildPopover();
     rerender();
