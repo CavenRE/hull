@@ -1,11 +1,13 @@
 //go:build windows && installer
 
 // Command hull-setup is Hull's own installer — a self-contained exe that
-// embeds the binaries and installs them, with NO NSIS. It never copies itself
-// to %TEMP%, so SRP/AppLocker policies can't block it. Uninstall is wired to
-// `hull uninstall`, which already works from the install directory.
+// embeds the binaries and installs them, with NO NSIS. Double-clicking opens a
+// Hull-themed WebView2 window (it's built as a GUI app, so it never shows a
+// console); --silent runs headless for scripting. It never copies itself to
+// %TEMP%, so SRP/AppLocker can't block it, and uninstall is wired to
+// `hull uninstall`, which runs from the install directory.
 //
-// Build:  go build -tags installer -o bin\Hull-Setup.exe ./cmd/hull-setup
+// Build:  go build -tags installer -ldflags "-H windowsgui" -o bin\Hull-Setup.exe ./cmd/hull-setup
 // (build.ps1 stages payload.zip first.)
 package main
 
@@ -34,75 +36,83 @@ const (
 	runKey      = `Software\Microsoft\Windows\CurrentVersion\Run`
 )
 
+// InstallOpts are the choices collected by the GUI (or flags).
+type InstallOpts struct {
+	Dir       string
+	AddPath   bool
+	Shortcuts bool
+	Autostart bool
+}
+
+func defaultDir() string { return filepath.Join(os.Getenv("LOCALAPPDATA"), "Hull") }
+
 func main() {
-	dir := flag.String("dir", filepath.Join(os.Getenv("LOCALAPPDATA"), "Hull"), "install directory")
-	silent := flag.Bool("silent", false, "install without prompts")
+	dir := flag.String("dir", defaultDir(), "install directory")
+	silent := flag.Bool("silent", false, "install without the GUI (scripting)")
 	noPath := flag.Bool("no-path", false, "don't add the CLI to PATH")
 	noShortcut := flag.Bool("no-shortcut", false, "don't create shortcuts")
 	autostart := flag.Bool("autostart", false, "launch Hull at login")
 	launch := flag.Bool("launch", false, "open Hull after installing")
 	flag.Parse()
 
-	if !*silent {
-		fmt.Printf("Install Hull %s into:\n  %s\n\n", version, *dir)
-		fmt.Println("This will add the hull CLI to your PATH and create shortcuts.")
-		fmt.Print("Proceed? [Y/n] ")
-		var r string
-		fmt.Scanln(&r)
-		if s := strings.TrimSpace(strings.ToLower(r)); s == "n" || s == "no" {
-			fmt.Println("Cancelled.")
-			return
+	opts := InstallOpts{Dir: *dir, AddPath: !*noPath, Shortcuts: !*noShortcut, Autostart: *autostart}
+
+	if *silent {
+		if err := install(opts, func(string, int) {}); err != nil {
+			os.Exit(1)
 		}
+		if *launch {
+			launchHull(opts.Dir)
+		}
+		return
 	}
-
-	if err := install(*dir, !*noPath, !*noShortcut, *autostart); err != nil {
-		fmt.Fprintln(os.Stderr, "Install failed:", err)
-		os.Exit(1)
-	}
-
-	fmt.Println("\nHull installed.")
-	if *launch {
-		_ = exec.Command(filepath.Join(*dir, "hull-gui.exe")).Start()
-	} else if !*silent {
-		fmt.Println("Launch it from the Start menu, or run `hull` in a new terminal.")
-	}
+	runGUI(opts) // Hull-themed WebView2 installer (gui.go)
 }
 
-func install(dir string, addPath, shortcuts, autostart bool) error {
-	fmt.Println("Stopping any running Hull...")
+// install performs the install, reporting progress (0–100) via report.
+func install(o InstallOpts, report func(msg string, pct int)) error {
+	if o.Dir == "" {
+		o.Dir = defaultDir()
+	}
+	report("Stopping any running Hull…", 5)
 	for _, p := range []string{"hull-gui.exe", "hulld.exe"} {
 		_ = exec.Command("taskkill", "/F", "/IM", p).Run()
 	}
 
-	fmt.Println("Copying files...")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	report("Copying files…", 25)
+	if err := os.MkdirAll(o.Dir, 0o755); err != nil {
 		return err
 	}
-	if err := extract(payload, dir); err != nil {
-		return fmt.Errorf("extracting files: %w", err)
+	if err := extract(payload, o.Dir); err != nil {
+		return fmt.Errorf("copying files: %w", err)
 	}
 
-	if addPath {
-		fmt.Println("Adding the CLI to PATH...")
-		if err := addToPath(dir); err != nil {
-			fmt.Println("  note:", err)
+	if o.AddPath {
+		report("Adding the CLI to PATH…", 70)
+		if err := addToPath(o.Dir); err != nil {
+			return fmt.Errorf("PATH: %w", err)
 		}
 	}
-	if shortcuts {
-		fmt.Println("Creating shortcuts...")
-		exe := filepath.Join(dir, "hull-gui.exe")
+	if o.Shortcuts {
+		report("Creating shortcuts…", 80)
+		exe := filepath.Join(o.Dir, "hull-gui.exe")
 		mkShortcut(filepath.Join(os.Getenv("APPDATA"), `Microsoft\Windows\Start Menu\Programs\Hull.lnk`), exe)
 		mkShortcut(filepath.Join(userHome(), "Desktop", "Hull.lnk"), exe)
 	}
 
-	fmt.Println("Registering uninstall...")
-	if err := writeUninstallEntry(dir); err != nil {
-		fmt.Println("  note:", err)
+	report("Registering…", 90)
+	if err := writeUninstallEntry(o.Dir); err != nil {
+		return fmt.Errorf("registry: %w", err)
 	}
-	if autostart {
-		setRun("Hull", `"`+filepath.Join(dir, "hull-gui.exe")+`"`)
+	if o.Autostart {
+		setRun("Hull", `"`+filepath.Join(o.Dir, "hull-gui.exe")+`"`)
 	}
+	report("Done", 100)
 	return nil
+}
+
+func launchHull(dir string) {
+	_ = exec.Command(filepath.Join(dir, "hull-gui.exe")).Start()
 }
 
 func extract(zipBytes []byte, dir string) error {

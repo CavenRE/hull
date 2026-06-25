@@ -40,9 +40,10 @@ $zip = Join-Path $root 'cmd\hull-setup\payload.zip'
 Remove-Item $zip -Force -ErrorAction SilentlyContinue
 Compress-Archive -Path (Join-Path $payloadDir '*') -DestinationPath $zip -CompressionLevel Optimal
 
-Write-Host 'Building installer (embeds payload)...' -ForegroundColor Cyan
+Write-Host 'Building installer (GUI app, embeds payload)...' -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path (Join-Path $root 'bin') | Out-Null
-go build -tags installer -ldflags '-s -w' -o (Join-Path $root 'bin\Hull-Setup.exe') ./cmd/hull-setup
+# -H windowsgui => no console window ever (it's a graphical installer).
+go build -tags installer -ldflags '-s -w -H windowsgui' -o (Join-Path $root 'bin\Hull-Setup.exe') ./cmd/hull-setup
 
 # Tidy intermediates (keep bin\Hull-Setup.exe only).
 Remove-Item $payloadDir -Recurse -Force -ErrorAction SilentlyContinue
