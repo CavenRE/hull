@@ -26,6 +26,22 @@ func TestBuildImportManifestSlugsName(t *testing.T) {
 	}
 }
 
+func TestBuildImportManifestExtras(t *testing.T) {
+	det := bundle.Detection{Template: "laravel", DB: "postgres", Redis: true, Extras: []string{"mailpit", "meilisearch"}}
+	m, err := BuildImportManifest("shop", det, NewOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"db", "redis", "mailpit", "meilisearch"} {
+		if m.Services[want] == nil {
+			t.Errorf("imported manifest missing service %q: %v", want, m.Services)
+		}
+	}
+	if s := m.Services["mailpit"]; s != nil && s.Engine != "mailpit" {
+		t.Errorf("mailpit engine = %q", s.Engine)
+	}
+}
+
 func testEngine(t *testing.T) (*Engine, string) {
 	t.Helper()
 	root := t.TempDir()

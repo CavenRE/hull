@@ -18,6 +18,10 @@ type Detection struct {
 	DB       string // engine name, "" = none
 	Database string // database name, "" = derive from project name
 	Redis    bool
+	// Extras are additional shared-service engines discovered in .env
+	// (mailpit, meilisearch, typesense, memcached, minio) — wired the same
+	// way redis/db are, so an imported app comes up fully connected.
+	Extras []string
 	// Kind is the broader project kind for non-PHP projects too:
 	// laravel | wordpress | plain | python | node | go | docker | static.
 	// PHP kinds map to a site Template; the rest are container/cluster apps.
@@ -45,6 +49,7 @@ func Detect(dir string) Detection {
 			} else if store, ok := envfile.Get(content, "CACHE_STORE"); ok && store == "redis" {
 				d.Redis = true
 			}
+			d.Extras = detectExtras(content)
 		}
 		if d.DB == "" && d.Template == "laravel" {
 			d.DB = "postgres" // smart default, as v1
@@ -133,6 +138,58 @@ func detectPHP(dir string) string {
 		}
 	}
 	return ""
+}
+
+// detectExtras finds shared services beyond db/redis from a Laravel .env,
+// conservatively (only on clear markers) so imports don't provision junk.
+func detectExtras(content string) []string {
+	get := func(k string) string {
+		v, _ := envfile.Get(content, k)
+		return strings.ToLower(strings.Trim(strings.TrimSpace(v), `"'`))
+	}
+	var out []string
+	has := func(e string) bool {
+		for _, x := range out {
+			if x == e {
+				return true
+			}
+		}
+		return false
+	}
+	add := func(e string) {
+		if !has(e) {
+			out = append(out, e)
+		}
+	}
+
+	// Mail catcher (mailpit/mailhog) when SMTP points at one.
+	if get("MAIL_MAILER") == "smtp" {
+		if h := get("MAIL_HOST"); strings.Contains(h, "mailpit") || strings.Contains(h, "mailhog") {
+			add("mailpit")
+		}
+	}
+	// Full-text search via Laravel Scout.
+	switch get("SCOUT_DRIVER") {
+	case "meilisearch":
+		add("meilisearch")
+	case "typesense":
+		add("typesense")
+	}
+	if get("MEILISEARCH_HOST") != "" {
+		add("meilisearch")
+	}
+	if get("TYPESENSE_HOST") != "" {
+		add("typesense")
+	}
+	// Memcached cache.
+	if get("CACHE_STORE") == "memcached" || get("MEMCACHED_HOST") != "" {
+		add("memcached")
+	}
+	// MinIO / S3-compatible object storage (path-style endpoint is the tell).
+	if get("FILESYSTEM_DISK") == "s3" && (get("AWS_ENDPOINT") != "" || get("AWS_USE_PATH_STYLE_ENDPOINT") == "true") {
+		add("minio")
+	}
+	return out
 }
 
 func detectDBFromEnv(content string) string {

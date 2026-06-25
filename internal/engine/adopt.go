@@ -66,6 +66,17 @@ func BuildImportManifest(name string, det bundle.Detection, overrides NewOptions
 		}
 		m.Services["redis"] = &manifest.Service{Engine: "redis"}
 	}
+	// Extra shared services discovered in .env (mailpit, meilisearch, …). The
+	// engine name doubles as the manifest key — wireLaravelEnv keys on Engine,
+	// so each comes up wired. Keyed by engine, so duplicates collapse.
+	for _, eng := range det.Extras {
+		if m.Services == nil {
+			m.Services = map[string]*manifest.Service{}
+		}
+		if _, ok := m.Services[eng]; !ok {
+			m.Services[eng] = &manifest.Service{Engine: eng}
+		}
+	}
 
 	data, err := yaml.Marshal(m)
 	if err != nil {
