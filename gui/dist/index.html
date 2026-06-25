@@ -43,10 +43,10 @@
   .daemon-wrap:hover .daemon-pop { opacity: 1; visibility: visible; transform: none; }
   .daemon-pop .dp-head { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; padding: 4px 6px 7px; display: flex; align-items: center; gap: 7px; }
   .daemon-pop .dp-head .dp-up { margin-left: auto; color: var(--text-dim); text-transform: none; letter-spacing: 0; font-family: var(--font-mono); }
-  .daemon-pop .dp-row { display: flex; align-items: flex-start; gap: 8px; padding: 5px 6px; font-size: var(--fs-12); border-radius: var(--r-sm); }
+  .daemon-pop .dp-row { display: flex; align-items: center; gap: 8px; padding: 5px 6px; font-size: var(--fs-12); border-radius: var(--r-sm); }
   .daemon-pop .dp-row .dp-name { color: var(--text); flex: none; }
-  .daemon-pop .dp-row .dp-detail { margin-left: auto; padding-left: 16px; color: var(--text-faint); font-family: var(--font-mono); font-size: 11px; text-align: right; white-space: normal; word-break: break-word; }
-  .daemon-pop .dp-row .dot { margin-top: 4px; }
+  .daemon-pop .dp-row .dp-detail { flex: 1; min-width: 0; margin-left: auto; padding-left: 16px; color: var(--text-faint); font-family: var(--font-mono); font-size: 11px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .daemon-pop .dp-row .dot { margin-top: 0; }
   .theme-toggle {
     appearance: none; border: 1px solid var(--border); background: var(--bg-card);
     border-radius: var(--r-ctrl); height: 30px; cursor: pointer; color: var(--text-dim);
