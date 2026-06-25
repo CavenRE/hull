@@ -61,6 +61,9 @@ func runUninstall(o uninstallOpts) error {
 		_ = os.Remove(lnk)
 	}
 
+	fmt.Println("Removing autostart (launch-at-login)…")
+	removeAutostart(dir)
+
 	if o.PurgeData {
 		if err := backupHullHome(); err != nil {
 			fmt.Printf("  note: %v\n", err)
@@ -132,12 +135,37 @@ func removeFromUserPath(dir string) error {
 func shortcutPaths() []string {
 	var out []string
 	if appdata := os.Getenv("APPDATA"); appdata != "" {
-		out = append(out, filepath.Join(appdata, `Microsoft\Windows\Start Menu\Programs\Hull.lnk`))
+		out = append(out,
+			filepath.Join(appdata, `Microsoft\Windows\Start Menu\Programs\Hull.lnk`),
+			filepath.Join(appdata, `Microsoft\Windows\Start Menu\Programs\Startup\Hull.lnk`),
+		)
+	}
+	if pd := os.Getenv("ProgramData"); pd != "" {
+		out = append(out, filepath.Join(pd, `Microsoft\Windows\Start Menu\Programs\Hull.lnk`))
 	}
 	if home, err := os.UserHomeDir(); err == nil {
 		out = append(out, filepath.Join(home, "Desktop", "Hull.lnk"))
 	}
 	return out
+}
+
+// removeAutostart deletes the launch-at-login Run entry (tauri-plugin-autostart
+// writes one when enabled), matched by name or by a value pointing at the
+// install dir — so we never strip an unrelated app's entry.
+func removeAutostart(dir string) {
+	k, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.QUERY_VALUE|registry.SET_VALUE)
+	if err != nil {
+		return
+	}
+	defer k.Close()
+	names, _ := k.ReadValueNames(0)
+	want := strings.ToLower(dir)
+	for _, n := range names {
+		val, _, _ := k.GetStringValue(n)
+		if strings.EqualFold(n, "Hull") || strings.EqualFold(n, "hull-gui") || strings.Contains(strings.ToLower(val), want) {
+			_ = k.DeleteValue(n)
+		}
+	}
 }
 
 func backupHullHome() error {
