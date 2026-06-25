@@ -36,6 +36,7 @@
   let route = "sites";
   let cleanups = [];
   let connected = false;
+  let wizardActive = false; // first-run wizard owns the screen; don't mount routes over it
 
   const tauriWin = () => {
     const tw = window.__TAURI__ && window.__TAURI__.window;
@@ -111,7 +112,7 @@
     if (prevScroll) { const pb = main.querySelector(".page-body"); if (pb) pb.scrollTop = prevScroll; }
   }
   function go(r) { if (r === route && main.firstChild) return; mount(r); }
-  function rerender() { if (connected) { ensureRoute(); mount(route); } }
+  function rerender() { if (connected && !wizardActive) { ensureRoute(); mount(route); } }
   function renderInto(el, r) {
     if (r.indexOf("root:") === 0) { window.renderSites(el, r.slice(5)); return; }
     switch (r) {
@@ -203,6 +204,7 @@
   // App.api(method, path, body) → daemon; App.reload() refreshes state + view.
   async function api(method, path, body) { return window.HULL.api(method, path, body); }
   async function reload() {
+    if (wizardActive) return; // the setup wizard owns the screen — never re-mount over it
     // A load failure here means status/config didn't come back. If we still
     // believe we're connected, surface it — otherwise the reconnect path
     // (events.onerror → scheduleReconnect) already owns the messaging.
@@ -412,10 +414,12 @@
   }
   function launchWizard() {
     wizardShown = true;
+    wizardActive = true;
     document.body.classList.add("setup-mode");
     window.renderWizard(main, {
       config: window.HULL.config,
       onDone: async (restart) => {
+        wizardActive = false;
         document.body.classList.remove("setup-mode");
         if (restart) { await restartDaemon(); }   // rebinds new loopback/TLD
         else { await reload(); ensureRoute(); mount(route); }
@@ -482,6 +486,15 @@
   }
   // Clicking the daemon pill forces an immediate reconnect attempt.
   if (daemonPill) daemonPill.addEventListener("click", () => { if (!connected) { if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; } tryConnect().then(ok => { if (!ok) scheduleReconnect(); }); } });
+
+  // App chrome isn't a web page: suppress the WebView context menu and the
+  // reload shortcuts (right-click on real text fields still works, for paste).
+  document.addEventListener("contextmenu", e => {
+    if (!e.target.closest("input, textarea, [contenteditable=true]")) e.preventDefault();
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key === "F5" || ((e.ctrlKey || e.metaKey) && (e.key === "r" || e.key === "R"))) e.preventDefault();
+  }, true);
 
   renderNav();
   boot();
