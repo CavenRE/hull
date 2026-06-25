@@ -32,8 +32,10 @@ func TestConfigRoundTrip(t *testing.T) {
 	if len(resp.Roots) != 2 || resp.Defaults.Editor != "code" {
 		t.Fatalf("updated config = %+v", resp)
 	}
-	if len(resp.RestartRequired) != 0 {
-		t.Errorf("no restart should be needed: %v", resp.RestartRequired)
+	// The GUI is v2-native, so the first save enables the embedded router
+	// (which needs a daemon restart to bind).
+	if len(resp.RestartRequired) != 1 || resp.RestartRequired[0] != "router" {
+		t.Errorf("first save should enable the router: %v", resp.RestartRequired)
 	}
 
 	// Persisted to disk.
