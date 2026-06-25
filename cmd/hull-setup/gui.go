@@ -10,16 +10,16 @@ import (
 	webview "github.com/jchv/go-webview2"
 )
 
-// runGUI shows the Hull-themed installer window. The actual install runs in a
-// goroutine and streams progress back to the page.
+// runGUI shows the Hull-themed installer window (frameless, custom controls).
+// The actual install runs in a goroutine and streams progress to the page.
 func runGUI(def InstallOpts) {
 	w := webview.NewWithOptions(webview.WebViewOptions{
 		Debug:     false,
 		AutoFocus: true,
 		WindowOptions: webview.WindowOptions{
 			Title:  "Install Hull",
-			Width:  640,
-			Height: 600,
+			Width:  520,
+			Height: 560,
 			Center: true,
 		},
 	})
@@ -30,6 +30,16 @@ func runGUI(def InstallOpts) {
 	}
 	defer w.Destroy()
 
+	hwnd := uintptr(w.Window())
+	makeFrameless(hwnd)
+
+	_ = w.Bind("winMin", func() { minimizeWindow(hwnd) })
+	_ = w.Bind("winDrag", func() { startWindowDrag(hwnd) })
+	_ = w.Bind("hullClose", func() { w.Terminate() })
+	_ = w.Bind("hullOpen", func() {
+		launchHull(def.Dir)
+		w.Terminate()
+	})
 	_ = w.Bind("hullInstall", func(addPath, shortcuts, autostart bool) {
 		go func() {
 			o := InstallOpts{Dir: def.Dir, AddPath: addPath, Shortcuts: shortcuts, Autostart: autostart}
@@ -47,11 +57,6 @@ func runGUI(def InstallOpts) {
 			})
 		}()
 	})
-	_ = w.Bind("hullOpen", func() {
-		launchHull(def.Dir)
-		w.Terminate()
-	})
-	_ = w.Bind("hullClose", func() { w.Terminate() })
 
 	w.SetHtml(installerHTML(def.Dir))
 	w.Run()
@@ -68,7 +73,7 @@ const installerPage = `<!doctype html>
 <meta charset="utf-8">
 <style>
   :root {
-    --bg:#242423; --card:#2c2d2a; --line:rgba(232,237,223,.12);
+    --bg:#242423; --line:rgba(232,237,223,.12);
     --text:#e8eddf; --dim:#b3b9ac; --faint:#7e8377;
     --gold:#f5cb5c; --gold-press:#e6b942; --ink:#242423; --green:#7fb069; --red:#e0685f;
     --mono:ui-monospace,"Cascadia Code",Consolas,monospace;
@@ -78,14 +83,24 @@ const installerPage = `<!doctype html>
   body {
     background:var(--bg); color:var(--text);
     font-family:"Segoe UI",system-ui,sans-serif; font-size:14px;
-    display:flex; align-items:center; justify-content:center; user-select:none;
+    display:flex; justify-content:center; align-items:flex-start; user-select:none;
+    cursor:default;
   }
-  .wrap { width:480px; padding:34px 36px; }
-  .brand { display:flex; align-items:center; gap:12px; font-size:26px; font-weight:700; letter-spacing:-.02em; }
-  .logo { width:40px; height:40px; border-radius:11px; background:var(--gold); color:var(--ink);
-          display:grid; place-items:center; font-weight:800; font-size:24px; }
-  .tag { color:var(--dim); margin:10px 0 26px; }
-  .loc { color:var(--faint); font-size:12.5px; margin-bottom:18px; }
+
+  /* inline window controls (app-style) */
+  .winctrls { position:fixed; top:0; right:0; display:flex; z-index:10; }
+  .winbtn { width:44px; height:32px; display:grid; place-items:center; background:transparent;
+            border:0; color:var(--faint); cursor:pointer; }
+  .winbtn:hover { background:rgba(232,237,223,.07); color:var(--text); }
+  .winbtn.close:hover { background:var(--red); color:#fff; }
+  .winbtn svg { width:13px; height:13px; }
+
+  .wrap { width:472px; padding:30px 36px 36px; }
+  .brand { display:flex; align-items:center; gap:12px; font-size:25px; font-weight:700; letter-spacing:-.02em; }
+  .logo { width:38px; height:38px; border-radius:11px; background:var(--gold); color:var(--ink);
+          display:grid; place-items:center; font-weight:800; font-size:23px; }
+  .tag { color:var(--dim); margin:10px 0 24px; }
+  .loc { color:var(--faint); font-size:12.5px; margin-bottom:16px; }
   .loc code { font-family:var(--mono); color:var(--dim); word-break:break-all; }
   .opt { display:flex; align-items:center; gap:11px; padding:11px 0; border-top:1px solid var(--line);
          cursor:pointer; font-size:14px; }
@@ -99,12 +114,11 @@ const installerPage = `<!doctype html>
   .btn.ghost:hover { color:var(--text); }
   .row { display:flex; gap:10px; }
   .row .btn { margin-top:0; }
-  .bar { height:8px; border-radius:999px; background:#1d1e1c; overflow:hidden; margin:34px 0 12px; }
+  .bar { height:8px; border-radius:999px; background:#1d1e1c; overflow:hidden; margin:40px 0 12px; }
   .fill { height:100%; width:0; background:var(--gold); transition:width .25s ease; }
   .status { color:var(--dim); font-size:13px; min-height:18px; }
-  .center { text-align:center; }
   .check { width:54px; height:54px; border-radius:50%; background:var(--green); color:#fff;
-           display:grid; place-items:center; font-size:30px; margin:18px auto 14px; }
+           display:grid; place-items:center; font-size:30px; margin:24px auto 14px; }
   .donemsg { text-align:center; font-size:18px; font-weight:600; margin-bottom:22px; }
   .errmsg { color:var(--red); background:rgba(224,104,95,.12); border:1px solid rgba(224,104,95,.35);
             border-radius:9px; padding:12px 14px; margin:18px 0; font-size:13px; word-break:break-word; }
@@ -112,6 +126,11 @@ const installerPage = `<!doctype html>
 </style>
 </head>
 <body>
+  <div class="winctrls">
+    <button class="winbtn" id="winmin" title="Minimize"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
+    <button class="winbtn close" id="winclose" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6 18 18M18 6 6 18"/></svg></button>
+  </div>
+
   <div class="wrap">
     <div class="brand"><span class="logo">H</span>Hull</div>
     <div class="tag">A local environment for your sites &amp; apps — GUI, daemon and CLI.</div>
@@ -146,6 +165,16 @@ const installerPage = `<!doctype html>
   document.getElementById('dir').textContent = DIR;
   const views = ['opts','prog','done','err'];
   const show = id => views.forEach(v => document.getElementById(v).hidden = (v !== id));
+
+  // window controls
+  document.getElementById('winmin').onclick = () => winMin();
+  document.getElementById('winclose').onclick = () => hullClose();
+  // drag the window by the top header area (not interactive elements)
+  document.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    if (e.target.closest('button, input, label, a, code')) return;
+    if (e.clientY <= 120) winDrag();
+  });
 
   document.getElementById('go').onclick = () => {
     show('prog');
