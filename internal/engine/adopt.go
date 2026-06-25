@@ -24,6 +24,12 @@ func sharedHost(s *manifest.Service) string {
 // BuildImportManifest turns auto-detection results (plus explicit
 // overrides, which win) into a validated manifest for an existing project.
 func BuildImportManifest(name string, det bundle.Detection, overrides NewOptions) (*manifest.Manifest, error) {
+	// Folders are adopted in place, so the name often carries spaces/capitals
+	// (e.g. "My App"). Slugify it to a docker-safe identity the manifest will
+	// accept and docker compose can use; the folder itself is left untouched.
+	if s := manifest.Slug(name); s != "" {
+		name = s
+	}
 	template := overrides.Template
 	if template == "" {
 		template = det.Template

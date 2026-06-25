@@ -7,11 +7,24 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CavenRE/hull/internal/bundle"
 	"github.com/CavenRE/hull/internal/config"
 	"github.com/CavenRE/hull/internal/envfile"
 	"github.com/CavenRE/hull/internal/manifest"
 	"github.com/CavenRE/hull/internal/state"
 )
+
+func TestBuildImportManifestSlugsName(t *testing.T) {
+	// A folder adopted in place often has spaces/capitals; the manifest name
+	// must come out as a docker-safe slug (and pass manifest validation).
+	m, err := BuildImportManifest("My App", bundle.Detection{Template: "plain"}, NewOptions{})
+	if err != nil {
+		t.Fatalf("import with a spaced name failed: %v", err)
+	}
+	if m.Name != "my-app" {
+		t.Errorf("imported Name = %q, want my-app", m.Name)
+	}
+}
 
 func testEngine(t *testing.T) (*Engine, string) {
 	t.Helper()

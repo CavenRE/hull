@@ -71,19 +71,30 @@ func isCluster(p *state.Project) bool {
 	return p.Manifest != nil && p.Manifest.Type == manifest.TypeCluster
 }
 
+// projectName is the docker compose project name for p — always a slug, so a
+// directory with spaces or capitals never decides (or breaks) the identity.
+func projectName(p *state.Project) string {
+	if p.Manifest != nil && p.Manifest.Name != "" {
+		return p.Manifest.Name // manifest names are validated slugs
+	}
+	return manifest.Slug(p.Name)
+}
+
 // composeFor returns the compose driver for a project — for clusters that's
 // the wrapped stack (operational root + -f files + profiles); for sites/apps
-// it's the project's own generated compose.yaml.
+// it's the project's own generated compose.yaml. The project name is pinned
+// with -p so adopted dirs with spaces/capitals stay deterministic.
 func (e *Engine) composeFor(p *state.Project) dockerx.Compose {
 	if isCluster(p) {
 		return dockerx.Compose{
 			Dir:      filepath.Join(p.Dir, p.Manifest.ComposeRoot),
 			Run:      e.Run,
+			Name:     projectName(p),
 			Files:    p.Manifest.ComposeFiles,
 			Profiles: p.Manifest.Profiles,
 		}
 	}
-	return dockerx.Compose{Dir: p.Dir, Run: e.Run}
+	return dockerx.Compose{Dir: p.Dir, Run: e.Run, Name: projectName(p)}
 }
 
 // NewOptions describes `hull new`.

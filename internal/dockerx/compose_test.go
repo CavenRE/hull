@@ -28,6 +28,13 @@ func TestComposeArgs(t *testing.T) {
 	if want := "docker compose build --no-cache"; strings.Join(got, " ") != want {
 		t.Errorf("Build(noCache) args = %q, want %q", strings.Join(got, " "), want)
 	}
+
+	// Name pins the project via -p (so spaced/capitalized dirs don't decide it).
+	named := Compose{Run: fake, Name: "my-app"}
+	_ = named.Up(context.Background())
+	if want := "docker compose -p my-app up -d"; strings.Join(got, " ") != want {
+		t.Errorf("named Up args = %q, want %q", strings.Join(got, " "), want)
+	}
 	_ = plain.DownVolumes(context.Background())
 	if want := "docker compose down -v"; strings.Join(got, " ") != want {
 		t.Errorf("DownVolumes args = %q, want %q", strings.Join(got, " "), want)

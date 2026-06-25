@@ -10,6 +10,10 @@ type Compose struct {
 	Dir string
 	// Run executes commands; defaults to Exec when nil (tests inject).
 	Run Runner
+	// Name pins the compose project name via `-p`. When empty, docker derives
+	// it from the directory basename — which breaks for dirs with spaces or
+	// capitals. Set it to a slug so the project identity is deterministic.
+	Name string
 	// Files are extra `-f` compose files (for wrapped cluster stacks). Empty
 	// means docker auto-detects compose.yaml/docker-compose.yml in Dir.
 	Files []string
@@ -23,6 +27,9 @@ func (c Compose) run(ctx context.Context, args ...string) error {
 		runner = Exec
 	}
 	full := []string{"compose"}
+	if c.Name != "" {
+		full = append(full, "-p", c.Name)
+	}
 	for _, f := range c.Files {
 		full = append(full, "-f", f)
 	}
