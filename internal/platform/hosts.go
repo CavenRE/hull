@@ -36,11 +36,15 @@ const (
 	HostsEnd   = "# End Hull generated Hosts"
 )
 
-// HostsBlock renders Hull's managed block: one loopback line per domain,
-// sorted. Empty domains means no block at all.
-func HostsBlock(domains []string) string {
+// HostsBlock renders Hull's managed block: one line per domain pointing at the
+// router's loopback (e.g. 127.0.0.2), sorted. Empty domains means no block at
+// all; an empty ip falls back to 127.0.0.1.
+func HostsBlock(domains []string, ip string) string {
 	if len(domains) == 0 {
 		return ""
+	}
+	if ip == "" {
+		ip = "127.0.0.1"
 	}
 	sorted := append([]string(nil), domains...)
 	sort.Strings(sorted)
@@ -48,7 +52,7 @@ func HostsBlock(domains []string) string {
 	sb.WriteString(HostsBegin)
 	sb.WriteString("\n")
 	for _, d := range sorted {
-		sb.WriteString("127.0.0.1 ")
+		sb.WriteString(ip + " ")
 		sb.WriteString(d)
 		sb.WriteString("\n")
 	}

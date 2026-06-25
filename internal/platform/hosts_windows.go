@@ -13,12 +13,12 @@ func hostsFilePath() string { return windowsHostsPath }
 // bypass NRPT with their own resolvers, so hosts entries are the reliable
 // layer on Windows). Reading needs no elevation; writing goes through one
 // UAC prompt, and only when the block actually changed.
-func SyncHosts(domains []string) error {
+func SyncHosts(domains []string, ip string) error {
 	current, err := os.ReadFile(windowsHostsPath)
 	if err != nil {
 		return fmt.Errorf("reading hosts file: %w", err)
 	}
-	desired := MergeHostsBlock(string(current), HostsBlock(domains))
+	desired := MergeHostsBlock(string(current), HostsBlock(domains, ip))
 	if desired == string(current) {
 		return nil
 	}

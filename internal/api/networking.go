@@ -87,7 +87,7 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 				sort.Strings(domains)
 				hostsKey := strings.Join(domains, ";")
 				if hostsKey != lastHosts {
-					if err := platform.SyncHosts(domains); err != nil {
+					if err := platform.SyncHosts(domains, cfg.Router.Loopback); err != nil {
 						logf("hosts: %v", err)
 					} else {
 						lastHosts = hostsKey
