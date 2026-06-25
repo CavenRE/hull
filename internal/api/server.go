@@ -96,6 +96,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/jobs/{id}", s.handleJob)
 	mux.HandleFunc("GET /v1/jobs/{id}/stream", s.handleJobStream)
 	mux.HandleFunc("GET /v1/events", s.handleEvents)
+	mux.HandleFunc("POST /v1/stop-all", s.handleStopAll)
 	mux.HandleFunc("POST /v1/shutdown", s.handleShutdown)
 	return s.auth(mux)
 }
@@ -456,6 +457,38 @@ func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 	if s.OnShutdown != nil {
 		go s.OnShutdown()
 	}
+}
+
+// handleStopAll brings down everything Hull started — every managed project
+// (sites/apps/clusters) then every running shared service — so nothing keeps
+// holding ports after the daemon stops. Best-effort: one failure never blocks
+// the rest. Synchronous so the caller knows when the machine is clear.
+func (s *Server) handleStopAll(w http.ResponseWriter, r *http.Request) {
+	stopped := 0
+	if projects, err := state.Scan(s.Config.Roots); err == nil {
+		for i := range projects {
+			p := &projects[i]
+			if p.Manifest == nil {
+				continue // unmanaged folder — Hull never started it
+			}
+			if err := s.Engine.Down(r.Context(), p); err == nil {
+				stopped++
+			}
+		}
+	}
+	if instances, err := s.Services().List(r.Context()); err == nil {
+		for _, in := range instances {
+			if in.Running {
+				if err := s.Services().Stop(r.Context(), in.Name); err == nil {
+					stopped++
+				}
+			}
+		}
+	}
+	if s.SyncRoutes != nil {
+		s.SyncRoutes()
+	}
+	writeJSON(w, http.StatusOK, map[string]int{"stopped": stopped})
 }
 
 // captureRunner is a dockerx.Runner that records command output into a job

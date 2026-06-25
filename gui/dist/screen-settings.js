@@ -132,7 +132,7 @@
       <div class="section-label">Hull service</div>
       <div class="card" style="margin-bottom:24px">
         <div class="setting-row" style="border:none;padding:0">
-          <div class="sr-info"><div class="sr-name">Daemon</div><div class="sr-desc">Restart to apply loopback or domain changes. Stopping pauses routing — your containers keep running.</div></div>
+          <div class="sr-info"><div class="sr-name">Daemon</div><div class="sr-desc">Restart to apply loopback or domain changes. Stopping shuts down all sites &amp; services and releases ports 80/443.</div></div>
           <div class="sr-ctrl" style="display:flex;gap:8px">
             <button class="btn btn-sm" id="restartDaemon">${icon("restart",13)}Restart</button>
             <button class="btn btn-sm btn-danger" id="stopDaemon">${icon("stop",13)}Stop</button>

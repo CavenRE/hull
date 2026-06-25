@@ -467,9 +467,11 @@
     await sleep(400); // let the OS release ports 80/443
   }
   async function stopDaemon() {
-    setPill(false, "Stopping…");
+    setPill(false, "Stopping sites & services…");
+    // Bring down everything Hull started first, so nothing keeps holding ports.
+    try { await window.HULL.api("POST", "/v1/stop-all"); } catch (e) {}
     await shutdownDaemon();
-    showOffline("Stopped — start it again when you need it.");
+    showOffline("Stopped — all sites & services were shut down.");
   }
   async function restartDaemon() {
     setPill(false, "Restarting…");
