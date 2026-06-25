@@ -9,6 +9,8 @@ coverage.out
 gui/src-tauri/target/
 gui/src-tauri/gen/
 gui/src-tauri/binaries/
+cmd/hull-setup/payload/
+cmd/hull-setup/payload.zip
 
 # Node (in case GUI tooling is added later)
 node_modules/
