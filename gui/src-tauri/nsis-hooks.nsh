@@ -25,6 +25,12 @@ ${UnStrRep}
   hull_path_done:
   Pop $1
   Pop $0
+  ; Route the standard "Uninstall" button through the bundled CLI, which runs
+  ; from the install dir. The default NSIS uninstaller copies itself to %TEMP%
+  ; and relaunches — which SRP/AppLocker policies block ("Error launching
+  ; installer"). hull.exe runs from an allowed location, so this just works.
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Hull" "UninstallString" '"$INSTDIR\hull.exe" uninstall --quiet'
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\Hull" "QuietUninstallString" '"$INSTDIR\hull.exe" uninstall --quiet'
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
