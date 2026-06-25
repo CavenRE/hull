@@ -4,11 +4,12 @@
 # `hull setup`. Windows users: see install.ps1.
 #
 # Usage:
-#   ./install.sh [--no-gui|--gui] [--prefix DIR] [--skip-setup] [--yes]
+#   ./install.sh [--no-gui|--gui] [--prefix DIR] [--service] [--skip-setup] [--yes]
 #
 #   --no-gui      CLI only (default if the GUI toolchain is absent)
 #   --gui         build the Tauri GUI too (requires Rust + webkit/appindicator)
 #   --prefix DIR  install binaries here (default: ~/.local/bin)
+#   --service     run hulld as a systemd --user service (Linux)
 #   --skip-setup  don't run `hull setup`/`hull doctor` at the end
 #   --yes         assume "yes" to install prompts (non-interactive)
 set -euo pipefail
@@ -27,11 +28,13 @@ PREFIX="${HOME}/.local/bin"
 WANT_GUI=auto
 SKIP_SETUP=0
 ASSUME_YES=0
+SERVICE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-gui) WANT_GUI=no ;;
     --gui) WANT_GUI=yes ;;
     --prefix) PREFIX="${2:?--prefix needs a directory}"; shift ;;
+    --service) SERVICE=1 ;;
     --skip-setup) SKIP_SETUP=1 ;;
     --yes|-y) ASSUME_YES=1 ;;
     -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -47,6 +50,68 @@ confirm() { # confirm "question" -> 0 yes / 1 no
   [ "$ASSUME_YES" = 1 ] && return 0
   [ -t 0 ] || return 1
   printf '%s [y/N] ' "$1"; read -r a; case "$a" in y|Y|yes) return 0 ;; *) return 1 ;; esac
+}
+
+# Canonical XDG locations — these MUST match internal/platform/desktop_linux.go
+# so `hull uninstall` / uninstall.sh can clean up whatever installed Hull.
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+
+# install_desktop_files installs the menu launcher + hicolor icons for the GUI.
+# Linux only (macOS doesn't use .desktop files); call only when hull-gui exists.
+install_desktop_files() {
+  local apps="$DATA_HOME/applications" icons="$DATA_HOME/icons/hicolor"
+  local src="$REPO_DIR/gui/src-tauri/icons"
+  mkdir -p "$apps"
+  # size_dir:source-file — matches the sizes RemoveIcons() cleans up.
+  for pair in "32x32:32x32.png" "128x128:128x128.png" "256x256:128x128@2x.png" "512x512:icon.png"; do
+    local size="${pair%%:*}" file="${pair##*:}"
+    [ -f "$src/$file" ] || continue
+    mkdir -p "$icons/$size/apps"
+    install -m 0644 "$src/$file" "$icons/$size/apps/hull.png"
+  done
+  cat > "$apps/hull.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Hull
+GenericName=Local Web Environment
+Comment=A local environment for your sites & apps
+Exec=$PREFIX/hull-gui
+Icon=hull
+Terminal=false
+Categories=Development;
+StartupWMClass=Hull
+EOF
+  command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$apps" 2>/dev/null || true
+  command -v gtk-update-icon-cache  >/dev/null 2>&1 && gtk-update-icon-cache -f -t "$icons" 2>/dev/null || true
+  ok "installed menu launcher + icons"
+}
+
+# install_systemd_unit installs (and tries to enable) a systemd --user unit so
+# hulld runs in the background. Matches WriteSystemdUserUnit() in Go.
+install_systemd_unit() {
+  local unit_dir="$CONFIG_HOME/systemd/user"
+  mkdir -p "$unit_dir"
+  cat > "$unit_dir/hulld.service" <<EOF
+[Unit]
+Description=Hull daemon (local router, DNS, services)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+ExecStart=$PREFIX/hulld daemon run
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
+EOF
+  systemctl --user daemon-reload 2>/dev/null || true
+  if systemctl --user enable --now hulld.service 2>/dev/null; then
+    ok "hulld running as a systemd --user service"
+  else
+    warn "installed hulld.service — enable it with: systemctl --user enable --now hulld.service"
+  fi
 }
 
 # ── platform + package manager detection ────────────────────────────────────
@@ -184,9 +249,23 @@ if [ "$BUILD_GUI" = 1 ]; then
   if [ -f "$GUI_BIN" ]; then
     install -m 0755 "$GUI_BIN" "$PREFIX/hull-gui"
     ok "installed hull-gui → $PREFIX"
+    [ "$OS" = Linux ] && install_desktop_files
   else
     warn "GUI build finished but binary not found at $GUI_BIN"
   fi
+fi
+
+# ── optional: run hulld as a systemd --user service (Linux) ──────────────────
+# Opt-in: --service forces it; otherwise we only ask in an interactive run, so
+# `--yes` automation never enables a background service behind the user's back.
+if [ "$OS" = Linux ] && command -v systemctl >/dev/null 2>&1; then
+  want_service=0
+  if [ "$SERVICE" = 1 ]; then
+    want_service=1
+  elif [ "$ASSUME_YES" = 0 ] && [ -t 0 ]; then
+    confirm "  Run hulld in the background as a systemd --user service?" && want_service=1
+  fi
+  [ "$want_service" = 1 ] && { step "Installing systemd --user service"; install_systemd_unit; }
 fi
 
 # ── PATH ────────────────────────────────────────────────────────────────────

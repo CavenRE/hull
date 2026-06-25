@@ -1,0 +1,31 @@
+pkgbase = hull
+	pkgdesc = A local environment for your sites & apps — native router, DNS and services
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/CavenRE/hull
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	makedepends = go
+	makedepends = git
+	makedepends = rust
+	makedepends = cargo
+	makedepends = webkit2gtk-4.1
+	makedepends = libayatana-appindicator
+	makedepends = pkgconf
+	source = hull-0.1.0.tar.gz::https://github.com/CavenRE/hull/archive/refs/tags/v0.1.0.tar.gz
+	sha256sums = SKIP
+
+pkgname = hull
+	pkgdesc = Hull CLI and daemon — a local environment for your sites & apps
+	install = hull.install
+	depends = docker
+	depends = docker-compose
+	optdepends = hull-gui: desktop app and setup wizard
+
+pkgname = hull-gui
+	pkgdesc = Hull desktop app — GUI and setup wizard for Hull
+	depends = hull
+	depends = webkit2gtk-4.1
+	depends = libayatana-appindicator
+	depends = gtk3

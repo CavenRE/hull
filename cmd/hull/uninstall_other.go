@@ -1,14 +1,16 @@
-//go:build !windows
+//go:build !windows && !linux
 
 package main
 
 import "fmt"
 
-// runUninstall is Windows-specific (registry, PATH, shortcuts, self-delete).
-// On macOS/Linux the binaries are managed by the OS installer/package manager.
+// runUninstall has a full implementation on Windows and Linux. On macOS (and
+// any other Unix) the binaries are managed by ./install.sh or a package
+// manager, so we just point the way.
 func runUninstall(o uninstallOpts) error {
-	fmt.Println("`hull uninstall` automates the Windows uninstall only.")
-	fmt.Println("On macOS/Linux, remove the Hull binaries via your installer or package manager,")
-	fmt.Println("and delete ~/.hull to clear config, certificates, and service data.")
+	fmt.Println("`hull uninstall` automates the Windows and Linux uninstalls.")
+	fmt.Println("On macOS, run ./uninstall.sh from the source tree (or remove the Hull")
+	fmt.Println("binaries via your package manager), and delete ~/.hull to clear config,")
+	fmt.Println("certificates, and service data.")
 	return nil
 }

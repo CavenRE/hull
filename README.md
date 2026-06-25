@@ -110,7 +110,51 @@ cd hull
 powershell -ExecutionPolicy Bypass -File build.ps1   # → bin\Hull-Setup.exe
 ```
 
-### Linux & macOS
+### Linux
+
+**Quickest — one line:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh          # desktop app + CLI
+curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh -s -- --cli   # CLI only
+```
+
+This downloads the prebuilt installer when a Release exists for your platform, and otherwise clones the repo and builds from source. Flags after `--` are passed through: `--cli`, `--silent`, `--service`, `--prefix DIR`, `--source` (force a source build).
+
+**Graphical installer.** Download [`hull-installer`](../../releases/latest) and run it — a small WebKitGTK window (the counterpart to Windows' `Hull-Setup.exe`) with the same checkbox to pick **Desktop app + CLI** (default) or **CLI only**. It also offers a menu launcher, launch-at-login, and running the daemon as a `systemd --user` service. Prefer to build it yourself?
+
+```bash
+git clone https://github.com/CavenRE/hull.git
+cd hull
+./build.sh                     # → bin/hull-installer (embeds the GUI, daemon & CLI)
+./bin/hull-installer           # graphical install …
+./bin/hull-installer --silent  # … or headless (add --no-gui for CLI only)
+```
+
+**Arch (AUR).** Install the CLI, or the CLI + desktop app:
+
+```bash
+yay -S hull            # CLI + daemon
+yay -S hull hull-gui   # also the desktop app
+```
+
+(The PKGBUILD lives in [`packaging/aur/`](packaging/aur).)
+
+**From source (any distro).**
+
+```bash
+./install.sh           # builds & installs the CLI (hull + hulld) to ~/.local/bin
+./install.sh --gui     # also build & install the desktop app + menu launcher
+./install.sh --service # additionally run hulld as a systemd --user service
+```
+
+### macOS
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh   # clones & builds (no prebuilt yet)
+```
+
+…or clone and build explicitly:
 
 ```bash
 git clone https://github.com/CavenRE/hull.git
@@ -119,7 +163,7 @@ cd hull
 ./install.sh --gui     # also build & install the desktop app
 ```
 
-The installer checks your dependencies, offers to install any that are missing (via your package manager), builds the binaries with version info, and adds `~/.local/bin` to your `PATH`. Other flags: `--prefix DIR`, `--no-gui`, `--skip-setup`, `--yes` (non-interactive).
+The `install.sh` script checks your dependencies, offers to install any that are missing (via your package manager), builds the binaries with version info, and adds `~/.local/bin` to your `PATH`. Other flags: `--prefix DIR`, `--no-gui`, `--service` (Linux), `--skip-setup`, `--yes` (non-interactive).
 
 ---
 
@@ -300,7 +344,7 @@ sudo setcap 'cap_net_bind_service=+ep' ~/.local/bin/hulld
 echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/10-hull-ports.conf && sudo sysctl --system
 ```
 
-**Linux — DNS resolver.** `hull setup` registers `*.<tld>` with `systemd-resolved` by default. If your machine resolves DNS through **NetworkManager + dnsmasq** instead, point `.<tld>` at `127.0.0.1` there and run `hull setup --skip-dns` (Hull then reuses your resolver instead of binding `:53`).
+**Linux — DNS resolver.** `hull setup` auto-detects how your machine resolves DNS. On **systemd-resolved** it registers `*.<tld>` for you. On **NetworkManager + dnsmasq** (common on Arch/CachyOS) it detects that systemd-resolved isn't in charge and **leaves DNS to your existing resolver** — it won't enable the embedded resolver or fight for `:53`. Just point `.<tld>` at `127.0.0.1` in your dnsmasq config. (Pass `--skip-dns` to force-skip the step yourself.)
 
 **Linux — file permissions.** On native Docker, Hull automatically remaps PHP containers to your host UID so bind-mounted project files (SQLite databases, `storage/`, caches) stay writable. Docker Desktop on macOS/Windows handles this in its VM.
 
@@ -312,7 +356,30 @@ echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/10-hull-p
 
 **Windows** — Settings → Apps → **Hull** → Uninstall, or run `hull uninstall` in a terminal. It stops the app, removes the program files, the PATH entry, shortcuts, and the autostart entry. Add `--purge-data` to also clear `~/.hull` (config, CA, service data).
 
-**Linux & macOS**:
+**Linux** — one line from anywhere (works even if you no longer have the source tree):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh -s -- --uninstall
+#  add --purge to also remove ~/.hull (config, CA, service data)
+```
+
+…or, if Hull is already on your PATH:
+
+```bash
+hull uninstall            # remove binaries, menu launcher, icons, systemd unit, PATH entry
+hull uninstall --purge-data   # also move ~/.hull aside to ~/.hull.bak
+```
+
+…or use the script from the source tree (equivalent — both clean up the same things):
+
+```bash
+./uninstall.sh            # remove binaries + desktop integration; stop the daemon; undo trust/DNS
+./uninstall.sh --purge    # also remove ~/.hull (config, CA, service data)
+```
+
+Installed from the **AUR**? Remove it the same way: `sudo pacman -R hull hull-gui` (`hull uninstall` will detect the package install and point you here).
+
+**macOS**:
 
 ```bash
 ./uninstall.sh            # remove binaries; stop the daemon; undo trust/DNS

@@ -6,6 +6,11 @@ import (
 	"os/exec"
 )
 
+// DNSSupported reports whether Hull can manage *.<tld> DNS on this machine.
+// Windows always can, via an NRPT rule. The reason string mirrors the Linux
+// signature; it's empty when supported.
+func DNSSupported() (bool, string) { return true, "" }
+
 // RegisterDNS routes *.<tld> lookups to Hull's resolver via an NRPT rule.
 // Requires elevation — launched through a UAC prompt, like v1's hosts sync.
 func RegisterDNS(tld string, port int) error {

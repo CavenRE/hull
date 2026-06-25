@@ -1,0 +1,26 @@
+# Hull pacman hooks. Grant the daemon permission to bind 80/443 without root,
+# and point the user at the one-time setup.
+
+_grant_caps() {
+  if command -v setcap >/dev/null 2>&1; then
+    setcap 'cap_net_bind_service=+ep' /usr/bin/hulld 2>/dev/null || true
+  fi
+}
+
+post_install() {
+  _grant_caps
+  cat <<'EOF'
+
+Hull installed. Next steps:
+  hull setup                         # trust the local CA (DNS is auto-detected)
+  systemctl --user enable --now hulld # run the daemon in the background
+  hull up                            # start your projects
+
+On systemd-resolved systems `hull setup` wires *.test → 127.0.0.1 for you.
+On dnsmasq/NetworkManager systems it leaves DNS to your existing resolver.
+EOF
+}
+
+post_upgrade() {
+  _grant_caps
+}

@@ -82,7 +82,19 @@ project is served at https://<name>.<tld> with a trusted certificate.`,
 			// --skip-dns means this machine resolves *.tld another way (e.g. an
 			// existing dnsmasq/NetworkManager setup), so don't enable the
 			// embedded resolver — otherwise the daemon would try to bind :53
-			// and collide with the resolver already there.
+			// and collide with the resolver already there. If the OS doesn't
+			// support Hull's DNS mechanism (e.g. systemd-resolved isn't the
+			// active resolver), skip it automatically with a clear note rather
+			// than enabling a resolver that can't take effect.
+			if !skipDNS {
+				if ok, reason := platform.DNSSupported(); !ok {
+					fmt.Println("> Skipping OS DNS registration —", reason)
+					fmt.Printf("  Keep resolving *.%s the way you do now; this machine is left as-is.\n", cfg.TLD)
+					fmt.Println("  (Pass --skip-dns to silence this, or switch the box to systemd-resolved.)")
+					skipDNS = true
+				}
+			}
+
 			fmt.Println("> Enabling embedded router and DNS in config")
 			cfg.Router.Enabled = true
 			cfg.DNS.Enabled = !skipDNS

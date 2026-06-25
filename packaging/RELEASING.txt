@@ -1,0 +1,47 @@
+Hull — release process
+======================
+
+Decision: builds are LOCAL and releases are uploaded BY HAND. The GitHub
+Actions CI/release workflows were intentionally dropped (commit 64c0655); we do
+not maintain a CI pipeline. Each platform has a one-command build that produces
+a self-contained installer, and the AUR package builds from the tagged tarball.
+
+Per-release checklist
+---------------------
+
+1. Tag the release:
+     git tag v0.1.0 && git push --tags
+
+2. Windows (on a Windows box):
+     powershell -ExecutionPolicy Bypass -File build.ps1
+     -> bin\Hull-Setup.exe        (graphical installer; embeds GUI+daemon+CLI)
+
+3. Linux (on a Linux box with go + rust + webkit2gtk-4.1 + gtk3):
+     ./build.sh
+     -> bin/hull-installer         (graphical installer; embeds GUI+daemon+CLI)
+
+   macOS / plain CLI: there is no graphical installer; users run ./install.sh
+   from the source tree (or `yay -S hull` on Arch).
+
+4. Create the GitHub Release for the tag and upload, naming the Linux asset
+   with its arch so the get.sh bootstrap can find it:
+     - Hull-Setup.exe                  (Windows)
+     - hull-installer-linux-x86_64     (Linux x86_64; rename bin/hull-installer)
+     - hull-installer-linux-aarch64    (Linux arm64, if built)
+   get.sh tries "hull-installer-linux-<arch>" then a plain "hull-installer".
+   The README's download links point at .../releases/latest.
+
+5. AUR (Arch):
+     cd packaging/aur
+     # bump pkgver to match the tag, then:
+     updpkgsums                    # pin the source checksum (replaces SKIP)
+     makepkg --printsrcinfo > .SRCINFO
+     # commit PKGBUILD + .SRCINFO to the AUR repo for `hull`
+
+Notes
+-----
+- No code signing yet (Windows Authenticode / Apple Developer ID) — installers
+  are unsigned; users may see an OS warning.
+- build.sh uses a webkit2gtk-4.0 -> 4.1 pkg-config shim because webview_go pins
+  4.0 while modern distros ship 4.1; the shim is created and torn down by the
+  script, nothing to maintain.

@@ -11,6 +11,7 @@ gui/src-tauri/gen/
 gui/src-tauri/binaries/
 cmd/hull-setup/payload/
 cmd/hull-setup/payload.zip
+cmd/hull-setup/payload.tgz
 
 # Node (in case GUI tooling is added later)
 node_modules/

@@ -10,6 +10,11 @@ import (
 
 const resolverDir = "/etc/resolver"
 
+// DNSSupported reports whether Hull can manage *.<tld> DNS on this machine.
+// macOS always can, via a /etc/resolver/<tld> file. The reason string mirrors
+// the Linux signature; it's empty when supported.
+func DNSSupported() (bool, string) { return true, "" }
+
 // RegisterDNS writes the /etc/resolver/<tld> file macOS uses for per-domain
 // resolvers. Root writes directly; otherwise it asks for admin rights via the
 // native macOS auth dialog (osascript), so the GUI wizard isn't reduced to
