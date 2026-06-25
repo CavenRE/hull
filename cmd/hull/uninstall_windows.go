@@ -26,13 +26,24 @@ func runUninstall(o uninstallOpts) error {
 	}
 	dir := filepath.Dir(exe)
 	// Safety: only proceed if this really is a Hull install directory.
-	if _, err := os.Stat(filepath.Join(dir, "hull-gui.exe")); err != nil {
-		return fmt.Errorf("%s does not look like a Hull install — aborting", dir)
+	if _, e1 := os.Stat(filepath.Join(dir, "hull-gui.exe")); e1 != nil {
+		if _, e2 := os.Stat(filepath.Join(dir, "hulld.exe")); e2 != nil {
+			return fmt.Errorf("%s does not look like a Hull install — aborting", dir)
+		}
 	}
 
-	fmt.Println("Stopping Hull…")
-	for _, p := range []string{"hull-gui.exe", "hulld.exe"} {
-		_ = exec.Command("taskkill", "/F", "/IM", p).Run()
+	stopApp()
+
+	// Reinstall path: the NSIS installer runs the uninstaller with `_?=<dir>`
+	// to remove the previous version, then checks that the main binary is gone
+	// (installer.nsi: "$INSTDIR\hull-gui.exe"). So here we delete the files
+	// SYNCHRONOUSLY and must NOT schedule the async dir wipe — that would race
+	// the fresh install and the leftover hull-gui.exe would fail the check
+	// ("Unable to uninstall"). The installer re-creates registry/PATH/shortcuts.
+	if isReinstall() {
+		removeInstalledFiles(dir) // everything except the running hull.exe
+		fmt.Println("Previous version removed.")
+		return nil
 	}
 
 	fmt.Println("Removing the Apps & Features entry…")
@@ -59,9 +70,41 @@ func runUninstall(o uninstallOpts) error {
 	}
 
 	fmt.Println("Removing program files…")
-	scheduleDirDelete(dir)
+	removeInstalledFiles(dir) // sync — so most is gone even if the async wipe is blocked
+	scheduleDirDelete(dir)     // removes the running hull.exe + dir after we exit
 	fmt.Println("Hull uninstalled. (Open a new terminal so the PATH change applies.)")
 	return nil
+}
+
+// isReinstall reports whether the NSIS installer invoked us to remove a
+// previous version (it appends `_?=<dir>` to the UninstallString).
+func isReinstall() bool {
+	for _, a := range os.Args {
+		if strings.HasPrefix(a, "_?=") {
+			return true
+		}
+	}
+	return false
+}
+
+func stopApp() {
+	for _, p := range []string{"hull-gui.exe", "hulld.exe"} {
+		_ = exec.Command("taskkill", "/F", "/IM", p).Run()
+	}
+}
+
+// removeInstalledFiles deletes everything in dir except the running hull.exe
+// (which Windows won't let us delete while it's executing).
+func removeInstalledFiles(dir string) {
+	self, _ := os.Executable()
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		p := filepath.Join(dir, e.Name())
+		if strings.EqualFold(p, self) {
+			continue
+		}
+		_ = os.RemoveAll(p)
+	}
 }
 
 // removeFromUserPath drops dir from the per-user PATH, preserving REG_EXPAND_SZ.
