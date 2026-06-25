@@ -103,10 +103,10 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 		}
 	}
 	if cfg.Router.Enabled {
-		if portListening(cfg.Router.HTTPSPort) {
-			add(OK, "router (embedded)", fmt.Sprintf("listening on :%d", cfg.Router.HTTPSPort))
+		if portListening(cfg.Router.Loopback, cfg.Router.HTTPSPort) {
+			add(OK, "router (embedded)", fmt.Sprintf("listening on %s:%d", cfg.Router.Loopback, cfg.Router.HTTPSPort))
 		} else {
-			add(Warn, "router (embedded)", fmt.Sprintf("enabled but :%d not listening — start the daemon (hulld)", cfg.Router.HTTPSPort))
+			add(Warn, "router (embedded)", fmt.Sprintf("enabled but %s:%d not listening — start the daemon (hulld)", cfg.Router.Loopback, cfg.Router.HTTPSPort))
 		}
 		if certs.Trusted(cfg.RouterDataDir()) {
 			add(OK, "certificate", "local CA provisioned (trust install: hull trust)")
@@ -157,8 +157,11 @@ func Fatal(checks []Check) bool {
 	return false
 }
 
-func portListening(port int) bool {
-	conn, err := net.DialTimeout("tcp", "127.0.0.1:"+strconv.Itoa(port), 400*time.Millisecond)
+func portListening(host string, port int) bool {
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	conn, err := net.DialTimeout("tcp", host+":"+strconv.Itoa(port), 400*time.Millisecond)
 	if err != nil {
 		return false
 	}

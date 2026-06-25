@@ -98,6 +98,15 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 	s.Config.Defaults.Editor = req.Defaults.Editor
 	s.Config.Defaults.DBTool = req.Defaults.DBTool
 
+	// The GUI is v2-native: the embedded router must run (it serves every site
+	// on the loopback). The legacy `enabled:false` was for side-by-side v1
+	// dogfooding only — coexistence is handled by the loopback octet now. The
+	// router binds at daemon start, so flipping it on needs a restart.
+	if !s.Config.Router.Enabled {
+		s.Config.Router.Enabled = true
+		restart = append(restart, "router")
+	}
+
 	if err := s.Config.Save(); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
