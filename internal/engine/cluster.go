@@ -254,6 +254,13 @@ func (e *Engine) AdoptCluster(opts ClusterOptions) (*manifest.Manifest, error) {
 		return nil, fmt.Errorf("no compose file found in %s (pass --root or --compose)", composeDir)
 	}
 
+	// Seed routes from a Caddyfile if present; otherwise inspect the compose
+	// services for web-looking published ports so adopt isn't blind.
+	routes := parseCaddyRoutes(composeDir)
+	if len(routes) == 0 {
+		routes = parseComposeRoutes(composeDir, opts.ComposeFiles)
+	}
+
 	m := &manifest.Manifest{
 		Schema:       manifest.CurrentSchema,
 		Name:         name,
@@ -261,7 +268,7 @@ func (e *Engine) AdoptCluster(opts ClusterOptions) (*manifest.Manifest, error) {
 		ComposeRoot:  root,
 		ComposeFiles: opts.ComposeFiles,
 		Profiles:     opts.Profiles,
-		Routes:       parseCaddyRoutes(composeDir),
+		Routes:       routes,
 	}
 
 	data, err := yaml.Marshal(m)
@@ -336,4 +343,92 @@ func parseCaddyRoutes(composeDir string) map[string]*manifest.ClusterRoute {
 		return nil
 	}
 	return routes
+}
+
+// webPorts are the container ports that signal an HTTP service worth routing.
+// Datastore ports (5432, 3306, 6379, …) are intentionally excluded so adopt
+// doesn't seed routes for databases and caches.
+var webPorts = map[int]bool{
+	80: true, 443: true, 3000: true, 4200: true, 5000: true, 8000: true,
+	8080: true, 8081: true, 8443: true, 8888: true, 9000: true,
+}
+
+// portSpec decodes one compose `ports` entry — short ("8080:80", "80/tcp",
+// "127.0.0.1:8080:80") or long ({target: 80, published: 8080}) — keeping only
+// the container (target) port.
+type portSpec struct{ container int }
+
+func (p *portSpec) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		p.container = shortPortTarget(value.Value)
+		return nil
+	}
+	var long struct {
+		Target int `yaml:"target"`
+	}
+	_ = value.Decode(&long)
+	p.container = long.Target
+	return nil
+}
+
+// shortPortTarget pulls the container port from a short-syntax mapping: the
+// last colon-separated segment, minus any /protocol suffix.
+func shortPortTarget(s string) int {
+	s = strings.SplitN(s, "/", 2)[0]
+	parts := strings.Split(s, ":")
+	n, _ := strconv.Atoi(strings.TrimSpace(parts[len(parts)-1]))
+	return n
+}
+
+// parseComposeRoutes seeds routes from the compose file when there's no
+// Caddyfile: one route per service that publishes a web-looking port, keyed
+// (and subdomained) by the service name. Best-effort — unparseable compose
+// yields no routes rather than an error.
+func parseComposeRoutes(composeDir string, files []string) map[string]*manifest.ClusterRoute {
+	path := firstComposeFile(composeDir, files)
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var doc struct {
+		Services map[string]struct {
+			Ports []portSpec `yaml:"ports"`
+		} `yaml:"services"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil
+	}
+	routes := map[string]*manifest.ClusterRoute{}
+	for name, svc := range doc.Services {
+		for _, p := range svc.Ports {
+			if !webPorts[p.container] {
+				continue
+			}
+			key := manifest.Slug(name)
+			if key == "" {
+				break
+			}
+			routes[key] = &manifest.ClusterRoute{Service: name, Port: p.container, Subdomain: key}
+			break // first web port wins
+		}
+	}
+	if len(routes) == 0 {
+		return nil
+	}
+	return routes
+}
+
+// firstComposeFile returns the path of the first existing compose file in dir
+// (preferring explicitly-listed files), or "" if none.
+func firstComposeFile(dir string, extra []string) string {
+	for _, f := range append(append([]string{}, extra...), composeNames...) {
+		p := filepath.Join(dir, f)
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+			return p
+		}
+	}
+	return ""
 }

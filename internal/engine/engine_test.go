@@ -157,6 +157,45 @@ t.mystack.local {
 	}
 }
 
+func TestAdoptClusterSeedsRoutesFromCompose(t *testing.T) {
+	e, root := testEngine(t)
+	dir := filepath.Join(root, "stack")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	compose := `services:
+  web:
+    image: nginx
+    ports:
+      - "8080:80"
+  api:
+    image: node
+    ports:
+      - target: 3000
+        published: 3000
+  db:
+    image: postgres
+    ports:
+      - "5432:5432"
+`
+	if err := os.WriteFile(filepath.Join(dir, "docker-compose.yml"), []byte(compose), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := e.AdoptCluster(ClusterOptions{Dir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := m.Routes["web"]; r == nil || r.Port != 80 || r.Service != "web" {
+		t.Errorf("web route = %+v, want service=web port=80", r)
+	}
+	if r := m.Routes["api"]; r == nil || r.Port != 3000 {
+		t.Errorf("api route = %+v, want port=3000", r)
+	}
+	if m.Routes["db"] != nil {
+		t.Errorf("db (5432) should not be routed: %+v", m.Routes["db"])
+	}
+}
+
 func TestNewProjectWritesArtifacts(t *testing.T) {
 	e, root := testEngine(t)
 	dir, err := e.NewProject(context.Background(), NewOptions{
