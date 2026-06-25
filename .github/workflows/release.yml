@@ -1,9 +1,10 @@
 name: Release
 
-# Tag a release to build installers for all three OSes and attach them to a
-# draft GitHub Release:  git tag v0.1.0 && git push origin v0.1.0
-# (Requires Actions enabled on the repo. Runs UNSIGNED until the signing
-# secrets below are added — then it signs/notarizes automatically.)
+# Ship a release:  git tag v0.1.0 && git push origin v0.1.0
+# (Requires Actions enabled on the repo.) Builds Hull's own installer
+# (Hull-Setup.exe) for Windows and binary tarballs for Linux/macOS, and attaches
+# them to a draft GitHub Release. No NSIS — Hull-Setup.exe is our self-contained
+# WebView2 installer.
 
 on:
   push:
@@ -14,75 +15,79 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Hull-Setup.exe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $payload = 'cmd/hull-setup/payload'
+          New-Item -ItemType Directory -Force -Path $payload | Out-Null
+
+          # daemon + CLI sidecars
+          go build -ldflags '-s -w' -o "$payload/hulld.exe" ./cmd/hulld
+          go build -ldflags '-s -w' -o "$payload/hull.exe"  ./cmd/hull
+
+          # GUI (no bundling — just the exe + WebView2 loader)
+          Push-Location gui/src-tauri
+          try { cargo build --release } finally { Pop-Location }
+          Copy-Item gui/src-tauri/target/release/hull-gui.exe $payload
+          $wv = 'gui/src-tauri/target/release/WebView2Loader.dll'
+          if (Test-Path $wv) { Copy-Item $wv $payload }
+
+          # pack the payload and build the installer (GUI app — no console)
+          Compress-Archive -Path "$payload/*" -DestinationPath cmd/hull-setup/payload.zip -Force
+          go build -tags installer -ldflags '-s -w -H windowsgui' -o Hull-Setup.exe ./cmd/hull-setup
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: Hull-Setup.exe
+
+  unix:
+    name: ${{ matrix.target }} binaries
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            triple: x86_64-unknown-linux-gnu
-            goos: linux
-            goarch: amd64
-            ext: ""
-            bundles: "appimage,deb"
+            target: linux-x64
           - os: macos-latest
-            triple: aarch64-apple-darwin
-            goos: darwin
-            goarch: arm64
-            ext: ""
-            bundles: "dmg"
-          - os: windows-latest
-            triple: x86_64-pc-windows-msvc
-            goos: windows
-            goarch: amd64
-            ext: ".exe"
-            bundles: "nsis"
+            target: macos-arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-go@v5
         with:
           go-version: stable
-
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Linux GUI build dependencies
+      - name: Linux GUI build deps
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      - name: Stage Go sidecars (daemon + CLI) for this target triple
+      - name: Build binaries
         shell: bash
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: "0"
         run: |
-          mkdir -p gui/src-tauri/binaries
-          go build -ldflags "-s -w" -o "gui/src-tauri/binaries/hulld-${{ matrix.triple }}${{ matrix.ext }}" ./cmd/hulld
-          go build -ldflags "-s -w" -o "gui/src-tauri/binaries/hull-${{ matrix.triple }}${{ matrix.ext }}"  ./cmd/hull
+          set -e
+          mkdir -p dist
+          go build -ldflags '-s -w' -o dist/hulld ./cmd/hulld
+          go build -ldflags '-s -w' -o dist/hull  ./cmd/hull
+          ( cd gui/src-tauri && cargo build --release )
+          cp gui/src-tauri/target/release/hull-gui dist/
+          tar -czf "hull-${{ matrix.target }}.tar.gz" -C dist .
 
-      - name: Build, bundle & attach to the release
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # --- Updater signing (optional; add as repo secrets to enable) ---
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # --- macOS code signing + notarization (optional) ---
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - uses: softprops/action-gh-release@v2
         with:
-          projectPath: gui
-          tagName: ${{ github.ref_name }}
-          releaseName: "Hull ${{ github.ref_name }}"
-          releaseBody: "See CHANGELOG.md for what changed."
-          releaseDraft: true
-          prerelease: false
-          args: --bundles ${{ matrix.bundles }}
+          draft: true
+          files: hull-${{ matrix.target }}.tar.gz

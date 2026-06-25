@@ -93,31 +93,36 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
 
 ## Installation
 
-There are no prebuilt release binaries yet, so Hull installs by building from source. Clone the repo and run the installer:
+### Windows
+
+Run **`Hull-Setup.exe`** — Hull's own graphical installer. It's a small, self-contained window (no console, no admin) that installs the **app, daemon, and CLI** together, adds `hull` to your `PATH`, and registers a clean one-click uninstall.
+
+Build it from source (or grab it from [Releases](../../releases) once a version is tagged):
+
+```powershell
+git clone https://github.com/CavenRE/hull.git
+cd hull
+powershell -ExecutionPolicy Bypass -File build.ps1   # → bin\Hull-Setup.exe
+```
+
+### Linux & macOS
 
 ```bash
 git clone https://github.com/CavenRE/hull.git
 cd hull
 ./install.sh           # builds & installs the CLI (hull + hulld) to ~/.local/bin
+./install.sh --gui     # also build & install the desktop app
 ```
 
-The installer checks your dependencies, offers to install any that are missing (via your package manager), builds the binaries with version info, and adds `~/.local/bin` to your `PATH`.
-
-**Install the desktop app too:**
-
-```bash
-./install.sh --gui     # also builds and installs the Tauri app (hull-gui)
-```
-
-Other flags: `--prefix DIR` (install location), `--no-gui`, `--skip-setup`, `--yes` (non-interactive).
-
-> On Windows, build with `go build ./cmd/hull` / `./cmd/hulld` and the Tauri app via `cargo`/`tauri`; a PowerShell installer is planned.
+The installer checks your dependencies, offers to install any that are missing (via your package manager), builds the binaries with version info, and adds `~/.local/bin` to your `PATH`. Other flags: `--prefix DIR`, `--no-gui`, `--skip-setup`, `--yes` (non-interactive).
 
 ---
 
 ## First-run setup
 
-Once installed, enable native networking on the machine (one time):
+The **desktop app does this for you** — on first launch its setup wizard walks through Docker, your projects folder, the local domain/loopback, and any starter services, then provisions everything.
+
+From the CLI, enable native networking on the machine (one time):
 
 ```bash
 hull setup     # enable the embedded router (:80/:443) + DNS, install the local CA
@@ -299,6 +304,10 @@ echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/10-hull-p
 ---
 
 ## Uninstalling
+
+**Windows** — Settings → Apps → **Hull** → Uninstall, or run `hull uninstall` in a terminal. It stops the app, removes the program files, the PATH entry, shortcuts, and the autostart entry. Add `--purge-data` to also clear `~/.hull` (config, CA, service data).
+
+**Linux & macOS**:
 
 ```bash
 ./uninstall.sh            # remove binaries; stop the daemon; undo trust/DNS
