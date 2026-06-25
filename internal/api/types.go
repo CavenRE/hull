@@ -43,10 +43,12 @@ type ClusterRouteInfo struct {
 type DetectInfo struct {
 	Kind     string `json:"kind"`     // laravel|wordpress|plain|python|node|go|docker|static
 	Template string `json:"template"` // PHP site template (laravel|wordpress|plain)
-	PHP      string `json:"php,omitempty"`
-	DB       string `json:"db,omitempty"`
-	Redis    bool   `json:"redis,omitempty"`
-	PHPKind  bool   `json:"php_kind"` // true → importable as a PHP site
+	PHP      string   `json:"php,omitempty"`
+	DB       string   `json:"db,omitempty"`
+	Database string   `json:"database,omitempty"`
+	Redis    bool     `json:"redis,omitempty"`
+	Extras   []string `json:"extras,omitempty"` // mailpit, meilisearch, …
+	PHPKind  bool     `json:"php_kind"`         // true → importable as a PHP site
 }
 
 // AdoptClusterRequest answers POST /v1/clusters.

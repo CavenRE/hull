@@ -467,8 +467,8 @@
     scope.querySelector("[data-submit]").addEventListener("click", () => submitNew(scope));
   }
 
-  // Map the dialog into a CreateProjectRequest. Multi-container "App" and
-  // extra services beyond db+redis are backend gaps (noted to the user).
+  // Map the dialog into a CreateProjectRequest. Import auto-detects and wires
+  // db, redis and extra services (mailpit, meilisearch, …) from the project.
   function templateFor(type) {
     return { "Laravel": "laravel", "WordPress": "wordpress", "Plain PHP": "plain", "App": "app" }[type] || "laravel";
   }
@@ -571,9 +571,18 @@
         const p = scope.querySelector("[data-php] input");
         if (det.php && p && !p.value) p.value = det.php;
         syncType(scope);
+        // Surface exactly what import will provision + wire (db, redis, extras).
+        const label = e => (window.HULL.ENGINES[e] && window.HULL.ENGINES[e].label) || e;
+        const svcs = [];
+        if (det.db) svcs.push(label(det.db));
+        if (det.redis) svcs.push("Redis");
+        (det.extras || []).forEach(e => svcs.push(label(e)));
+        noteWrap.innerHTML = svcs.length
+          ? `<p class="help" style="margin:8px 0 0">Hull will provision <b>${svcs.join(", ")}</b> — detected from your project and wired into <span class="mono">.env</span> on import.</p>`
+          : "";
       } else {
         chip.innerHTML = `${icon("alert", 13)} Detected a ${det.kind} project`;
-        noteWrap.innerHTML = `<p class="help" style="margin:8px 0 0">Hull imports PHP sites directly. To run a <b>${det.kind}</b> project, create it as a <b>Cluster</b> (New ▸ Cluster) — importing here would treat it as plain PHP.</p>`;
+        noteWrap.innerHTML = `<p class="help" style="margin:8px 0 0">Hull imports PHP sites directly. For a <b>${det.kind}</b> project, adopt it as a <b>Cluster</b> (New ▸ Cluster) — Hull now auto-detects its services and routes from the compose file.</p>`;
       }
     }).catch(() => {
       const chip = scope.querySelector("[data-detect]");

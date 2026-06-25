@@ -41,7 +41,8 @@ func (s *Server) handleDetect(w http.ResponseWriter, r *http.Request) {
 	det := bundle.Detect(p.Dir)
 	writeJSON(w, http.StatusOK, DetectInfo{
 		Kind: det.Kind, Template: det.Template, PHP: det.PHP,
-		DB: det.DB, Redis: det.Redis, PHPKind: det.PHPKind(),
+		DB: det.DB, Database: det.Database, Redis: det.Redis,
+		Extras: det.Extras, PHPKind: det.PHPKind(),
 	})
 }
 
