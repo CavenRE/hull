@@ -46,9 +46,9 @@ func runGUI(def InstallOpts) {
 		launchHull(def.Dir)
 		w.Terminate()
 	})
-	_ = w.Bind("hullInstall", func(addPath, shortcuts, autostart bool) {
+	_ = w.Bind("hullInstall", func(gui, addPath, shortcuts, autostart bool) {
 		go func() {
-			o := InstallOpts{Dir: def.Dir, AddPath: addPath, Shortcuts: shortcuts, Autostart: autostart}
+			o := InstallOpts{Dir: def.Dir, GUI: gui, AddPath: addPath, Shortcuts: shortcuts, Autostart: autostart}
 			err := install(o, func(msg string, pct int) {
 				m, _ := json.Marshal(msg)
 				w.Dispatch(func() { w.Eval(fmt.Sprintf("hullProgress(%d,%s)", pct, m)) })
@@ -113,6 +113,7 @@ const installerPage = `<!doctype html>
   .opt:last-of-type { border-bottom:1px solid var(--line); }
   .opt input { width:17px; height:17px; accent-color:var(--gold); cursor:pointer; }
   .opt b { font-family:var(--mono); }
+  .opt .sub { color:var(--faint); font-size:12.5px; }
   .btn { appearance:none; border:0; border-radius:9px; background:var(--gold); color:var(--ink);
          font-weight:600; font-size:14.5px; padding:12px 20px; cursor:pointer; margin-top:24px; width:100%; }
   .btn:hover { background:var(--gold-press); }
@@ -143,9 +144,10 @@ const installerPage = `<!doctype html>
 
     <div id="opts">
       <div class="loc">Installs to <code id="dir"></code></div>
+      <label class="opt"><input type="checkbox" id="gui" checked> Install the desktop app <span class="sub">— uncheck for CLI only</span></label>
       <label class="opt"><input type="checkbox" id="path" checked> Add <b>hull</b> to your PATH</label>
-      <label class="opt"><input type="checkbox" id="desktop" checked> Create a desktop shortcut</label>
-      <label class="opt"><input type="checkbox" id="login"> Launch Hull at login</label>
+      <label class="opt gui-only"><input type="checkbox" id="desktop" checked> Create a desktop shortcut</label>
+      <label class="opt gui-only"><input type="checkbox" id="login"> Launch Hull at login</label>
       <button class="btn" id="go">Install Hull</button>
     </div>
 
@@ -187,9 +189,19 @@ const installerPage = `<!doctype html>
     if (e.clientY <= 120) winDrag();
   });
 
+  // Desktop-app toggle: CLI-only hides the GUI-specific options.
+  const guiBox = document.getElementById('gui');
+  guiBox.addEventListener('change', () => {
+    document.querySelectorAll('.gui-only').forEach(el => el.hidden = !guiBox.checked);
+    fit();
+  });
+
+  let installedGui = true;
   document.getElementById('go').onclick = () => {
+    installedGui = guiBox.checked;
     show('prog');
     hullInstall(
+      guiBox.checked,
       document.getElementById('path').checked,
       document.getElementById('desktop').checked,
       document.getElementById('login').checked
@@ -199,7 +211,7 @@ const installerPage = `<!doctype html>
     document.getElementById('fill').style.width = pct + '%';
     document.getElementById('status').textContent = msg;
   };
-  window.hullDone = () => show('done');
+  window.hullDone = () => { document.getElementById('open').hidden = !installedGui; show('done'); };
   window.hullError = m => { document.getElementById('errmsg').textContent = m; show('err'); };
   document.getElementById('open').onclick = () => hullOpen();
   document.getElementById('close').onclick = () => hullClose();

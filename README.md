@@ -95,9 +95,14 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
 
 ### Windows
 
-Run **`Hull-Setup.exe`** — Hull's own graphical installer. It's a small, self-contained window (no console, no admin) that installs the **app, daemon, and CLI** together, adds `hull` to your `PATH`, and registers a clean one-click uninstall.
+**Download [`Hull-Setup.exe`](../../releases/latest) and run it** — a small graphical installer (no console, no admin rights). A checkbox lets you pick what to install:
 
-Build it from source (or grab it from [Releases](../../releases) once a version is tagged):
+- **Desktop app + CLI** (default) — the full Hull: the app, the daemon, and the `hull` CLI.
+- **CLI only** — just the `hull` CLI + daemon, no desktop app.
+
+Either way it adds `hull` to your `PATH` and registers a clean one-click uninstall.
+
+**Prefer to build it yourself?**
 
 ```powershell
 git clone https://github.com/CavenRE/hull.git
