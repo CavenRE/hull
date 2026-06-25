@@ -12,8 +12,14 @@ var (
 	procSetWindowLong  = user32.NewProc("SetWindowLongPtrW")
 	procSetWindowPos   = user32.NewProc("SetWindowPos")
 	procShowWindow     = user32.NewProc("ShowWindow")
-	procReleaseCapture = user32.NewProc("ReleaseCapture")
-	procSendMessage    = user32.NewProc("SendMessageW")
+	procReleaseCapture   = user32.NewProc("ReleaseCapture")
+	procSendMessage      = user32.NewProc("SendMessageW")
+	procGetSystemMetrics = user32.NewProc("GetSystemMetrics")
+)
+
+const (
+	smCXScreen = 0
+	smCYScreen = 1
 )
 
 const (
@@ -39,6 +45,22 @@ func makeFrameless(hwnd uintptr) {
 }
 
 func minimizeWindow(hwnd uintptr) { procShowWindow.Call(hwnd, swMinimize) }
+
+// resizeAndCenter sizes the window to w×h and re-centers it on screen, so the
+// frameless window always hugs its content.
+func resizeAndCenter(hwnd uintptr, w, h int) {
+	sw, _, _ := procGetSystemMetrics.Call(smCXScreen)
+	sh, _, _ := procGetSystemMetrics.Call(smCYScreen)
+	x := (int(sw) - w) / 2
+	y := (int(sh) - h) / 2
+	if x < 0 {
+		x = 0
+	}
+	if y < 0 {
+		y = 0
+	}
+	procSetWindowPos.Call(hwnd, 0, uintptr(x), uintptr(y), uintptr(w), uintptr(h), swpNoZorder)
+}
 
 // startWindowDrag kicks off the standard borderless move loop (so the user can
 // drag the window by the custom title region).

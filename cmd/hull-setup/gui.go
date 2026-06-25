@@ -19,7 +19,7 @@ func runGUI(def InstallOpts) {
 		WindowOptions: webview.WindowOptions{
 			Title:  "Install Hull",
 			Width:  520,
-			Height: 560,
+			Height: 500, // refined to the content height by fitWindow on load
 			Center: true,
 		},
 	})
@@ -35,6 +35,12 @@ func runGUI(def InstallOpts) {
 
 	_ = w.Bind("winMin", func() { minimizeWindow(hwnd) })
 	_ = w.Bind("winDrag", func() { startWindowDrag(hwnd) })
+	_ = w.Bind("fitWindow", func(h int) {
+		if h < 200 {
+			h = 200
+		}
+		w.Dispatch(func() { resizeAndCenter(hwnd, 520, h) })
+	})
 	_ = w.Bind("hullClose", func() { w.Terminate() })
 	_ = w.Bind("hullOpen", func() {
 		launchHull(def.Dir)
@@ -164,7 +170,12 @@ const installerPage = `<!doctype html>
   const DIR = __DIR_JSON__;
   document.getElementById('dir').textContent = DIR;
   const views = ['opts','prog','done','err'];
-  const show = id => views.forEach(v => document.getElementById(v).hidden = (v !== id));
+  // Size the (frameless) window to the content so it never has dead space.
+  const fit = () => requestAnimationFrame(() => {
+    const h = Math.ceil(document.querySelector('.wrap').getBoundingClientRect().height);
+    if (window.fitWindow) fitWindow(h);
+  });
+  const show = id => { views.forEach(v => document.getElementById(v).hidden = (v !== id)); fit(); };
 
   // window controls
   document.getElementById('winmin').onclick = () => winMin();
@@ -193,6 +204,9 @@ const installerPage = `<!doctype html>
   document.getElementById('open').onclick = () => hullOpen();
   document.getElementById('close').onclick = () => hullClose();
   document.getElementById('closeerr').onclick = () => hullClose();
+
+  window.addEventListener('load', fit);
+  fit();
 </script>
 </body>
 </html>`
