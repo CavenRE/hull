@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -26,20 +25,23 @@ func Serve(ctx context.Context, cfg *config.Config, logf func(format string, a .
 	}
 	server := NewServer(cfg, token)
 
+	// Single-daemon lock: refuse to start a second daemon (or take over a
+	// stale lock from a crash) before touching the discovery file or ports.
+	guard, err := acquireInstance(cfg.HullHome, func() bool {
+		_, ok := Connect(cfg.HullHome)
+		return ok
+	})
+	if err != nil {
+		return err
+	}
+	defer guard.release()
+
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 
-	if existing, ok := Connect(cfg.HullHome); ok {
-		_ = ln.Close()
-		st, _ := existing.Status(ctx)
-		if st != nil {
-			return fmt.Errorf("a daemon is already running (version %s)", st.Version)
-		}
-		return errors.New("a daemon is already running")
-	}
 	if err := WriteDaemonFile(cfg.HullHome, DaemonInfo{Port: port, Token: token, PID: os.Getpid()}); err != nil {
 		_ = ln.Close()
 		return err
@@ -56,7 +58,7 @@ func Serve(ctx context.Context, cfg *config.Config, logf func(format string, a .
 	if err != nil {
 		_ = ln.Close()
 		RemoveDaemonFile(cfg.HullHome)
-		return err
+		return fmt.Errorf("starting networking failed (a previous Hull daemon may still hold ports 80/443/53 , try `hull stop`): %w", err)
 	}
 	defer stopNet()
 	server.SyncRoutes = syncNow
