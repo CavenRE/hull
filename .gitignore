@@ -31,3 +31,7 @@ node_modules/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# .NET build output (gui-windows)
+gui-windows/bin/
+gui-windows/obj/
