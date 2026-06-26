@@ -137,10 +137,10 @@ type Hooks struct {
 // ("php artisan migrate --force"), or a mapping with a target service and run
 // policy:
 //
-//	- run: sentinelctl keys init
-//	  service: sentinel
-//	  when: once            # always (default) | once | changed
-//	  ignore_failure: false
+//   - run: sentinelctl keys init
+//     service: sentinel
+//     when: once            # always (default) | once | changed
+//     ignore_failure: false
 type Hook struct {
 	Run           string `yaml:"run"`
 	Service       string `yaml:"service,omitempty"`
