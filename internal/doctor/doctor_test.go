@@ -77,6 +77,39 @@ func TestRunHealthy(t *testing.T) {
 	}
 }
 
+func TestRunDaemonDownWarnsWhenRouterEnabled(t *testing.T) {
+	// With the embedded router/DNS enabled, a stopped daemon means routing is
+	// actually offline , the daemon check must Warn (not read green), so health
+	// stops lying after `hull stop`.
+	cfg := &config.Config{TLD: "test", HullHome: t.TempDir(), Roots: []string{t.TempDir()}}
+	cfg.Router.Enabled = true
+	deps := Deps{
+		LookPath:      func(string) (string, error) { return "", errors.New("no docker") },
+		Output:        func(context.Context, string, string, ...string) (string, error) { return "", nil },
+		DaemonVersion: "", // daemon is down
+	}
+	checks := Run(context.Background(), cfg, deps)
+	c, ok := findCheck(checks, "daemon")
+	if !ok || c.Status != Warn {
+		t.Errorf("daemon check = %+v (ok=%v), want Warn when router enabled and daemon down", c, ok)
+	}
+}
+
+func TestRunDaemonDownOKWhenRouterDisabled(t *testing.T) {
+	// Without the embedded router, the CLI genuinely works in-process , a down
+	// daemon is fine (OK), not a warning.
+	cfg := &config.Config{TLD: "test", HullHome: t.TempDir(), Roots: []string{t.TempDir()}}
+	deps := Deps{
+		LookPath: func(string) (string, error) { return "", errors.New("no docker") },
+		Output:   func(context.Context, string, string, ...string) (string, error) { return "", nil },
+	}
+	checks := Run(context.Background(), cfg, deps)
+	c, ok := findCheck(checks, "daemon")
+	if !ok || c.Status != OK {
+		t.Errorf("daemon check = %+v (ok=%v), want OK when router disabled", c, ok)
+	}
+}
+
 func TestRunMissingRootWarns(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "not-created")
 	cfg := &config.Config{TLD: "test", HullHome: t.TempDir(), Roots: []string{missing}}
