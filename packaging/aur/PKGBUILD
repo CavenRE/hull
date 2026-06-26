@@ -13,7 +13,7 @@
 
 pkgbase=hull
 pkgname=('hull' 'hull-gui')
-pkgver=0.1.0
+pkgver=0.9.5
 pkgrel=1
 pkgdesc='A local environment for your sites & apps , native router, DNS and services'
 arch=('x86_64' 'aarch64')

@@ -31,7 +31,7 @@ var payload []byte
 
 const (
 	productName = "Hull"
-	version     = "0.1.0"
+	version     = "0.9.5"
 	uninstKey   = `Software\Microsoft\Windows\CurrentVersion\Uninstall\Hull`
 	runKey      = `Software\Microsoft\Windows\CurrentVersion\Run`
 )

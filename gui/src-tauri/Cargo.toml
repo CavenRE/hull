@@ -1,6 +1,6 @@
 [package]
 name = "hull-gui"
-version = "0.1.0"
+version = "0.9.5"
 description = "Hull , local development environment"
 edition = "2021"
 
