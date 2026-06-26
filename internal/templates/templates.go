@@ -128,6 +128,10 @@ var engines = map[string]EngineDef{
 	"redis":   {Name: "redis", Category: "cache", imageRepo: "redis", defaultTag: "alpine", DataPath: "/data", containerPort: "6379", HostPortBase: 56379},
 	"mailpit": {Name: "mailpit", Category: "mail", imageRepo: "axllent/mailpit", defaultTag: "latest", DataPath: "/data", JoinsCaddy: true, containerPort: "1025", UIPort: 8025, UISubdomain: "mail", HostPortBase: 52525, fixedEnv: []string{"MP_DATABASE=/data/mailpit.db"}},
 	"adminer": {Name: "adminer", Category: "tool", imageRepo: "adminer", defaultTag: "latest", JoinsCaddy: true, UIPort: 8080, UISubdomain: "db"},
+	// Redis viewer: RedisInsight has a runtime "add database" UI (like
+	// Adminer for SQL) and persists connections, so it needs no per-instance
+	// wiring. On the caddy network it can reach hull-redis-* by container name.
+	"redisinsight": {Name: "redisinsight", Category: "tool", imageRepo: "redis/redisinsight", defaultTag: "latest", DataPath: "/data", JoinsCaddy: true, UIPort: 5540, UISubdomain: "redis"},
 
 	// Herd-parity additions (Wave H). Non-db engines keep clean instance
 	// names (empty DefaultVersion) but pin an image via defaultTag.

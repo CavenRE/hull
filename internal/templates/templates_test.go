@@ -86,3 +86,23 @@ func contains(ss []string, s string) bool {
 	}
 	return false
 }
+
+func TestRedisInsightViewerEngine(t *testing.T) {
+	e, ok := Engine("redisinsight")
+	if !ok {
+		t.Fatal("redisinsight engine missing from catalog")
+	}
+	if e.Category != "tool" {
+		t.Errorf("category = %q, want tool", e.Category)
+	}
+	if e.UISubdomain != "redis" || e.UIPort != 5540 {
+		t.Errorf("UI = %s:%d, want redis:5540", e.UISubdomain, e.UIPort)
+	}
+	if !e.JoinsCaddy {
+		t.Error("redis viewer must join the caddy network to reach redis instances + be routed")
+	}
+	// Clean instance name (no version pinned in the name) like other tools.
+	if got := InstanceName("redisinsight", ""); got != "redisinsight" {
+		t.Errorf("InstanceName = %q, want redisinsight", got)
+	}
+}
