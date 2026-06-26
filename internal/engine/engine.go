@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -200,31 +199,15 @@ func (e *Engine) NewProject(ctx context.Context, opts NewOptions) (string, error
 		if err := e.compose(dir).Up(ctx); err != nil {
 			return dir, err
 		}
-		e.recordStarted(&state.Project{Name: m.Name, Dir: dir, Manifest: m})
-		// Laravel ships SESSION_DRIVER=database etc., so the app 500s on the
-		// first request until its tables exist , run migrations once it's up.
-		if opts.Template == "laravel" {
-			e.laravelMigrate(ctx, dir)
+		p := &state.Project{Name: m.Name, Dir: dir, Manifest: m}
+		e.recordStarted(p)
+		// post_create hooks run after the project boots (readiness-gated). For
+		// Laravel this carries the default `artisan migrate` (best-effort).
+		if err := e.runHooks(ctx, p, "post_create", true); err != nil {
+			return dir, err
 		}
 	}
 	return dir, nil
-}
-
-// laravelMigrate runs `php artisan migrate --force` once the app container is
-// reachable, retrying briefly (a dedicated DB may still be coming up). Best
-// effort: a failure leaves the project created , the user can re-run migrate.
-func (e *Engine) laravelMigrate(ctx context.Context, dir string) {
-	c := e.compose(dir)
-	for i := 0; i < 6; i++ {
-		if err := c.ExecNoTTY(ctx, "app", "php", "artisan", "migrate", "--force"); err == nil {
-			return
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(2 * time.Second):
-		}
-	}
 }
 
 // WriteArtifacts writes hull.yaml and the generated compose.yaml.
@@ -256,33 +239,37 @@ func (e *Engine) Render(m *manifest.Manifest, dir string) error {
 // the artifact always tracks the manifest). Clusters drive their own compose
 // project as-is (no Hull-generated artifact, no caddy network).
 func (e *Engine) Up(ctx context.Context, p *state.Project) error {
+	if err := e.runHooks(ctx, p, "pre_up", false); err != nil {
+		return err
+	}
 	if isCluster(p) {
 		if err := e.composeFor(p).Up(ctx); err != nil {
 			return err
 		}
-		e.recordStarted(p)
-		return nil
-	}
-	if err := templates.EnsureSystemFiles(e.Config.HullHome); err != nil {
-		return err
-	}
-	if err := e.prepareNetworks(ctx); err != nil {
-		return err
-	}
-	if p.Manifest != nil {
-		if err := e.Render(p.Manifest, p.Dir); err != nil {
+	} else {
+		if err := templates.EnsureSystemFiles(e.Config.HullHome); err != nil {
+			return err
+		}
+		if err := e.prepareNetworks(ctx); err != nil {
+			return err
+		}
+		if p.Manifest != nil {
+			if err := e.Render(p.Manifest, p.Dir); err != nil {
+				return err
+			}
+		}
+		if err := e.compose(p.Dir).Up(ctx); err != nil {
 			return err
 		}
 	}
-	if err := e.compose(p.Dir).Up(ctx); err != nil {
-		return err
-	}
 	e.recordStarted(p)
-	return nil
+	return e.runHooks(ctx, p, "post_up", true)
 }
 
-// Down stops a project.
+// Down stops a project. pre_down hooks run best-effort , stopping must always
+// be able to proceed (a failing cleanup hook never wedges the machine).
 func (e *Engine) Down(ctx context.Context, p *state.Project) error {
+	_ = e.runHooks(ctx, p, "pre_down", false)
 	if err := e.composeFor(p).Down(ctx); err != nil {
 		return err
 	}
@@ -319,7 +306,7 @@ func (e *Engine) Rebuild(ctx context.Context, p *state.Project, noCache bool) er
 		return err
 	}
 	e.recordStarted(p)
-	return nil
+	return e.runHooks(ctx, p, "post_rebuild", true)
 }
 
 // Reset wipes the project's named volumes (databases, caches) and starts it
@@ -329,7 +316,10 @@ func (e *Engine) Reset(ctx context.Context, p *state.Project) error {
 	if err := e.composeFor(p).DownVolumes(ctx); err != nil {
 		return err
 	}
-	return e.Up(ctx, p)
+	if err := e.Up(ctx, p); err != nil {
+		return err
+	}
+	return e.runHooks(ctx, p, "post_reset", true)
 }
 
 // Volumes lists the project's named volumes , the blast radius of a Reset.
@@ -550,6 +540,16 @@ func buildManifest(opts NewOptions) (*manifest.Manifest, error) {
 			key = s.Engine
 		}
 		m.Services[key] = &manifest.Service{Engine: s.Engine, Version: s.Version}
+	}
+
+	// Laravel ships SESSION_DRIVER=database etc., so the app 500s until its
+	// tables exist. A default post_create hook runs `artisan migrate` once the
+	// project is up (best-effort: a project without a reachable DB just leaves
+	// the user to re-run it). Persisted into hull.yaml so it's visible/editable.
+	if opts.Template == "laravel" {
+		m.Hooks.PostCreate = append(m.Hooks.PostCreate, manifest.Hook{
+			Run: "php artisan migrate --force", Service: "app", IgnoreFailure: true,
+		})
 	}
 
 	// Round-trip through Parse to apply defaults and full validation.

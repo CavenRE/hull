@@ -106,6 +106,24 @@ restored into the provisioned database.`,
 			if err != nil {
 				return err
 			}
+			// A bundle's manifest can carry lifecycle hooks that run arbitrary
+			// commands inside containers on the next `up`. Never run a
+			// downloaded bundle's hooks without explicit consent.
+			if meta != nil {
+				if hooks := bundleHookSummary(m); len(hooks) > 0 {
+					fmt.Println("This bundle defines lifecycle hooks that will run commands inside your containers:")
+					for _, h := range hooks {
+						fmt.Println("  -", h)
+					}
+					ok, err := confirm("Trust and run this bundle's hooks?")
+					if err != nil {
+						return err
+					}
+					if !ok {
+						return fmt.Errorf("import aborted , edit %s to remove the hooks, then re-run", filepath.Join(dir, manifest.Filename))
+					}
+				}
+			}
 			if err := a.Engine.Up(cmd.Context(), p); err != nil {
 				return err
 			}
@@ -136,6 +154,25 @@ func resolveImportManifest(name, dir string, meta *bundle.Meta, overrides engine
 	}
 	det := bundle.Detect(dir)
 	return engine.BuildImportManifest(name, det, overrides)
+}
+
+// bundleHookSummary lists every lifecycle hook a manifest declares, as
+// "event: command", for the trust prompt on bundle import.
+func bundleHookSummary(m *manifest.Manifest) []string {
+	var out []string
+	add := func(event string, hs []manifest.Hook) {
+		for _, h := range hs {
+			out = append(out, event+": "+h.Run)
+		}
+	}
+	add("post_create", m.Hooks.PostCreate)
+	add("post_import", m.Hooks.PostImport)
+	add("pre_up", m.Hooks.PreUp)
+	add("post_up", m.Hooks.PostUp)
+	add("pre_down", m.Hooks.PreDown)
+	add("post_rebuild", m.Hooks.PostRebuild)
+	add("post_reset", m.Hooks.PostReset)
+	return out
 }
 
 func describeDB(m *manifest.Manifest) string {

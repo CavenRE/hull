@@ -189,6 +189,9 @@ func (e *Engine) ImportExisting(ctx context.Context, p *state.Project, log func(
 	if err := e.Up(ctx, fresh); err != nil {
 		return err
 	}
+	if err := e.runHooks(ctx, fresh, "post_import", true); err != nil {
+		return err
+	}
 
 	if dumps := bundle.FindDumps(p.Dir); len(dumps) > 0 {
 		names := make([]string, len(dumps))

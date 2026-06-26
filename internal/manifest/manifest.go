@@ -114,10 +114,49 @@ type Service struct {
 	Serve *bool `yaml:"serve,omitempty"`
 }
 
-// Hooks are project lifecycle commands (executed from Phase 2 onward).
+// Hooks are project lifecycle commands run inside a container at well-defined
+// points. Each event is a list of Hook; the engine runs them in order.
+// post_* events that follow a start (create/up/rebuild/reset/import) are
+// readiness-gated (retried) so a "release" step like a DB migration can wait
+// for its dependencies.
 type Hooks struct {
-	PostCreate []string `yaml:"post_create,omitempty"`
-	PostImport []string `yaml:"post_import,omitempty"`
+	PostCreate  []Hook `yaml:"post_create,omitempty"`
+	PostImport  []Hook `yaml:"post_import,omitempty"`
+	PreUp       []Hook `yaml:"pre_up,omitempty"`
+	PostUp      []Hook `yaml:"post_up,omitempty"`
+	PreDown     []Hook `yaml:"pre_down,omitempty"`
+	PostRebuild []Hook `yaml:"post_rebuild,omitempty"`
+	PostReset   []Hook `yaml:"post_reset,omitempty"`
+}
+
+// Hook is one lifecycle command. It accepts two YAML forms: a bare string
+// ("php artisan migrate --force"), or a mapping with a target service and run
+// policy:
+//
+//	- run: sentinelctl keys init
+//	  service: sentinel
+//	  when: once            # always (default) | once | changed
+//	  ignore_failure: false
+type Hook struct {
+	Run           string `yaml:"run"`
+	Service       string `yaml:"service,omitempty"`
+	When          string `yaml:"when,omitempty"`
+	IgnoreFailure bool   `yaml:"ignore_failure,omitempty"`
+}
+
+// UnmarshalYAML accepts either a scalar (the command) or a full mapping.
+func (h *Hook) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		h.Run = value.Value
+		return nil
+	}
+	type raw Hook
+	var r raw
+	if err := value.Decode(&r); err != nil {
+		return err
+	}
+	*h = Hook(r)
+	return nil
 }
 
 var (
@@ -293,6 +332,7 @@ func (m *Manifest) Validate() error {
 	}
 
 	m.validateServices(fail)
+	m.validateHooks(fail)
 
 	for key := range m.Env {
 		if !envKeyRE.MatchString(key) {
@@ -301,6 +341,32 @@ func (m *Manifest) Validate() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// validateHooks checks every lifecycle hook list: a command is required, and
+// when:-policy must be one of the known values.
+func (m *Manifest) validateHooks(fail func(string, ...any)) {
+	events := map[string][]Hook{
+		"post_create":  m.Hooks.PostCreate,
+		"post_import":  m.Hooks.PostImport,
+		"pre_up":       m.Hooks.PreUp,
+		"post_up":      m.Hooks.PostUp,
+		"pre_down":     m.Hooks.PreDown,
+		"post_rebuild": m.Hooks.PostRebuild,
+		"post_reset":   m.Hooks.PostReset,
+	}
+	for event, hooks := range events {
+		for i, h := range hooks {
+			if strings.TrimSpace(h.Run) == "" {
+				fail("hook %s[%d]: 'run' command is required", event, i)
+			}
+			switch h.When {
+			case "", "always", "once", "changed":
+			default:
+				fail("hook %s[%d]: invalid when %q (use always, once, or changed)", event, i, h.When)
+			}
+		}
+	}
 }
 
 func (m *Manifest) validateSite(fail func(string, ...any)) {
