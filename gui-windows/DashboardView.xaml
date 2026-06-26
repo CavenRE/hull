@@ -1,0 +1,76 @@
+<UserControl x:Class="Hull.Gui.DashboardView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <DockPanel Margin="22,20">
+        <Grid DockPanel.Dock="Top" Margin="0,0,0,16">
+            <TextBlock Text="Dashboard" Style="{StaticResource ScreenTitle}" VerticalAlignment="Center" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Refresh" Style="{StaticResource Btn}" Click="OnRefresh" />
+                <Button Content="Stop All" Style="{StaticResource Btn}" Margin="8,0,0,0" Click="OnStopAll" />
+            </StackPanel>
+        </Grid>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <UniformGrid Rows="1" Margin="0,0,0,16">
+                    <Border Style="{StaticResource Card}" Margin="0,0,6,0">
+                        <StackPanel>
+                            <TextBlock Text="PROJECTS" Style="{StaticResource Muted}" />
+                            <TextBlock x:Name="ProjectsValue" Text="–" FontSize="28" FontWeight="SemiBold" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource Card}" Margin="6,0,6,0">
+                        <StackPanel>
+                            <TextBlock Text="RUNNING" Style="{StaticResource Muted}" />
+                            <TextBlock x:Name="RunningValue" Text="–" FontSize="28" FontWeight="SemiBold"
+                                       Foreground="{StaticResource Green}" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource Card}" Margin="6,0,0,0">
+                        <StackPanel>
+                            <TextBlock Text="SERVICES" Style="{StaticResource Muted}" />
+                            <TextBlock x:Name="ServicesValue" Text="–" FontSize="28" FontWeight="SemiBold" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </Border>
+                </UniformGrid>
+
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="SYSTEM HEALTH" Style="{StaticResource CardTitle}" />
+                        <ItemsControl x:Name="HealthList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="170" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Ellipse Grid.Column="0" Width="8" Height="8" VerticalAlignment="Center" Margin="0,0,10,0">
+                                            <Ellipse.Style>
+                                                <Style TargetType="Ellipse">
+                                                    <Setter Property="Fill" Value="{StaticResource Green}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding status}" Value="warn">
+                                                            <Setter Property="Fill" Value="{StaticResource Amber}" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding status}" Value="fail">
+                                                            <Setter Property="Fill" Value="{StaticResource Red}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Ellipse.Style>
+                                        </Ellipse>
+                                        <TextBlock Grid.Column="1" Text="{Binding name}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="2" Text="{Binding detail}" Style="{StaticResource Faint}"
+                                                   VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</UserControl>

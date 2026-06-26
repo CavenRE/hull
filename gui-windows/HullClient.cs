@@ -7,6 +7,12 @@ using System.Text.Json.Serialization;
 
 namespace Hull.Gui;
 
+/// <summary>A screen that can reload itself when the daemon pushes an event.</summary>
+public interface IRefreshable
+{
+    Task RefreshAsync();
+}
+
 /// <summary>Discovery record written by a running daemon to ~/.hull/daemon.json.</summary>
 public record DaemonInfo(int port, string token);
 
@@ -21,6 +27,26 @@ public record ProjectInfo(
 {
     public string State => running ? "running" : "stopped";
 }
+
+public record ServiceInfo(
+    string name, string engine, string version, string container, bool running,
+    string? url, string? host, int host_port, string? username, string[]? linked_projects)
+{
+    public string State => running ? "running" : "stopped";
+    public string Endpoint => host_port > 0 ? $"{host ?? "127.0.0.1"}:{host_port}" : "";
+    public string Linked => linked_projects is { Length: > 0 } ? string.Join(", ", linked_projects) : "";
+}
+
+public record Check(string name, string status, string detail);
+
+public record Defaults(string php, string editor, string db_tool);
+
+public record ConfigInfo(
+    string tld, string[] roots, string? loopback, Defaults defaults, string[]? restart_required);
+
+public record DependencyInfo(
+    string name, string key, bool installed, string? version, bool running,
+    string status, string blurb, string? install_url, string? install_hint, bool embedded);
 
 /// <summary>
 /// Thin client over the local hulld API. All logic lives in the daemon; this
@@ -94,6 +120,30 @@ public sealed class HullClient
     {
         try { await _http.PostAsync("/v1/shutdown", null, ct); } catch { /* daemon is exiting */ }
     }
+
+    public async Task<List<ServiceInfo>> ServicesAsync(CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync<List<ServiceInfo>>("/v1/services", JsonOpts, ct) ?? new();
+
+    public async Task ServiceActionAsync(string name, string action, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsync($"/v1/services/{Uri.EscapeDataString(name)}/{action}", null, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    public Task<ConfigInfo?> ConfigAsync(CancellationToken ct = default) =>
+        _http.GetFromJsonAsync<ConfigInfo>("/v1/config", JsonOpts, ct);
+
+    public async Task PutConfigAsync(ConfigInfo cfg, CancellationToken ct = default)
+    {
+        var resp = await _http.PutAsJsonAsync("/v1/config", cfg, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task<List<Check>> DoctorAsync(CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync<List<Check>>("/v1/doctor", JsonOpts, ct) ?? new();
+
+    public async Task<List<DependencyInfo>> DependenciesAsync(CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync<List<DependencyInfo>>("/v1/dependencies", JsonOpts, ct) ?? new();
 
     /// <summary>
     /// Streams GET /v1/events (SSE). Invokes onRunning with the running compose

@@ -1,19 +1,18 @@
-using System.Collections.ObjectModel;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace Hull.Gui;
 
 public partial class MainWindow : Window
 {
-    public ObservableCollection<ProjectInfo> Projects { get; } = new();
-
     private HullClient? _client;
     private CancellationTokenSource? _events;
 
     public MainWindow()
     {
         InitializeComponent();
-        ProjectList.ItemsSource = Projects;
+        Nav.ItemsSource = new[] { "Dashboard", "Sites", "Services", "Mail", "Logs", "Settings" };
         Loaded += async (_, _) => await ConnectAndLoad();
         Closed += (_, _) => _events?.Cancel();
     }
@@ -23,28 +22,32 @@ public partial class MainWindow : Window
         _client = await HullClient.ConnectAsync();
         if (_client is null)
         {
-            StatusText.Text = "Daemon not running , start it with `hulld`";
-            return;
+            DaemonDot.Fill = (Brush)FindResource("TextFaint");
+            DaemonText.Text = "daemon not running";
         }
-        var status = await _client.StatusAsync();
-        StatusText.Text = status is null ? "Connected" : $"v{status.version}  ·  .{status.tld}";
-        await Refresh();
-        StartEvents();
+        else
+        {
+            var status = await _client.StatusAsync();
+            DaemonDot.Fill = (Brush)FindResource("Green");
+            DaemonText.Text = status is null ? "connected" : $"v{status.version} · .{status.tld}";
+            StartEvents();
+        }
+        Nav.SelectedIndex = 0; // triggers OnNav -> first screen
     }
 
-    private async Task Refresh()
+    private void OnNav(object sender, SelectionChangedEventArgs e)
     {
-        if (_client is null) return;
-        try
+        if (Nav.SelectedItem is not string screen) return;
+        ContentHost.Content = screen switch
         {
-            var projects = await _client.ProjectsAsync();
-            Projects.Clear();
-            foreach (var p in projects) Projects.Add(p);
-        }
-        catch (Exception ex)
-        {
-            StatusText.Text = "Error: " + ex.Message;
-        }
+            "Dashboard" => new DashboardView(_client),
+            "Sites" => new SitesView(_client),
+            "Services" => new ServicesView(_client),
+            "Settings" => new SettingsView(_client),
+            "Mail" => new PlaceholderView("Mail", "Mailpit inbox , coming to the native GUI."),
+            "Logs" => new PlaceholderView("Logs", "Live container logs , coming to the native GUI."),
+            _ => ContentHost.Content,
+        };
     }
 
     private void StartEvents()
@@ -57,46 +60,13 @@ public partial class MainWindow : Window
             try
             {
                 await _client!.StreamEventsAsync(
-                    _ => Dispatcher.InvokeAsync(async () => await Refresh()),
+                    running => Dispatcher.InvokeAsync(() =>
+                    {
+                        if (ContentHost.Content is IRefreshable r) _ = r.RefreshAsync();
+                    }),
                     ct);
             }
             catch { /* stream ended or cancelled */ }
         }, ct);
-    }
-
-    private async void OnRefresh(object sender, RoutedEventArgs e) => await Refresh();
-
-    private async void OnStopAll(object sender, RoutedEventArgs e)
-    {
-        if (_client is null) return;
-        try
-        {
-            var n = await _client.StopAllAsync();
-            StatusText.Text = $"Stopped {n} project(s)/service(s)";
-            await Refresh();
-        }
-        catch (Exception ex)
-        {
-            StatusText.Text = "Error: " + ex.Message;
-        }
-    }
-
-    private async void OnStart(object sender, RoutedEventArgs e) => await Action(sender, "start");
-    private async void OnStop(object sender, RoutedEventArgs e) => await Action(sender, "stop");
-    private async void OnRestart(object sender, RoutedEventArgs e) => await Action(sender, "restart");
-
-    private async Task Action(object sender, string action)
-    {
-        if (_client is null) return;
-        if ((sender as FrameworkElement)?.DataContext is not ProjectInfo p) return;
-        try
-        {
-            await _client.ProjectActionAsync(p.name, action);
-            await Refresh();
-        }
-        catch (Exception ex)
-        {
-            StatusText.Text = "Error: " + ex.Message;
-        }
     }
 }

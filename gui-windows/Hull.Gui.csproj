@@ -13,4 +13,12 @@
     <ApplicationDefaultFont>Segoe UI</ApplicationDefaultFont>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Drop the WinForms implicit global using so its types (UserControl,
+         Application, ...) don't collide with WPF; App.xaml.cs uses an explicit
+         alias for the tray NotifyIcon instead. -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
 </Project>
