@@ -12,6 +12,7 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     labels:
+      - com.hull.managed=true
       - caddy=myapp.test
       - caddy.reverse_proxy={{upstreams 8080}}
       - caddy.tls=internal
@@ -26,6 +27,8 @@ services:
       - POSTGRES_USER=postgres
     volumes:
       - db_data:/var/lib/postgresql/data
+    labels:
+      - com.hull.managed=true
     networks:
       - default
       - caddy

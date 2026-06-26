@@ -459,32 +459,14 @@ func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleStopAll brings down everything Hull started , every managed project
-// (sites/apps/clusters) then every running shared service , so nothing keeps
-// holding ports after the daemon stops. Best-effort: one failure never blocks
-// the rest. Synchronous so the caller knows when the machine is clear.
+// handleStopAll brings down everything Hull started , managed projects,
+// adopted clusters (even out-of-root, via the started ledger), label-tagged
+// orphans, and running shared services , so nothing keeps holding ports after
+// the daemon stops. The logic lives in the engine (core-first); the handler
+// just runs it and reconciles routes. Synchronous so the caller knows when
+// the machine is clear.
 func (s *Server) handleStopAll(w http.ResponseWriter, r *http.Request) {
-	stopped := 0
-	if projects, err := state.Scan(s.Config.Roots); err == nil {
-		for i := range projects {
-			p := &projects[i]
-			if p.Manifest == nil {
-				continue // unmanaged folder , Hull never started it
-			}
-			if err := s.Engine.Down(r.Context(), p); err == nil {
-				stopped++
-			}
-		}
-	}
-	if instances, err := s.Services().List(r.Context()); err == nil {
-		for _, in := range instances {
-			if in.Running {
-				if err := s.Services().Stop(r.Context(), in.Name); err == nil {
-					stopped++
-				}
-			}
-		}
-	}
+	stopped, _ := s.Engine.StopAll(r.Context())
 	if s.SyncRoutes != nil {
 		s.SyncRoutes()
 	}

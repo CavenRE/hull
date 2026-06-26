@@ -75,6 +75,30 @@ func RunningComposeProjects(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
+// RunningHullProjects returns the distinct compose project names that carry
+// Hull's ownership label (com.hull.managed=true) and have a running
+// container , the safety sweep for stop-all to catch Hull-rendered orphans
+// whose directory it can no longer resolve. Adopted clusters are not rendered
+// by Hull and so are not found here (the started ledger covers them).
+func RunningHullProjects(ctx context.Context) ([]string, error) {
+	out, err := Output(ctx, "", "docker", "ps", "--filter", "label=com.hull.managed=true", "--format", `{{.Label "com.docker.compose.project"}}`)
+	if err != nil {
+		return nil, err
+	}
+	set := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			set[name] = true
+		}
+	}
+	names := make([]string, 0, len(set))
+	for n := range set {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
 // ForceRemoveProject removes all containers and volumes labeled with the
 // compose project name , the fallback when a compose file is corrupted
 // (ported from v1's rm).

@@ -109,7 +109,7 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 			add(Warn, "router (embedded)", fmt.Sprintf("enabled but %s:%d not listening , start the daemon (hulld)", cfg.Router.Loopback, cfg.Router.HTTPSPort))
 		}
 		if certs.Trusted(cfg.RouterDataDir()) {
-			add(OK, "certificate", "local CA provisioned (trust install: hull trust)")
+			add(OK, "certificate", "local CA present (file only; not proof routing is live , trust install: hull trust)")
 		} else {
 			add(Warn, "certificate", "no local CA yet , run: hull trust")
 		}
@@ -137,9 +137,13 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 		add(Warn, "name resolution", "no *."+cfg.TLD+" resolution yet , run `hull setup`")
 	}
 
-	// Daemon.
+	// Daemon. When the embedded router/DNS are enabled, a stopped daemon means
+	// routing and name resolution are actually offline , report that honestly
+	// (Warn) instead of green. The CLI itself still works in-process.
 	if deps.DaemonVersion != "" {
 		add(OK, "daemon", "running ("+deps.DaemonVersion+")")
+	} else if cfg.Router.Enabled || cfg.DNS.Enabled {
+		add(Warn, "daemon", "not running , routing/DNS are offline until you start it (hulld); the CLI still works in-process")
 	} else {
 		add(OK, "daemon", "not running (CLI operates in-process)")
 	}

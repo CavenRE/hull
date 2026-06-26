@@ -12,6 +12,7 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     labels:
+      - com.hull.managed=true
       - caddy=shop.test
       - caddy.reverse_proxy={{upstreams 8080}}
       - caddy.tls=internal
@@ -25,6 +26,8 @@ services:
       - MYSQL_DATABASE=shop
     volumes:
       - db_data:/var/lib/mysql
+    labels:
+      - com.hull.managed=true
     networks:
       - default
       - caddy
@@ -32,6 +35,8 @@ services:
     image: redis:alpine
     volumes:
       - redis_data:/data
+    labels:
+      - com.hull.managed=true
     networks:
       - default
 networks:

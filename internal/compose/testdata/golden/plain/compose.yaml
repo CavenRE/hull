@@ -15,6 +15,7 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     labels:
+      - com.hull.managed=true
       - caddy=api.test
       - caddy.reverse_proxy={{upstreams 8080}}
       - caddy.tls=internal

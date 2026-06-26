@@ -23,6 +23,7 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     labels:
+      - com.hull.managed=true
       - caddy=oldblog.test
       - caddy.reverse_proxy={{upstreams 80}}
       - caddy.tls=internal
@@ -36,6 +37,8 @@ services:
       - MYSQL_DATABASE=oldblog
     volumes:
       - db_data:/var/lib/mysql
+    labels:
+      - com.hull.managed=true
     networks:
       - default
       - caddy

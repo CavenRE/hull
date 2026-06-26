@@ -137,6 +137,7 @@ func (e *Engine) newManagedCluster(ctx context.Context, dir, name string, opts N
 		if err := e.compose(dir).Up(ctx); err != nil {
 			return dir, err
 		}
+		e.recordStarted(&state.Project{Name: name, Dir: dir, Manifest: m})
 	}
 	return dir, nil
 }

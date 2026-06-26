@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,7 +16,9 @@ import (
 	"github.com/CavenRE/hull/internal/config"
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/envfile"
+	"github.com/CavenRE/hull/internal/ledger"
 	"github.com/CavenRE/hull/internal/manifest"
+	"github.com/CavenRE/hull/internal/services"
 	"github.com/CavenRE/hull/internal/state"
 	"github.com/CavenRE/hull/internal/templates"
 )
@@ -29,10 +32,19 @@ type Engine struct {
 	// EnsureNet creates a docker network if missing; defaults to
 	// dockerx.EnsureNetwork (stubbed in tests).
 	EnsureNet func(ctx context.Context, name string) error
+	// RunningHull lists running compose projects carrying Hull's ownership
+	// label , the stop-all safety sweep. Injectable for tests; defaults to
+	// dockerx.RunningHullProjects.
+	RunningHull func(ctx context.Context) ([]string, error)
 }
 
 func New(cfg *config.Config) *Engine {
-	return &Engine{Config: cfg, Run: dockerx.Exec, EnsureNet: dockerx.EnsureNetwork}
+	return &Engine{
+		Config:      cfg,
+		Run:         dockerx.Exec,
+		EnsureNet:   dockerx.EnsureNetwork,
+		RunningHull: dockerx.RunningHullProjects,
+	}
 }
 
 // prepareNetworks creates the external networks generated compose files
@@ -188,6 +200,7 @@ func (e *Engine) NewProject(ctx context.Context, opts NewOptions) (string, error
 		if err := e.compose(dir).Up(ctx); err != nil {
 			return dir, err
 		}
+		e.recordStarted(&state.Project{Name: m.Name, Dir: dir, Manifest: m})
 		// Laravel ships SESSION_DRIVER=database etc., so the app 500s on the
 		// first request until its tables exist , run migrations once it's up.
 		if opts.Template == "laravel" {
@@ -244,7 +257,11 @@ func (e *Engine) Render(m *manifest.Manifest, dir string) error {
 // project as-is (no Hull-generated artifact, no caddy network).
 func (e *Engine) Up(ctx context.Context, p *state.Project) error {
 	if isCluster(p) {
-		return e.composeFor(p).Up(ctx)
+		if err := e.composeFor(p).Up(ctx); err != nil {
+			return err
+		}
+		e.recordStarted(p)
+		return nil
 	}
 	if err := templates.EnsureSystemFiles(e.Config.HullHome); err != nil {
 		return err
@@ -257,12 +274,20 @@ func (e *Engine) Up(ctx context.Context, p *state.Project) error {
 			return err
 		}
 	}
-	return e.compose(p.Dir).Up(ctx)
+	if err := e.compose(p.Dir).Up(ctx); err != nil {
+		return err
+	}
+	e.recordStarted(p)
+	return nil
 }
 
 // Down stops a project.
 func (e *Engine) Down(ctx context.Context, p *state.Project) error {
-	return e.composeFor(p).Down(ctx)
+	if err := e.composeFor(p).Down(ctx); err != nil {
+		return err
+	}
+	e.recordStopped(projectName(p))
+	return nil
 }
 
 // Restart restarts a project.
@@ -290,7 +315,11 @@ func (e *Engine) Rebuild(ctx context.Context, p *state.Project, noCache bool) er
 	if err := c.Build(ctx, noCache); err != nil {
 		return err
 	}
-	return c.Up(ctx)
+	if err := c.Up(ctx); err != nil {
+		return err
+	}
+	e.recordStarted(p)
+	return nil
 }
 
 // Reset wipes the project's named volumes (databases, caches) and starts it
@@ -323,6 +352,7 @@ func (e *Engine) ExecIn(ctx context.Context, p *state.Project, service string, c
 // never deletes files (that's the user's repo) , it tears the stack down and
 // un-adopts by removing only the Hull manifest.
 func (e *Engine) Destroy(ctx context.Context, p *state.Project) error {
+	defer e.recordStopped(projectName(p))
 	if isCluster(p) {
 		if err := e.composeFor(p).DownVolumes(ctx); err != nil {
 			fmt.Fprintln(os.Stderr, "cluster compose down failed (continuing to un-adopt):", err)
@@ -336,6 +366,118 @@ func (e *Engine) Destroy(ctx context.Context, p *state.Project) error {
 		}
 	}
 	return os.RemoveAll(p.Dir)
+}
+
+// --- started-project ledger + stop-all -------------------------------------
+
+func (e *Engine) ledgerEntry(p *state.Project) ledger.Entry {
+	ent := ledger.Entry{Name: projectName(p), Dir: p.Dir}
+	if p.Manifest != nil {
+		ent.Kind = string(p.Manifest.Type)
+		if p.Manifest.Type == manifest.TypeCluster {
+			ent.ComposeRoot = p.Manifest.ComposeRoot
+			ent.ComposeFiles = p.Manifest.ComposeFiles
+			ent.Profiles = p.Manifest.Profiles
+		}
+	}
+	return ent
+}
+
+// recordStarted / recordStopped maintain the started ledger. Both are
+// best-effort , a ledger write must never block a lifecycle action, and the
+// roots scan + label sweep in StopAll backstop a stale ledger.
+func (e *Engine) recordStarted(p *state.Project) { _ = ledger.Add(e.Config.HullHome, e.ledgerEntry(p)) }
+func (e *Engine) recordStopped(name string)      { _ = ledger.Remove(e.Config.HullHome, name) }
+
+// StopAll brings down every project Hull started and every running shared
+// service , so nothing keeps holding ports after the daemon stops. It draws
+// targets from three deduped sources: the configured roots (managed
+// projects), the started ledger (catches adopted clusters living outside the
+// roots), and a sweep of containers carrying Hull's ownership label (catches
+// rendered orphans). Best-effort: one failure never blocks the rest. Returns
+// the number of projects and services stopped.
+func (e *Engine) StopAll(ctx context.Context) (int, error) {
+	stopped := 0
+	var errs []error
+	done := map[string]bool{}
+
+	// 1. Managed projects under the configured roots.
+	if projects, err := state.Scan(e.Config.Roots); err == nil {
+		for i := range projects {
+			p := &projects[i]
+			if p.Manifest == nil {
+				continue
+			}
+			name := projectName(p)
+			if done[name] {
+				continue
+			}
+			done[name] = true
+			if err := e.Down(ctx, p); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", name, err))
+			} else {
+				stopped++
+			}
+		}
+	}
+
+	// 2. Started ledger , catches adopted clusters and out-of-root projects
+	//    a roots scan cannot see.
+	for _, ent := range ledger.List(e.Config.HullHome) {
+		if done[ent.Name] {
+			continue
+		}
+		done[ent.Name] = true
+		c := dockerx.Compose{
+			Dir:      filepath.Join(ent.Dir, ent.ComposeRoot),
+			Run:      e.Run,
+			Name:     ent.Name,
+			Files:    ent.ComposeFiles,
+			Profiles: ent.Profiles,
+		}
+		if err := c.Down(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", ent.Name, err))
+		} else {
+			stopped++
+			e.recordStopped(ent.Name)
+		}
+	}
+
+	// 3. Safety sweep , any still-running project carrying Hull's ownership
+	//    label that we haven't already handled (a rendered orphan).
+	if e.RunningHull != nil {
+		if names, err := e.RunningHull(ctx); err == nil {
+			for _, name := range names {
+				if done[name] {
+					continue
+				}
+				done[name] = true
+				if err := e.Run(ctx, "", "docker", "compose", "-p", name, "down"); err != nil {
+					errs = append(errs, fmt.Errorf("%s: %w", name, err))
+				} else {
+					stopped++
+				}
+			}
+		}
+	}
+
+	// 4. Running shared service instances.
+	m := services.NewManager(e.Config)
+	m.Run = e.Run
+	if instances, err := m.List(ctx); err == nil {
+		for _, in := range instances {
+			if !in.Running {
+				continue
+			}
+			if err := m.Stop(ctx, in.Name); err != nil {
+				errs = append(errs, fmt.Errorf("service %s: %w", in.Name, err))
+			} else {
+				stopped++
+			}
+		}
+	}
+
+	return stopped, errors.Join(errs...)
 }
 
 // PatchOptions are the project fields `hull set` / PATCH /v1/projects can

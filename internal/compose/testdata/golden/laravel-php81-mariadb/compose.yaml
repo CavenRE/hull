@@ -12,6 +12,7 @@ services:
     extra_hosts:
       - host.docker.internal:host-gateway
     labels:
+      - com.hull.managed=true
       - caddy=legacy-app.test
       - caddy.reverse_proxy={{upstreams 8080}}
       - caddy.tls=internal
@@ -25,6 +26,8 @@ services:
       - MYSQL_DATABASE=legacy_app
     volumes:
       - db_data:/var/lib/mysql
+    labels:
+      - com.hull.managed=true
     networks:
       - default
       - caddy

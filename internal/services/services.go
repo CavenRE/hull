@@ -106,6 +106,7 @@ func (m *Manager) Add(ctx context.Context, engineName, version string) (string, 
 		ContainerName: templates.InstanceContainerName(def.Name, version),
 		Command:       def.Command,
 		Environment:   def.Env(""),
+		Labels:        []string{compose.ManagedLabel},
 		Networks:      []string{sharedNetwork},
 	}
 	if def.DataPath != "" {

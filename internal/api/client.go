@@ -203,6 +203,18 @@ func (c *Client) Dependencies(ctx context.Context) ([]DependencyInfo, error) {
 	return deps, nil
 }
 
+// StopAll brings down every project and shared service Hull started, returning
+// how many were stopped. It does not stop the daemon (see Shutdown).
+func (c *Client) StopAll(ctx context.Context) (int, error) {
+	var out struct {
+		Stopped int `json:"stopped"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/v1/stop-all", nil, &out); err != nil {
+		return 0, err
+	}
+	return out.Stopped, nil
+}
+
 // Shutdown asks the daemon to exit.
 func (c *Client) Shutdown(ctx context.Context) error {
 	return c.do(ctx, http.MethodPost, "/v1/shutdown", nil, nil)

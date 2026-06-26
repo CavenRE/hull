@@ -50,6 +50,13 @@ const (
 	webrootMount = "/var/www/html"
 )
 
+// ManagedLabel marks every container Hull generates as Hull-owned. The daemon
+// uses it to find and stop everything Hull started , including rendered
+// projects whose directory has moved or fallen outside the configured roots
+// (see engine.StopAll). Adopted clusters are NOT rendered by Hull and so do
+// not carry this label; they are tracked in the started ledger instead.
+const ManagedLabel = "com.hull.managed=true"
+
 // Render generates the compose file for a validated manifest.
 func Render(m *manifest.Manifest, ctx Context) (*File, error) {
 	if ctx.TLD == "" {
@@ -108,6 +115,12 @@ func Render(m *manifest.Manifest, ctx Context) (*File, error) {
 			f.Volumes[volume] = nil
 		}
 		f.Services[key] = svc
+	}
+
+	// Stamp Hull's ownership label on every generated service so the daemon
+	// can reliably find and stop everything Hull started (engine.StopAll).
+	for _, svc := range f.Services {
+		svc.Labels = append([]string{ManagedLabel}, svc.Labels...)
 	}
 
 	return f, nil
