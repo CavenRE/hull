@@ -96,6 +96,10 @@ func projectName(p *state.Project) string {
 // it's the project's own generated compose.yaml. The project name is pinned
 // with -p so adopted dirs with spaces/capitals stay deterministic.
 func (e *Engine) composeFor(p *state.Project) dockerx.Compose {
+	envFile := ""
+	if p.Manifest != nil && p.Manifest.EnvFile != "" {
+		envFile = filepath.Join(p.Dir, p.Manifest.EnvFile)
+	}
 	if isCluster(p) {
 		return dockerx.Compose{
 			Dir:      filepath.Join(p.Dir, p.Manifest.ComposeRoot),
@@ -103,9 +107,10 @@ func (e *Engine) composeFor(p *state.Project) dockerx.Compose {
 			Name:     projectName(p),
 			Files:    p.Manifest.ComposeFiles,
 			Profiles: p.Manifest.Profiles,
+			EnvFile:  envFile,
 		}
 	}
-	return dockerx.Compose{Dir: p.Dir, Run: e.Run, Name: projectName(p)}
+	return dockerx.Compose{Dir: p.Dir, Run: e.Run, Name: projectName(p), EnvFile: envFile}
 }
 
 // NewOptions describes `hull new`.
@@ -243,6 +248,9 @@ func (e *Engine) Up(ctx context.Context, p *state.Project) error {
 		return err
 	}
 	if isCluster(p) {
+		if err := e.preflightPorts(ctx, p); err != nil {
+			return err
+		}
 		if err := e.composeFor(p).Up(ctx); err != nil {
 			return err
 		}

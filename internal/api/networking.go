@@ -67,14 +67,26 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 			syncMu.Lock()
 			defer syncMu.Unlock()
 			svcRoutes, svcDomains := serviceUI(ctx, cfg)
-			routes := append(eng.Routes(ctx), svcRoutes...)
+			live := append(eng.Routes(ctx), svcRoutes...)
+
+			// Every known domain (running or not) for both the hosts block and
+			// router vhosts , a stopped site keeps a vhost so it answers a
+			// readable 502 instead of an opaque TLS handshake failure.
+			var allDomains []string
+			if projects, err := state.Scan(cfg.Roots); err == nil {
+				allDomains = append(engine.AllDomains(projects, cfg.TLD), svcDomains...)
+			} else {
+				allDomains = svcDomains
+			}
+
+			routes := mergeDownRoutes(live, allDomains)
 			fp := fingerprint(routes)
 			if fp != lastFingerprint {
 				if err := router.Apply(routes, opts); err != nil {
 					logf("router: apply failed: %v", err)
 				} else {
 					lastFingerprint = fp
-					logf("router: %d route(s) active", len(routes))
+					logf("router: %d route(s) active (%d live)", len(routes), len(live))
 				}
 			}
 
@@ -82,8 +94,8 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 			// (running or not): browsers bypass NRPT on Windows, so this
 			// is the layer that makes names resolve. No-op (and no UAC)
 			// when unchanged.
-			if projects, err := state.Scan(cfg.Roots); err == nil {
-				domains := append(engine.AllDomains(projects, cfg.TLD), svcDomains...)
+			{
+				domains := append([]string(nil), allDomains...)
 				sort.Strings(domains)
 				hostsKey := strings.Join(domains, ";")
 				if hostsKey != lastHosts {
@@ -150,6 +162,26 @@ func serviceUI(ctx context.Context, cfg *config.Config) (routes []router.Route, 
 		}
 	}
 	return routes, domains
+}
+
+// mergeDownRoutes adds a placeholder route (empty upstream , rendered as a 502
+// by the router) for every known domain that has no live upstream, so a
+// stopped or crashed site returns a readable page instead of failing the TLS
+// handshake.
+func mergeDownRoutes(live []router.Route, allDomains []string) []router.Route {
+	have := make(map[string]bool, len(live))
+	for _, r := range live {
+		have[r.Domain] = true
+	}
+	routes := append([]router.Route(nil), live...)
+	for _, d := range allDomains {
+		if d == "" || have[d] {
+			continue
+		}
+		have[d] = true
+		routes = append(routes, router.Route{Domain: d}) // empty upstream → 502
+	}
+	return routes
 }
 
 func fingerprint(routes []router.Route) string {

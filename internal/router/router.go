@@ -66,13 +66,25 @@ func ConfigJSON(routes []Route, o Options) ([]byte, error) {
 	caddyRoutes := make([]map[string]any, 0, len(sorted))
 	subjects := make([]string, 0, len(sorted))
 	for _, r := range sorted {
-		if r.Domain == "" || r.Upstream == "" {
+		if r.Domain == "" {
 			return nil, fmt.Errorf("invalid route %+v", r)
 		}
 		subjects = append(subjects, r.Domain)
-		caddyRoutes = append(caddyRoutes, map[string]any{
-			"match": []map[string]any{{"host": []string{r.Domain}}},
-			"handle": []map[string]any{{
+		var handle map[string]any
+		if r.Upstream == "" {
+			// A known host with no live backend (project stopped or crashed).
+			// Answer a readable 502 instead of having no vhost at all , which
+			// would fail the TLS handshake and surface as an opaque OS-level
+			// error (curl SEC_E_ILLEGAL_MESSAGE). The subject still gets a
+			// cert so HTTPS negotiates cleanly.
+			handle = map[string]any{
+				"handler":     "static_response",
+				"status_code": 502,
+				"headers":     map[string][]string{"Content-Type": {"text/plain; charset=utf-8"}},
+				"body":        "Hull: this site is registered but not running.\nStart it with `hull up`, or check `hull status`.\n",
+			}
+		} else {
+			handle = map[string]any{
 				"handler":   "reverse_proxy",
 				"upstreams": []map[string]any{{"dial": r.Upstream}},
 				"headers": map[string]any{
@@ -82,7 +94,11 @@ func ConfigJSON(routes []Route, o Options) ([]byte, error) {
 						},
 					},
 				},
-			}},
+			}
+		}
+		caddyRoutes = append(caddyRoutes, map[string]any{
+			"match":    []map[string]any{{"host": []string{r.Domain}}},
+			"handle":   []map[string]any{handle},
 			"terminal": true,
 		})
 	}

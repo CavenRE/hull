@@ -67,6 +67,28 @@ func TestConfigJSONShape(t *testing.T) {
 	}
 }
 
+func TestConfigJSONDownHostRenders502(t *testing.T) {
+	cfg, err := ConfigJSON([]Route{
+		{Domain: "up.test", Upstream: "127.0.0.1:1"},
+		{Domain: "down.test"}, // no upstream , project stopped
+	}, Options{HTTPPort: 8080, HTTPSPort: 8443, DataDir: "/d"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(cfg)
+	if !strings.Contains(text, `"status_code":502`) {
+		t.Error("a host with no upstream should render a 502 static_response")
+	}
+	if !strings.Contains(text, `"host":["down.test"]`) {
+		t.Error("down host vhost missing")
+	}
+	// Both hosts must still get a TLS subject so HTTPS negotiates (no handshake
+	// alert): the policy lists both subjects.
+	if !strings.Contains(text, "up.test") || !strings.Contains(text, "down.test") {
+		t.Error("down host should still appear as a TLS subject")
+	}
+}
+
 func TestBindHostListen(t *testing.T) {
 	cfg, err := ConfigJSON([]Route{{Domain: "a.test", Upstream: "127.0.0.1:1"}},
 		Options{HTTPPort: 8080, HTTPSPort: 8443, DataDir: "/d", BindHost: "127.0.0.3"})

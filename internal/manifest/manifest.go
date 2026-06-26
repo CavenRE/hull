@@ -55,7 +55,11 @@ type Manifest struct {
 	Containers map[string]*Container `yaml:"containers,omitempty"` // apps only
 	Services   map[string]*Service   `yaml:"services,omitempty"`
 	Env        map[string]string     `yaml:"env,omitempty"`
-	Hooks      Hooks                 `yaml:"hooks,omitempty"`
+	// EnvFile points docker compose at an env file (path relative to the
+	// project dir) for ${VAR} interpolation , mainly for adopted clusters whose
+	// compose sits in a subdir and would otherwise miss a repo-root .env.
+	EnvFile string `yaml:"env_file,omitempty"`
+	Hooks   Hooks  `yaml:"hooks,omitempty"`
 
 	// Cluster fields (type: cluster) , Hull wraps an existing compose project
 	// rather than generating one. Orchestration stays with docker compose.

@@ -43,4 +43,17 @@ func TestComposeArgs(t *testing.T) {
 	if want := "docker compose exec -T web php artisan migrate"; strings.Join(got, " ") != want {
 		t.Errorf("ExecNoTTY args = %q, want %q", strings.Join(got, " "), want)
 	}
+
+	// EnvFile is passed as a global --env-file option before the subcommand.
+	withEnv := Compose{Run: fake, Name: "stack", EnvFile: "/repo/.env"}
+	_ = withEnv.Up(context.Background())
+	if want := "docker compose -p stack --env-file /repo/.env up -d"; strings.Join(got, " ") != want {
+		t.Errorf("env-file Up args = %q, want %q", strings.Join(got, " "), want)
+	}
+
+	// Recreate forces a clean container rebuild.
+	_ = plain.Recreate(context.Background())
+	if want := "docker compose up -d --force-recreate"; strings.Join(got, " ") != want {
+		t.Errorf("Recreate args = %q, want %q", strings.Join(got, " "), want)
+	}
 }

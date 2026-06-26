@@ -19,6 +19,9 @@ type Compose struct {
 	Files []string
 	// Profiles are `--profile` selections (cluster dev/test/prod gating).
 	Profiles []string
+	// EnvFile, when set, is passed as `--env-file` so ${VAR} interpolation in
+	// the compose file resolves from a chosen env file (adopted clusters).
+	EnvFile string
 }
 
 func (c Compose) run(ctx context.Context, args ...string) error {
@@ -29,6 +32,9 @@ func (c Compose) run(ctx context.Context, args ...string) error {
 	full := []string{"compose"}
 	if c.Name != "" {
 		full = append(full, "-p", c.Name)
+	}
+	if c.EnvFile != "" {
+		full = append(full, "--env-file", c.EnvFile)
 	}
 	for _, f := range c.Files {
 		full = append(full, "-f", f)
