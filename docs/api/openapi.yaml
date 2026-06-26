@@ -1,0 +1,774 @@
+openapi: 3.1.0
+info:
+  title: Hull Local API
+  version: "1.0.0"
+  description: |
+    The contract between `hulld` and its clients (CLI, and the native GUIs from
+    Phase 3 Wave 2 onward). This document is the FROZEN contract: every native
+    client builds against it. Keep it in sync with `internal/api` , the
+    coverage test `internal/api/openapi_test.go` fails if a registered route is
+    missing here.
+
+    Transport (ADR 0006): HTTP on `127.0.0.1:<port>` where `<port>` and a bearer
+    token are read from `~/.hull/daemon.json` (written 0600 by a running
+    daemon). Auth accepts `Authorization: Bearer <token>` or `?token=<token>`
+    (the latter for EventSource/SSE, which cannot set headers). The server
+    reflects any Origin for CORS , safe because the token, not the origin, is
+    the access control and it only listens on loopback.
+
+    Long operations (create, import, add-service, link, rebuild, reset) are
+    JOBS: a POST returns a job reference; observe it by polling `GET
+    /v1/jobs/{id}` or streaming `GET /v1/jobs/{id}/stream`.
+servers:
+  - url: http://127.0.0.1:{port}
+    description: Local daemon (port from ~/.hull/daemon.json)
+    variables:
+      port:
+        default: "0"
+security:
+  - bearerAuth: []
+  - tokenQuery: []
+
+tags:
+  - name: status
+  - name: projects
+  - name: services
+  - name: clusters
+  - name: jobs
+  - name: config
+  - name: setup
+  - name: registry
+  - name: groups
+  - name: system
+
+paths:
+  /v1/status:
+    get:
+      tags: [status]
+      summary: Daemon liveness and identity
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StatusInfo" }
+
+  /v1/dependencies:
+    get:
+      tags: [system]
+      summary: Docker + embedded-component status
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DependencyInfo" }
+
+  /v1/doctor:
+    get:
+      tags: [system]
+      summary: Environment diagnostics
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Check" }
+
+  /v1/detect:
+    get:
+      tags: [projects]
+      summary: File-based detection for an unmanaged folder under a root
+      parameters:
+        - { name: name, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DetectInfo" }
+
+  /v1/projects:
+    get:
+      tags: [projects]
+      summary: List registered projects with live running state
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ProjectInfo" }
+    post:
+      tags: [projects]
+      summary: Create a project (job)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateProjectRequest" }
+      responses:
+        "202":
+          description: Job started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobRef" }
+
+  /v1/projects/{name}/{action}:
+    post:
+      tags: [projects]
+      summary: Lifecycle action on a project
+      description: |
+        `start`, `stop`, `restart`, and `repair` are synchronous (204).
+        `rebuild` and `reset` run as jobs (202). `restart` force-recreates
+        containers; `repair` brings the project down (keeping volumes) and back
+        up. `reset` removes named volumes. `?no_cache=1` on `rebuild`.
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+        - name: action
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [start, stop, restart, repair, rebuild, reset]
+        - { name: no_cache, in: query, required: false, schema: { type: boolean } }
+      responses:
+        "204": { description: Done (start/stop/restart/repair) }
+        "202":
+          description: Job started (rebuild/reset)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobRef" }
+
+  /v1/projects/{name}/volumes:
+    get:
+      tags: [projects]
+      summary: List a project's named volumes (Reset blast radius)
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { type: array, items: { type: string } }
+
+  /v1/projects/{name}:
+    patch:
+      tags: [projects]
+      summary: Update a managed project's fields (php/domain/serve)
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PatchProjectRequest" }
+      responses:
+        "204": { description: Updated }
+    delete:
+      tags: [projects]
+      summary: Destroy a project
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+        - { name: files, in: query, required: false, schema: { type: boolean }, description: also delete the project directory }
+      responses:
+        "204": { description: Destroyed }
+
+  /v1/projects/{name}/open:
+    post:
+      tags: [projects]
+      summary: Open the project folder or in the configured editor
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OpenRequest" }
+      responses:
+        "204": { description: Opened }
+
+  /v1/projects/{name}/group:
+    post:
+      tags: [groups]
+      summary: Assign a project to a virtual group ("" to ungroup)
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { group: { type: string } }
+      responses:
+        "204": { description: Assigned }
+
+  /v1/projects/{name}/unlink:
+    post:
+      tags: [services]
+      summary: Remove a service link (db/redis/...) from a project
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UnlinkRequest" }
+      responses:
+        "204": { description: Unlinked }
+
+  /v1/imports:
+    post:
+      tags: [projects]
+      summary: Import an unmanaged folder or legacy project under a root (job)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImportRequest" }
+      responses:
+        "202":
+          description: Job started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobRef" }
+
+  /v1/clusters:
+    post:
+      tags: [clusters]
+      summary: Adopt an existing compose project as a Hull cluster
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AdoptClusterRequest" }
+      responses:
+        "200":
+          description: Adopted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { name: { type: string } }
+
+  /v1/clusters/create:
+    post:
+      tags: [clusters]
+      summary: Create a new multi-container project (job)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateClusterRequest" }
+      responses:
+        "202":
+          description: Job started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobRef" }
+
+  /v1/services:
+    get:
+      tags: [services]
+      summary: List shared service instances
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ServiceInfo" }
+    post:
+      tags: [services]
+      summary: Create and start a shared instance (job , image pull)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddServiceRequest" }
+      responses:
+        "202":
+          description: Job started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobRef" }
+
+  /v1/services/{name}/{action}:
+    post:
+      tags: [services]
+      summary: Start, stop, or link a shared instance
+      description: "`link` runs as a job; `start`/`stop` are synchronous."
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+        - name: action
+          in: path
+          required: true
+          schema: { type: string, enum: [start, stop, link] }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LinkRequest" }
+      responses:
+        "204": { description: Done (start/stop) }
+        "202":
+          description: Job started (link)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobRef" }
+
+  /v1/services/{name}:
+    delete:
+      tags: [services]
+      summary: Destroy a shared instance and its data
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Destroyed }
+
+  /v1/config:
+    get:
+      tags: [config]
+      summary: Global configuration
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConfigInfo" }
+    put:
+      tags: [config]
+      summary: Replace global configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConfigInfo" }
+      responses:
+        "200":
+          description: Updated (with restart_required)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConfigInfo" }
+
+  /v1/groups:
+    get:
+      tags: [groups]
+      summary: The virtual-group store
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GroupStore" }
+    put:
+      tags: [groups]
+      summary: Replace the virtual-group store
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GroupStore" }
+      responses:
+        "204": { description: Saved }
+
+  /v1/setup/trust:
+    post:
+      tags: [setup]
+      summary: Install Hull's root certificate into the OS trust store
+      responses:
+        "200":
+          description: Result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SetupStepResult" }
+
+  /v1/setup/dns:
+    post:
+      tags: [setup]
+      summary: Register *.<tld> resolution with the OS
+      responses:
+        "200":
+          description: Result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SetupStepResult" }
+
+  /v1/setup/reapply:
+    post:
+      tags: [setup]
+      summary: Re-apply all setup steps; report what needs elevation
+      responses:
+        "200":
+          description: Result
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReapplyResult" }
+
+  /v1/registry/versions:
+    get:
+      tags: [registry]
+      summary: Selectable versions for a known engine
+      parameters:
+        - { name: engine, in: query, required: true, schema: { type: string } }
+        - { name: q, in: query, required: false, schema: { type: string } }
+      responses:
+        "200": { description: Version tags, content: { application/json: { schema: { type: array, items: { type: string } } } } }
+
+  /v1/registry/php:
+    get:
+      tags: [registry]
+      summary: Selectable PHP versions
+      parameters:
+        - { name: q, in: query, required: false, schema: { type: string } }
+      responses:
+        "200": { description: PHP versions, content: { application/json: { schema: { type: array, items: { type: string } } } } }
+
+  /v1/registry/tags:
+    get:
+      tags: [registry]
+      summary: Tags for an arbitrary Docker Hub repository
+      parameters:
+        - { name: repo, in: query, required: true, schema: { type: string } }
+        - { name: q, in: query, required: false, schema: { type: string } }
+      responses:
+        "200": { description: Tags, content: { application/json: { schema: { type: array, items: { type: string } } } } }
+
+  /v1/registry/search:
+    get:
+      tags: [registry]
+      summary: Search Docker Hub repositories
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Repositories
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RegistryRepo" }
+
+  /v1/jobs:
+    get:
+      tags: [jobs]
+      summary: All job snapshots (newest first)
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: "#/components/schemas/Job" } } } } }
+
+  /v1/jobs/{id}:
+    get:
+      tags: [jobs]
+      summary: One job snapshot
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Job" } } } }
+        "404": { description: Unknown job, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+
+  /v1/jobs/{id}/stream:
+    get:
+      tags: [jobs]
+      summary: Stream a job's log lines (SSE)
+      description: "text/event-stream. Each `data:` is a log line; ends with `event: done` carrying the final snapshot."
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: SSE stream, content: { text/event-stream: { schema: { type: string } } } }
+
+  /v1/logs:
+    get:
+      tags: [system]
+      summary: Stream container logs (SSE)
+      parameters:
+        - { name: project, in: query, required: false, schema: { type: string } }
+        - { name: service, in: query, required: false, schema: { type: string } }
+        - { name: tail, in: query, required: false, schema: { type: integer } }
+      responses:
+        "200": { description: SSE stream, content: { text/event-stream: { schema: { type: string } } } }
+
+  /v1/events:
+    get:
+      tags: [system]
+      summary: Running-set change events (SSE)
+      description: "text/event-stream. Pushed when the set of running compose projects changes, plus one initial snapshot."
+      responses:
+        "200": { description: SSE stream, content: { text/event-stream: { schema: { type: string } } } }
+
+  /v1/stop-all:
+    post:
+      tags: [system]
+      summary: Bring down every project and shared service Hull started
+      responses:
+        "200":
+          description: Count stopped
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { stopped: { type: integer } }
+
+  /v1/shutdown:
+    post:
+      tags: [system]
+      summary: Graceful daemon exit (removes daemon.json)
+      responses:
+        "204": { description: Shutting down }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    tokenQuery:
+      type: apiKey
+      in: query
+      name: token
+  schemas:
+    StatusInfo:
+      type: object
+      required: [version, tld, roots, hull_home]
+      properties:
+        version: { type: string }
+        tld: { type: string }
+        roots: { type: array, items: { type: string } }
+        hull_home: { type: string }
+    ProjectInfo:
+      type: object
+      required: [name, dir, kind, running, served]
+      properties:
+        name: { type: string }
+        dir: { type: string }
+        kind: { type: string, description: "template name, app, legacy, folder, or invalid" }
+        url: { type: string }
+        running: { type: boolean }
+        legacy: { type: boolean }
+        error: { type: string }
+        php: { type: string }
+        served: { type: boolean }
+        group: { type: string }
+        services: { type: array, items: { $ref: "#/components/schemas/ProjectServiceInfo" } }
+        routes: { type: array, items: { $ref: "#/components/schemas/ClusterRouteInfo" } }
+    ProjectServiceInfo:
+      type: object
+      required: [key, engine, mode]
+      properties:
+        key: { type: string }
+        engine: { type: string }
+        version: { type: string }
+        mode: { type: string, enum: [dedicated, shared] }
+        instance: { type: string }
+    ClusterRouteInfo:
+      type: object
+      required: [key, subdomain, service, port, served]
+      properties:
+        key: { type: string }
+        subdomain: { type: string }
+        service: { type: string }
+        port: { type: integer }
+        served: { type: boolean }
+    DetectInfo:
+      type: object
+      required: [kind, template, php_kind]
+      properties:
+        kind: { type: string }
+        template: { type: string }
+        php: { type: string }
+        db: { type: string }
+        database: { type: string }
+        redis: { type: boolean }
+        extras: { type: array, items: { type: string } }
+        php_kind: { type: boolean }
+    CreateProjectRequest:
+      type: object
+      required: [name, template]
+      properties:
+        name: { type: string }
+        template: { type: string }
+        db: { type: string }
+        db_version: { type: string }
+        redis: { type: boolean }
+        php: { type: string }
+        version: { type: string }
+        serve: { type: boolean, nullable: true }
+        skip_start: { type: boolean }
+    AdoptClusterRequest:
+      type: object
+      required: [dir]
+      properties:
+        dir: { type: string }
+        name: { type: string }
+        compose_root: { type: string }
+        compose_files: { type: array, items: { type: string } }
+        profiles: { type: array, items: { type: string } }
+    CreateClusterRequest:
+      type: object
+      required: [name, containers]
+      properties:
+        name: { type: string }
+        root: { type: string }
+        compose_root: { type: string }
+        managed: { type: boolean }
+        containers: { type: array, items: { $ref: "#/components/schemas/ClusterContainerSpec" } }
+    ClusterContainerSpec:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        template: { type: string }
+        image: { type: string }
+        version: { type: string }
+        port: { type: integer }
+        serve: { type: boolean }
+        services: { type: array, items: { $ref: "#/components/schemas/ClusterCardServiceSpec" } }
+    ClusterCardServiceSpec:
+      type: object
+      required: [engine]
+      properties:
+        engine: { type: string }
+        version: { type: string }
+    ImportRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+    PatchProjectRequest:
+      type: object
+      properties:
+        php: { type: string, nullable: true }
+        domain: { type: string, nullable: true }
+        serve: { type: boolean, nullable: true }
+    OpenRequest:
+      type: object
+      required: [target]
+      properties:
+        target: { type: string, enum: [folder, editor] }
+    UnlinkRequest:
+      type: object
+      required: [key]
+      properties:
+        key: { type: string }
+    ServiceInfo:
+      type: object
+      required: [name, engine, version, container, running]
+      properties:
+        name: { type: string }
+        engine: { type: string }
+        version: { type: string }
+        container: { type: string }
+        running: { type: boolean }
+        url: { type: string }
+        host: { type: string }
+        host_port: { type: integer }
+        username: { type: string }
+        linked_projects: { type: array, items: { type: string } }
+    AddServiceRequest:
+      type: object
+      required: [engine]
+      properties:
+        engine: { type: string }
+        version: { type: string }
+    LinkRequest:
+      type: object
+      required: [project]
+      properties:
+        project: { type: string }
+    ConfigInfo:
+      type: object
+      required: [tld, roots, defaults]
+      properties:
+        tld: { type: string }
+        roots: { type: array, items: { type: string } }
+        loopback: { type: string }
+        defaults:
+          type: object
+          properties:
+            php: { type: string }
+            editor: { type: string }
+            db_tool: { type: string }
+        restart_required: { type: array, items: { type: string } }
+    DependencyInfo:
+      type: object
+      required: [name, key, installed, running, status, blurb]
+      properties:
+        name: { type: string }
+        key: { type: string }
+        installed: { type: boolean }
+        version: { type: string }
+        running: { type: boolean }
+        status: { type: string, enum: [ok, stopped, missing, embedded] }
+        blurb: { type: string }
+        install_url: { type: string }
+        install_hint: { type: string }
+        embedded: { type: boolean }
+    Check:
+      type: object
+      required: [name, status, detail]
+      properties:
+        name: { type: string }
+        status: { type: string, enum: [ok, warn, fail] }
+        detail: { type: string }
+    SetupStepResult:
+      type: object
+      required: [done]
+      properties:
+        done: { type: boolean }
+        manual: { type: string }
+    ReapplyStep:
+      type: object
+      required: [name, status, detail]
+      properties:
+        name: { type: string }
+        status: { type: string, enum: [ok, warn, manual] }
+        detail: { type: string }
+        manual: { type: string }
+    ReapplyResult:
+      type: object
+      required: [steps]
+      properties:
+        steps: { type: array, items: { $ref: "#/components/schemas/ReapplyStep" } }
+    RegistryRepo:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        official: { type: boolean }
+        stars: { type: integer }
+    GroupStore:
+      type: object
+      description: "Virtual-group store keyed by absolute root path; opaque to clients beyond round-tripping."
+      additionalProperties: true
+    Job:
+      type: object
+      required: [id, kind, status, lines, created]
+      properties:
+        id: { type: string }
+        kind: { type: string }
+        status: { type: string, enum: [running, done, failed] }
+        error: { type: string }
+        lines: { type: array, items: { type: string } }
+        created: { type: string, format: date-time }
+    JobRef:
+      type: object
+      required: [job]
+      properties:
+        job: { $ref: "#/components/schemas/Job" }
+    Event:
+      type: object
+      required: [type, running]
+      properties:
+        type: { type: string }
+        running: { type: array, items: { type: string } }
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
