@@ -129,7 +129,7 @@ func TestQueryTokenAndCORS(t *testing.T) {
 	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "tauri://localhost" {
 		t.Errorf("allow-origin = %q", got)
 	}
-	// The webview uses PUT (config) and PATCH (project) — preflight must allow them.
+	// The webview uses PUT (config) and PATCH (project) , preflight must allow them.
 	methods := resp.Header.Get("Access-Control-Allow-Methods")
 	for _, m := range []string{"PUT", "PATCH", "DELETE"} {
 		if !strings.Contains(methods, m) {

@@ -7,7 +7,7 @@ import (
 )
 
 // TestComposeArgs verifies the docker-compose argument assembly (files,
-// profiles, verbs) via an injected Runner — no real docker needed.
+// profiles, verbs) via an injected Runner , no real docker needed.
 func TestComposeArgs(t *testing.T) {
 	var got []string
 	fake := func(_ context.Context, _ string, name string, args ...string) error {

@@ -46,10 +46,10 @@ func Output(ctx context.Context, dir string, name string, args ...string) (strin
 // message that says what to do rather than how the probe failed.
 func EngineCheck(ctx context.Context) error {
 	if _, err := exec.LookPath("docker"); err != nil {
-		return errors.New("the 'docker' command was not found in PATH — install Docker (or Podman with docker compatibility) and try again")
+		return errors.New("the 'docker' command was not found in PATH , install Docker (or Podman with docker compatibility) and try again")
 	}
 	if _, err := Output(ctx, "", "docker", "version", "--format", "{{.Server.Version}}"); err != nil {
-		return errors.New("the container engine is not responding — is Docker (or your Docker-compatible engine) running?")
+		return errors.New("the container engine is not responding , is Docker (or your Docker-compatible engine) running?")
 	}
 	return nil
 }
@@ -76,7 +76,7 @@ func RunningComposeProjects(ctx context.Context) ([]string, error) {
 }
 
 // ForceRemoveProject removes all containers and volumes labeled with the
-// compose project name — the fallback when a compose file is corrupted
+// compose project name , the fallback when a compose file is corrupted
 // (ported from v1's rm).
 func ForceRemoveProject(ctx context.Context, project string) error {
 	filter := "label=com.docker.compose.project=" + project

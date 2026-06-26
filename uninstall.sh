@@ -4,7 +4,7 @@
 #
 # Usage: ./uninstall.sh [--prefix DIR] [--purge]
 #   --prefix DIR  where binaries were installed (default: ~/.local/bin)
-#   --purge       also remove ~/.hull (config, local CA, service data) — destructive
+#   --purge       also remove ~/.hull (config, local CA, service data) , destructive
 set -euo pipefail
 PREFIX="${HOME}/.local/bin"; PURGE=0
 while [ $# -gt 0 ]; do

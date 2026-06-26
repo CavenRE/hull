@@ -1,4 +1,4 @@
-/* Hull — Dashboard screen: metrics, recent sites, active services
+/* Hull , Dashboard screen: metrics, recent sites, active services
    control, system health, recent activity. */
 (function () {
   const H = () => window.HULL;
@@ -14,7 +14,7 @@
     const health = H().HEALTH;
     const hdot = { ok: "dot-on", warn: "dot-warn", err: "dot-err" };
 
-    // Recent sites — last used (persisted), falling back to running ones.
+    // Recent sites , last used (persisted), falling back to running ones.
     let recent = App.recentSites().map(n => sites.find(s => s.name === n)).filter(Boolean).slice(0, 5);
     if (!recent.length) recent = sites.slice().sort((a, b) => (b.status === "running") - (a.status === "running")).slice(0, 5);
 
@@ -74,7 +74,7 @@
                         : `<button class="btn btn-sm btn-primary" data-svc="start" data-name="${s.name}">${icon("play",13)}Start</button>`}
                     </div>
                   </div>`;
-                }).join("") : `<div class="muted" style="padding:10px">No shared services — add one on the Services page.</div>`}
+                }).join("") : `<div class="muted" style="padding:10px">No shared services , add one on the Services page.</div>`}
               </div>
             </div>
           </div>

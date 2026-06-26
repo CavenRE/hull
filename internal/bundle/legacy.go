@@ -21,7 +21,7 @@ type LegacyInfo struct {
 
 var legacyComposeNames = []string{"compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"}
 
-// DetectLegacy reconstructs project facts from a v1 compose file — the
+// DetectLegacy reconstructs project facts from a v1 compose file , the
 // basis of `hull migrate`. v1 files used map-form environment and labels.
 func DetectLegacy(dir string) (LegacyInfo, error) {
 	var (

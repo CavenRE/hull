@@ -1,4 +1,4 @@
-/* Hull — Settings screen. Folders, defaults, domain, dependency updates, startup, doctor. */
+/* Hull , Settings screen. Folders, defaults, domain, dependency updates, startup, doctor. */
 (function () {
   const H = () => window.HULL;
   let rootEl = null;
@@ -91,7 +91,7 @@
     const sel = (label, key, opts) => `<div><label class="field-label">${label}</label>
       <select class="select" data-default="${key}">${opts.map(([val, txt]) =>
         `<option value="${val}" ${val === (d[key] || "") ? "selected" : ""}>${txt}</option>`).join("")}</select></div>`;
-    // Only the external apps Hull hands a project off to are real choices —
+    // Only the external apps Hull hands a project off to are real choices ,
     // PHP and the web server are handled per-project via Docker/Caddy.
     return `
       <div class="section-label">Default tools</div>
@@ -123,7 +123,7 @@
             <button class="btn" id="rerunSetup">${icon("restart",15)}Re-run setup</button>
           </div>
         </div>
-        <p class="help">Changing these rewrites every site's domain and re-issues certificates — Hull will ask for one admin prompt to update DNS.</p>
+        <p class="help">Changing these rewrites every site's domain and re-issues certificates , Hull will ask for one admin prompt to update DNS.</p>
       </div>`;
   }
 
@@ -190,7 +190,7 @@
         </div>`; }).join("")
       : `<div class="doctor-row">
           <span style="color:var(--text-faint);margin-top:1px">${icon("alert",16)}</span>
-          <div><div class="dx-name">Checks unavailable</div><div class="dx-detail">Couldn't reach the daemon's health checks — make sure it's running, then Run again.</div></div>
+          <div><div class="dx-name">Checks unavailable</div><div class="dx-detail">Couldn't reach the daemon's health checks , make sure it's running, then Run again.</div></div>
         </div>`;
     return `
       <div class="section-label">Doctor</div>
@@ -248,7 +248,7 @@
       [body.roots[i], body.roots[j]] = [body.roots[j], body.roots[i]];
       saveConfig(body, "Folder order updated");
     }));
-    // Default-tool selects — save the chosen key on change.
+    // Default-tool selects , save the chosen key on change.
     el.querySelectorAll("[data-default]").forEach(sel => sel.addEventListener("change", () => {
       const b = cfgBody();
       b.defaults[sel.dataset.default] = sel.value;
@@ -259,7 +259,7 @@
     const saveOctet = (n) => {
       n = Math.max(1, Math.min(8, n | 0));
       if (octetInput) octetInput.value = n;
-      saveConfig(cfgBody({ loopback: "127.0.0." + n }), `Loopback 127.0.0.${n} saved — restart Hull to apply`);
+      saveConfig(cfgBody({ loopback: "127.0.0." + n }), `Loopback 127.0.0.${n} saved , restart Hull to apply`);
     };
     el.querySelectorAll("[data-step]").forEach(btn => btn.addEventListener("click", () => {
       const cur = parseInt(octetInput?.value || "1", 10) || 1;
@@ -276,7 +276,7 @@
         e.target.value = "." + cur;
         return;
       }
-      saveConfig(cfgBody({ tld: v }), `Domain .${v} saved — restart Hull to apply`);
+      saveConfig(cfgBody({ tld: v }), `Domain .${v} saved , restart Hull to apply`);
     });
 
     // Re-run setup: re-apply everything the daemon can, surface the rest.
@@ -290,7 +290,7 @@
         if (manual.length) {
           App.toast(`${ok} re-applied · run in a terminal: ${manual.map(m => m.manual).filter(Boolean).join("  ·  ")}`);
         } else {
-          App.toast(`Setup re-applied — ${ok} step${ok === 1 ? "" : "s"} OK`);
+          App.toast(`Setup re-applied , ${ok} step${ok === 1 ? "" : "s"} OK`);
         }
         App.reload();
       } catch (e) { App.toast("Re-apply failed: " + (e && e.message ? e.message : e)); }
@@ -336,7 +336,7 @@
     el.querySelector("#clearCaches")?.addEventListener("click", async () => {
       if (window.HULL.clearCaches) window.HULL.clearCaches();
       await App.reload();
-      App.toast("Caches cleared — projects re-detected");
+      App.toast("Caches cleared , projects re-detected");
     });
     el.querySelector("#resetHull")?.addEventListener("click", () => {
       const cmds = "# 1. Quit Hull (Settings › Stop, or close the app)\n# 2. Remove Hull's home (config, local CA, certs, derived state):\nrm -rf ~/.hull\n# 3. Remove Hull's shared-service volumes via Docker:\ndocker volume ls -q --filter name=hull | xargs -r docker volume rm";
@@ -344,7 +344,7 @@
         <div class="dialog">
           <div class="dialog-head"><h3>Reset Hull</h3></div>
           <div class="dialog-body">
-            <p class="muted" style="margin:0 0 12px;font-size:var(--fs-13)">A full reset removes Hull's configuration, local certificate authority, and shared-service volumes. <b>Your project files are never touched.</b> This isn't automated from the app yet — run these manually:</p>
+            <p class="muted" style="margin:0 0 12px;font-size:var(--fs-13)">A full reset removes Hull's configuration, local certificate authority, and shared-service volumes. <b>Your project files are never touched.</b> This isn't automated from the app yet , run these manually:</p>
             <pre class="codeblock" style="white-space:pre-wrap">${cmds.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</pre>
           </div>
           <div class="dialog-foot">

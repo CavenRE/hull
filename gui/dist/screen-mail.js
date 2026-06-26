@@ -1,4 +1,4 @@
-/* Hull — Mail screen. Integration surface for the Mailpit catcher (not an inbox). */
+/* Hull , Mail screen. Integration surface for the Mailpit catcher (not an inbox). */
 (function () {
   const H = () => window.HULL;
   let rootEl = null;
@@ -47,7 +47,7 @@ Password   (none)`;
         <span class="svc-ic" style="width:42px;height:42px">${icon("mail",20)}</span>
         <div style="flex:1">
           <div style="font-size:var(--fs-14);font-weight:600">No mail service yet</div>
-          <div class="muted" style="font-size:var(--fs-13);margin-top:3px">Add a Mailpit instance to catch every email your apps send — nothing leaves your machine.</div>
+          <div class="muted" style="font-size:var(--fs-13);margin-top:3px">Add a Mailpit instance to catch every email your apps send , nothing leaves your machine.</div>
         </div>
         <button class="btn btn-primary" data-act="add">${icon("plus",15)}Add Mailpit</button>
       </div>`;

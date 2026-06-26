@@ -1,4 +1,4 @@
-# Build Hull — one command, one self-contained installer (NO NSIS).
+# Build Hull , one command, one self-contained installer (NO NSIS).
 #
 #   powershell -ExecutionPolicy Bypass -File build.ps1
 #
@@ -33,7 +33,7 @@ $rel = Join-Path $root 'gui\src-tauri\target\release'
 Copy-Item (Join-Path $rel 'hull-gui.exe') $payloadDir -Force
 $wv = Join-Path $rel 'WebView2Loader.dll'
 if (Test-Path $wv) { Copy-Item $wv $payloadDir -Force }
-else { Write-Host '  WARN: WebView2Loader.dll not found — relying on the system WebView2 runtime' -ForegroundColor Yellow }
+else { Write-Host '  WARN: WebView2Loader.dll not found , relying on the system WebView2 runtime' -ForegroundColor Yellow }
 
 Write-Host 'Packing payload...' -ForegroundColor Cyan
 $zip = Join-Path $root 'cmd\hull-setup\payload.zip'

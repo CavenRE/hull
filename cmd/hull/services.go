@@ -17,7 +17,7 @@ func init() {
 		Aliases: []string{"service", "svc"},
 		Short:   "Manage shared service instances (databases, redis)",
 		Long: `Shared services are global, versioned instances (postgres-16,
-mariadb-lts, redis) that multiple projects link to — lighter than one
+mariadb-lts, redis) that multiple projects link to , lighter than one
 database container per project. Versions run side by side.`,
 	}
 

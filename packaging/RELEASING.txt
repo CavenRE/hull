@@ -1,4 +1,4 @@
-Hull — release process
+Hull , release process
 ======================
 
 Decision: builds are LOCAL and releases are uploaded BY HAND. The GitHub
@@ -40,7 +40,7 @@ Per-release checklist
 
 Notes
 -----
-- No code signing yet (Windows Authenticode / Apple Developer ID) — installers
+- No code signing yet (Windows Authenticode / Apple Developer ID) , installers
   are unsigned; users may see an OS warning.
 - build.sh uses a webkit2gtk-4.0 -> 4.1 pkg-config shim because webview_go pins
   4.0 while modern distros ship 4.1; the shim is created and torn down by the

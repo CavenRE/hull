@@ -15,7 +15,7 @@ import (
 
 // MigrateV1 adopts a bash-Hull project: reconstructs a manifest from its
 // legacy compose file, backs the file up, and regenerates artifacts. The
-// project's .env is left untouched — v2 dedicated services keep v1's
+// project's .env is left untouched , v2 dedicated services keep v1's
 // service names (db, redis), so existing wiring stays valid.
 func (e *Engine) MigrateV1(p *state.Project) (*manifest.Manifest, error) {
 	if p.Manifest != nil {

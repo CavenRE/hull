@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build Hull's Linux graphical installer — one self-contained binary that
+# Build Hull's Linux graphical installer , one self-contained binary that
 # embeds the GUI, daemon, CLI and icons, installs them, and wires uninstall to
 # `hull uninstall`. Counterpart to build.ps1 on Windows.
 #
@@ -71,7 +71,7 @@ EOF
     PC_ENV=(PKG_CONFIG_PATH="$PCSHIM:${PKG_CONFIG_PATH:-}")
     warn "using webkit2gtk-4.0 -> 4.1 pkg-config shim"
   else
-    warn "WebKitGTK not found — install webkit2gtk-4.1 (Arch) or libwebkit2gtk-4.1-dev (Debian)"
+    warn "WebKitGTK not found , install webkit2gtk-4.1 (Arch) or libwebkit2gtk-4.1-dev (Debian)"
   fi
 fi
 

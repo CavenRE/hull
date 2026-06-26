@@ -1,4 +1,4 @@
-/* Hull — first-run setup wizard. Shown once (no ~/.hull/config.yaml yet):
+/* Hull , first-run setup wizard. Shown once (no ~/.hull/config.yaml yet):
    a guided "going through the motions" flow that collects the base IP, TLD,
    project folder and starter services, then writes config (which flips
    first_run off) and provisions everything. Drives the same daemon endpoints
@@ -6,7 +6,7 @@
 (function () {
   const H = () => window.HULL;
 
-  // Curated starter services — the common shared backends. Versions match the
+  // Curated starter services , the common shared backends. Versions match the
   // catalog defaults; the user can add anything else later in Services.
   const STARTERS = [
     { engine: "postgres", version: "16",     icon: "database", name: "PostgreSQL", blurb: "Relational database", on: false },
@@ -152,7 +152,7 @@
             ${STEPS.map((s, i) => `<div class="wz-st ${i === st.step ? "on" : ""} ${i < st.step ? "done" : ""}">
               <span class="wz-dot">${i < st.step ? icon("check", 12) : icon(s.icon, 12)}</span>${s.label}</div>`).join("")}
           </div>
-          <div class="wz-rail-foot">Local-first development.<br>No accounts, no cloud — everything runs on your machine.</div>
+          <div class="wz-rail-foot">Local-first development.<br>No accounts, no cloud , everything runs on your machine.</div>
         </aside>
         <div class="wz-main">
           <div class="wz-head page-head" style="border:none"></div>
@@ -169,7 +169,7 @@
         <div class="wz-hero">
           <img src="logo.svg" alt="">
           <div class="wz-h">Welcome to Hull</div>
-          <p class="wz-sub" style="margin-inline:auto">A local environment for your sites and apps — automatic HTTPS,
+          <p class="wz-sub" style="margin-inline:auto">A local environment for your sites and apps , automatic HTTPS,
             shared databases, and a real domain for every project. Let's get a few basics set up.</p>
         </div>`;
 
@@ -193,7 +193,7 @@
             ${!ready && !checking ? `<button class="btn btn-sm" id="wzRecheck">${icon("restart", 13)}Re-check</button>` : ""}
           </div>
           ${(!ready && !checking) ? `<button class="btn btn-primary" id="wzGetDocker">${icon("cube", 15)}Get Docker Desktop</button>
-            <p class="help" style="margin-top:12px">You can continue setup now and install Docker afterwards —
+            <p class="help" style="margin-top:12px">You can continue setup now and install Docker afterwards ,
             sites just won't start until it's running.</p>` : ""}`;
       }
 
@@ -212,7 +212,7 @@
         <div class="wz-eyebrow">How your sites are reached</div>
         <div class="wz-h">Local domain</div>
         <p class="wz-sub">Every project gets a real hostname with trusted HTTPS. Pick the suffix, and the
-          loopback address Hull binds — change the address only if another local proxy already uses port 80/443.</p>
+          loopback address Hull binds , change the address only if another local proxy already uses port 80/443.</p>
         <div class="form-row">
           <label class="field-label">Top-level domain</label>
           <input class="input mono" id="wzTld" value=".${st.tld}" style="width:160px">
@@ -233,7 +233,7 @@
       case "services": return `
         <div class="wz-eyebrow">Optional starters</div>
         <div class="wz-h">Base services</div>
-        <p class="wz-sub">Shared databases and tools, available to every project. Pick any you know you'll want —
+        <p class="wz-sub">Shared databases and tools, available to every project. Pick any you know you'll want ,
           you can add or remove these anytime in Services.</p>
         ${st.services.map((s, i) => `
           <div class="wz-choice ${s.on ? "sel" : ""}" data-svc="${i}">
@@ -248,7 +248,7 @@
         <p class="wz-sub">Here's what Hull will set up. You can change any of it later in Settings.</p>
         <div class="wz-banner ok"><span class="bic">${icon("folder", 19)}</span><div><div class="bt">Projects</div><div class="bd mono">${st.folder}</div></div></div>
         <div class="wz-banner ok"><span class="bic">${icon("globe", 19)}</span><div><div class="bt">Domain &amp; address</div><div class="bd mono">*.${st.tld} → 127.0.0.${st.octet}</div></div></div>
-        <div class="wz-banner ok"><span class="bic">${icon("services", 19)}</span><div><div class="bt">Base services</div><div class="bd">${st.services.filter(s => s.on).map(s => s.name).join(", ") || "None — add them later"}</div></div></div>`;
+        <div class="wz-banner ok"><span class="bic">${icon("services", 19)}</span><div><div class="bt">Base services</div><div class="bd">${st.services.filter(s => s.on).map(s => s.name).join(", ") || "None , add them later"}</div></div></div>`;
 
       default: return "";
     }
@@ -265,7 +265,7 @@
           <span class="tk">${t.state === "ok" ? icon("check", 13) : t.state === "warn" ? icon("alert", 12) : t.state === "run" ? icon("restart", 12) : ""}</span>
           <div><div class="tl">${t.label}</div>${t.detail ? `<div class="td">${t.detail}</div>` : ""}</div>
         </div>`).join("")}</div>
-      ${st.manual && st.manual.length ? `<div class="wz-manual"><div class="mh">Two steps need a terminal with admin rights — run these once:</div>
+      ${st.manual && st.manual.length ? `<div class="wz-manual"><div class="mh">Two steps need a terminal with admin rights , run these once:</div>
         ${st.manual.map(m => `<code><span>${m}</span><button class="btn btn-sm btn-icon" data-copy="${m.replace(/"/g, "&quot;")}">${icon("copy", 13)}</button></code>`).join("")}</div>` : ""}`;
   }
 
@@ -348,7 +348,7 @@
     render();
     const set = (key, state, detail) => { const t = st.tasks.find(x => x.key === key); if (t) { t.state = state; if (detail != null) t.detail = detail; } render(); };
 
-    // 1) config — writes config.yaml (flips first_run off).
+    // 1) config , writes config.yaml (flips first_run off).
     try {
       const body = {
         tld: st.tld,
@@ -361,7 +361,7 @@
       set("config", "ok", "saved" + (st.restart ? " · restart to apply address/domain" : ""));
     } catch (e) { set("config", "warn", e.message || "failed"); }
 
-    // 2) starter services — fire each (image pulls run as background jobs).
+    // 2) starter services , fire each (image pulls run as background jobs).
     if (chosen.length) {
       set("services", "run");
       let okN = 0;
@@ -374,7 +374,7 @@
       set("services", "ok", "none selected");
     }
 
-    // 3) local CA / trust / DNS — best effort; surface anything needing admin.
+    // 3) local CA / trust / DNS , best effort; surface anything needing admin.
     set("secure", "run");
     try {
       const res = await App.api("POST", "/v1/setup/reapply");

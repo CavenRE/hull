@@ -57,7 +57,7 @@ type Manifest struct {
 	Env        map[string]string     `yaml:"env,omitempty"`
 	Hooks      Hooks                 `yaml:"hooks,omitempty"`
 
-	// Cluster fields (type: cluster) — Hull wraps an existing compose project
+	// Cluster fields (type: cluster) , Hull wraps an existing compose project
 	// rather than generating one. Orchestration stays with docker compose.
 	ComposeRoot  string                   `yaml:"compose_root,omitempty"`  // dir holding the compose file, relative to the project (default ".")
 	ComposeFiles []string                 `yaml:"compose_files,omitempty"` // extra -f files (base auto-detected if empty)
@@ -164,7 +164,7 @@ func (c *Container) Served() bool {
 }
 
 // Served reports whether Hull should give this project a routed domain
-// (vhost + cert + DNS). Explicit Serve wins; the default is true — sites are
+// (vhost + cert + DNS). Explicit Serve wins; the default is true , sites are
 // web-facing. Workers/headless apps set serve: false.
 func (m *Manifest) Served() bool {
 	if m.Serve != nil {
@@ -270,7 +270,7 @@ func (m *Manifest) Validate() error {
 	case m.Schema == 0:
 		fail("missing 'schema' field (add: schema: %d)", CurrentSchema)
 	case m.Schema > CurrentSchema:
-		fail("manifest schema %d is newer than this Hull understands (max %d) — upgrade Hull", m.Schema, CurrentSchema)
+		fail("manifest schema %d is newer than this Hull understands (max %d) , upgrade Hull", m.Schema, CurrentSchema)
 	case m.Schema < 0 || m.Schema < CurrentSchema:
 		fail("unknown manifest schema %d", m.Schema)
 	}

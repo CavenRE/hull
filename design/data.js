@@ -1,4 +1,4 @@
-/* Hull — realistic sample data (stands in for the local HTTP API JSON). */
+/* Hull , realistic sample data (stands in for the local HTTP API JSON). */
 (function () {
   // Engine metadata: category, label, glyph icon, accent dot kind
   const ENGINES = {
@@ -23,7 +23,7 @@
     { key: "bun",    label: "Bun",           blurb: "Fast all-in-one JS runtime.",       versions: ["1.1"] },
     { key: "go",     label: "Go",            blurb: "Compiled toolchain.",               versions: ["1.22", "1.21"] },
     { key: "ruby",   label: "Ruby",          blurb: "Ruby with bundler.",                versions: ["3.3", "3.2"] },
-    { key: "static", label: "Static / Nginx", blurb: "Serve a built static directory.",   versions: ["—"] },
+    { key: "static", label: "Static / Nginx", blurb: "Serve a built static directory.",   versions: [","] },
   ];
 
   // Engine catalog for the "Add instance" picker, grouped by category
@@ -163,7 +163,7 @@
     { name: "minio",       desc: "S3-compatible object storage",      official: false, ns: "minio/minio",         pulls: "500M+" },
   ];
 
-  // Dependency packages Hull manages — surfaced in Settings → Updates
+  // Dependency packages Hull manages , surfaced in Settings → Updates
   const DEPENDENCIES = [
     { name: "Docker Engine", key: "docker", installed: "27.0.3", latest: "27.1.1", status: "update", blurb: "Container runtime" },
     { name: "Caddy",         key: "caddy",  installed: "2.8.4",  latest: "2.8.4",  status: "ok",     blurb: "HTTPS router" },
@@ -172,7 +172,7 @@
     { name: "dnsmasq",       key: "dnsmasq",installed: null,     latest: "2.90",   status: "missing",blurb: "Local DNS resolver" },
   ];
 
-  // System health — shown on the Dashboard and the daemon hover popover
+  // System health , shown on the Dashboard and the daemon hover popover
   const HEALTH = [
     { icon: "server", name: "Engine",      status: "ok",   detail: "Docker · 7 containers up" },
     { icon: "route",  name: "Router",      status: "ok",   detail: "Caddy · :80 / :443" },

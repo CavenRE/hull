@@ -57,7 +57,7 @@ type RouterConfig struct {
 	// binds and resolves *.tld to. Defaults to 127.0.0.1; a different
 	// last octet (e.g. 127.0.0.3) lets Hull coexist with another local
 	// proxy bound to the same ports on a different loopback IP. Only
-	// effective when Hull's own DNS resolves *.tld — an external resolver
+	// effective when Hull's own DNS resolves *.tld , an external resolver
 	// must point at the same address.
 	Loopback string `yaml:"loopback,omitempty"`
 }
@@ -86,7 +86,7 @@ func HomeDir() string {
 }
 
 // Load reads the configuration for the given Hull home directory (empty
-// means HomeDir()). Missing files are not an error — defaults apply.
+// means HomeDir()). Missing files are not an error , defaults apply.
 func Load(hullHome string) (*Config, error) {
 	if hullHome == "" {
 		hullHome = HomeDir()
@@ -167,7 +167,7 @@ func (c *Config) Save() error {
 }
 
 // ValidLoopback reports whether s is a 127.0.0.x address with a last octet
-// in 1–8 — the range Hull's UI and DNS support for the router bind address.
+// in 1–8 , the range Hull's UI and DNS support for the router bind address.
 func ValidLoopback(s string) bool {
 	ip := net.ParseIP(s)
 	if ip == nil {
@@ -180,7 +180,7 @@ func ValidLoopback(s string) bool {
 	return v4[3] >= 1 && v4[3] <= 8
 }
 
-// ExpandPath expands $VARS, a leading ~, and cleans a path — exported so the
+// ExpandPath expands $VARS, a leading ~, and cleans a path , exported so the
 // API/CLI can normalize roots before persisting.
 func ExpandPath(p string) string { return expandPath(p) }
 

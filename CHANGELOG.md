@@ -10,7 +10,7 @@ follow [Semantic Versioning](https://semver.org/).
 - First-run setup wizard (Docker check → projects folder → base IP/TLD →
   starter services → apply), shown until `~/.hull/config.yaml` exists.
 - Startup settings: launch-at-login (OS login item), close-to-tray, and
-  auto-start the daemon on launch — all persisted in `~/.hull/gui.json`.
+  auto-start the daemon on launch , all persisted in `~/.hull/gui.json`.
 - `hulld` now writes `~/.hull/hulld.log` (with panic capture) so failures of
   the detached daemon are diagnosable.
 - Release workflow (`v*` tags) building installers for Windows, macOS, and
@@ -30,7 +30,7 @@ follow [Semantic Versioning](https://semver.org/).
 - The non-functional "Edit instance" dialog (no edit endpoint existed; service
   instances are recreated, not edited).
 
-## [0.1.0] — 2026-06
+## [0.1.0] , 2026-06
 
 Initial internal build: Go daemon (`hulld`) + CLI (`hull`) + Tauri GUI
 (`hull-gui`). Docker-based projects with automatic HTTPS domains, shared

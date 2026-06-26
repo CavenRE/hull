@@ -1,4 +1,4 @@
-/* Hull — inline line-icon set. 1.75px stroke, currentColor.
+/* Hull , inline line-icon set. 1.75px stroke, currentColor.
    icon(name, size=18) -> SVG markup string. */
 (function () {
   const P = {

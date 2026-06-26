@@ -39,7 +39,7 @@ func (s *Server) handleGroupsPut(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleProjectGroup assigns one project to a group (empty = ungroup) without
-// rewriting the whole document — the drag/drop + context-menu path.
+// rewriting the whole document , the drag/drop + context-menu path.
 func (s *Server) handleProjectGroup(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Group string `json:"group"`

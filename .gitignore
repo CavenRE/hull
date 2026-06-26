@@ -16,8 +16,7 @@ cmd/hull-setup/payload.tgz
 # Node (in case GUI tooling is added later)
 node_modules/
 
-# Docs & working notes — only README.md + CHANGELOG.md are tracked in git.
-# (ADRs, api.md, ROADMAP, TODO, INGEST, design briefs, etc. stay local.)
+# Docs & working notes , only README.md + CHANGELOG.md are tracked in git.
 *.md
 !README.md
 !CHANGELOG.md

@@ -11,7 +11,7 @@ import (
 )
 
 // Server answers every name under *.<tld> with 127.0.0.1 / ::1 and refuses
-// anything else — it is only ever registered with the OS for the Hull TLD
+// anything else , it is only ever registered with the OS for the Hull TLD
 // (NRPT rule, /etc/resolver file, or resolved routing domain), so other
 // zones must never be answered here.
 type Server struct {
@@ -29,7 +29,7 @@ type Server struct {
 
 	// TCPErr records a failed TCP bind, leaving the server in UDP-only
 	// mode. Common on Windows where wslrelay holds TCP 127.0.0.1:53.
-	// UDP alone serves resolver lookups — Hull's answers never truncate.
+	// UDP alone serves resolver lookups , Hull's answers never truncate.
 	TCPErr error
 }
 

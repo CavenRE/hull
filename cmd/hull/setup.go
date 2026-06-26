@@ -22,7 +22,7 @@ func init() {
 		Use:   "trust",
 		Short: "Install Hull's local root certificate into the system trust store",
 		Long: `Provision Hull's local certificate authority (if needed) and install
-its root certificate into the OS trust store — and Firefox's, when present.
+its root certificate into the OS trust store , and Firefox's, when present.
 Windows shows a confirmation dialog; Linux/macOS may ask for sudo.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
@@ -81,14 +81,14 @@ project is served at https://<name>.<tld> with a trusted certificate.`,
 
 			// --skip-dns means this machine resolves *.tld another way (e.g. an
 			// existing dnsmasq/NetworkManager setup), so don't enable the
-			// embedded resolver — otherwise the daemon would try to bind :53
+			// embedded resolver , otherwise the daemon would try to bind :53
 			// and collide with the resolver already there. If the OS doesn't
 			// support Hull's DNS mechanism (e.g. systemd-resolved isn't the
 			// active resolver), skip it automatically with a clear note rather
 			// than enabling a resolver that can't take effect.
 			if !skipDNS {
 				if ok, reason := platform.DNSSupported(); !ok {
-					fmt.Println("> Skipping OS DNS registration —", reason)
+					fmt.Println("> Skipping OS DNS registration ,", reason)
 					fmt.Printf("  Keep resolving *.%s the way you do now; this machine is left as-is.\n", cfg.TLD)
 					fmt.Println("  (Pass --skip-dns to silence this, or switch the box to systemd-resolved.)")
 					skipDNS = true
@@ -132,7 +132,7 @@ project is served at https://<name>.<tld> with a trusted certificate.`,
 				if err := platform.RegisterDNS(cfg.TLD, cfg.DNS.Port); err != nil {
 					var manual *platform.ManualStepsError
 					if errors.As(err, &manual) {
-						fmt.Println("  ! Needs elevation — run these manually:")
+						fmt.Println("  ! Needs elevation , run these manually:")
 						fmt.Println(indent(manual.Instructions, "    "))
 					} else {
 						fmt.Println("  !", err)
@@ -146,7 +146,7 @@ project is served at https://<name>.<tld> with a trusted certificate.`,
 			fmt.Println("> Checking router ports")
 			for _, port := range []int{cfg.Router.HTTPPort, cfg.Router.HTTPSPort} {
 				if portBusy(port) {
-					fmt.Printf("  ! Port %d is in use — stop the occupant (v1 hull-router? IIS?) or change router ports in config.yaml\n", port)
+					fmt.Printf("  ! Port %d is in use , stop the occupant (v1 hull-router? IIS?) or change router ports in config.yaml\n", port)
 				} else {
 					fmt.Printf("  ✔ Port %d free\n", port)
 				}

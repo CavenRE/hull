@@ -1,4 +1,4 @@
-/* Hull — Sites & Apps master–detail screen.
+/* Hull , Sites & Apps master–detail screen.
    The New-project / Import dialogs live in project-dialog.js (window.ProjectDialog). */
 (function () {
   const H = () => window.HULL;
@@ -203,8 +203,8 @@
       <div class="logpanel" id="logPanel" style="height:calc(100vh - 320px);min-height:220px"></div>`;
     const panel = body.querySelector("#logPanel");
     const seed = s.status === "error"
-      ? [["10:31:08","",""],["10:31:09","er","php-fpm exited (code 1) — check composer autoload"],["10:31:09","wn","retry in 0s · run Start to retry"]]
-      : [["10:41:50","ok",`booting ${s.name}`],["10:41:51","",`php ${s.php||"—"} · fpm pool ready`],["10:41:55","ok",`https://${s.name}.test bound`],["10:41:55","","router ✓  certificate ✓"]];
+      ? [["10:31:08","",""],["10:31:09","er","php-fpm exited (code 1) , check composer autoload"],["10:31:09","wn","retry in 0s · run Start to retry"]]
+      : [["10:41:50","ok",`booting ${s.name}`],["10:41:51","",`php ${s.php||","} · fpm pool ready`],["10:41:55","ok",`https://${s.name}.test bound`],["10:41:55","","router ✓  certificate ✓"]];
     seed.forEach(l => appendLine(panel, l));
     clearLog();
     const follow = body.querySelector("#followToggle");

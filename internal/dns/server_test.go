@@ -11,7 +11,7 @@ import (
 func startTestServer(t *testing.T) *Server {
 	t.Helper()
 	// The OS picks the UDP port; the matching TCP port may be reserved
-	// (Windows excluded ranges) — retry until both protocols bind.
+	// (Windows excluded ranges) , retry until both protocols bind.
 	for attempt := 0; attempt < 10; attempt++ {
 		s := &Server{TLD: "test", Addr: "127.0.0.1:0"}
 		if err := s.Start(); err != nil {

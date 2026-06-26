@@ -1,8 +1,8 @@
 # Maintainer: CavenRE <caven.erasmus@gmail.com>
 #
 # Split package:
-#   hull      — the CLI (`hull`) + daemon (`hulld`) + systemd --user unit
-#   hull-gui  — the optional Tauri desktop app + menu launcher + icons
+#   hull      , the CLI (`hull`) + daemon (`hulld`) + systemd --user unit
+#   hull-gui  , the optional Tauri desktop app + menu launcher + icons
 #
 # Install just the CLI:        pacman -S hull        (or: yay -S hull)
 # Install the CLI + desktop:   pacman -S hull hull-gui
@@ -15,7 +15,7 @@ pkgbase=hull
 pkgname=('hull' 'hull-gui')
 pkgver=0.1.0
 pkgrel=1
-pkgdesc='A local environment for your sites & apps — native router, DNS and services'
+pkgdesc='A local environment for your sites & apps , native router, DNS and services'
 arch=('x86_64' 'aarch64')
 url='https://github.com/CavenRE/hull'
 license=('MIT')
@@ -47,12 +47,12 @@ build() {
   go build -ldflags "$ldflags" -o build/hull  ./cmd/hull
   go build -ldflags "$ldflags" -o build/hulld ./cmd/hulld
 
-  # Desktop app (Tauri, no bundling — we install the bare binary + a .desktop)
+  # Desktop app (Tauri, no bundling , we install the bare binary + a .desktop)
   cargo build --release --manifest-path gui/src-tauri/Cargo.toml
 }
 
 package_hull() {
-  pkgdesc='Hull CLI and daemon — a local environment for your sites & apps'
+  pkgdesc='Hull CLI and daemon , a local environment for your sites & apps'
   depends=('docker' 'docker-compose')
   optdepends=('hull-gui: desktop app and setup wizard')
   install=hull.install
@@ -81,7 +81,7 @@ EOF
 }
 
 package_hull-gui() {
-  pkgdesc='Hull desktop app — GUI and setup wizard for Hull'
+  pkgdesc='Hull desktop app , GUI and setup wizard for Hull'
   depends=('hull' 'webkit2gtk-4.1' 'libayatana-appindicator' 'gtk3')
   cd "$_srcdir"
 

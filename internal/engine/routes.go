@@ -18,7 +18,7 @@ type PortLookup func(ctx context.Context, dir, service string, containerPort int
 
 // ComputeRoutes derives the router table from running projects: each
 // routed service's loopback-published port becomes an upstream (ADR 0007).
-// Projects whose ports cannot be resolved are skipped, not fatal — they
+// Projects whose ports cannot be resolved are skipped, not fatal , they
 // may be mid-start.
 func ComputeRoutes(ctx context.Context, projects []state.Project, tld string, running map[string]bool, ports PortLookup) []router.Route {
 	var routes []router.Route
@@ -85,7 +85,7 @@ func loopback(port int) string {
 }
 
 // AllDomains lists every routed hostname of every managed project,
-// running or not — the hosts-file block must cover stopped sites so they
+// running or not , the hosts-file block must cover stopped sites so they
 // resolve the moment they start.
 func AllDomains(projects []state.Project, tld string) []string {
 	var domains []string

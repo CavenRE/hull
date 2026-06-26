@@ -13,7 +13,7 @@ func init() {
 	cmd := &cobra.Command{
 		Use:   "rm <name>",
 		Short: "Destroy an environment and its data",
-		Long:  "Stop and remove a project's containers and volumes, then delete its\ndirectory. This is irreversible — code and database are both destroyed.",
+		Long:  "Stop and remove a project's containers and volumes, then delete its\ndirectory. This is irreversible , code and database are both destroyed.",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()

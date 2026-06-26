@@ -1,5 +1,5 @@
 # Generates Hull app icons (PNG set + multi-size ICO) from the logo geometry.
-# The logo is two flat polygons in an 86x90 viewBox — drawn here with GDI+
+# The logo is two flat polygons in an 86x90 viewBox , drawn here with GDI+
 # so we need no external SVG rasterizer. Run from any cwd.
 Add-Type -AssemblyName System.Drawing
 

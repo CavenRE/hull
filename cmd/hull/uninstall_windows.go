@@ -28,7 +28,7 @@ func runUninstall(o uninstallOpts) error {
 	// Safety: only proceed if this really is a Hull install directory.
 	if _, e1 := os.Stat(filepath.Join(dir, "hull-gui.exe")); e1 != nil {
 		if _, e2 := os.Stat(filepath.Join(dir, "hulld.exe")); e2 != nil {
-			return fmt.Errorf("%s does not look like a Hull install — aborting", dir)
+			return fmt.Errorf("%s does not look like a Hull install , aborting", dir)
 		}
 	}
 
@@ -37,7 +37,7 @@ func runUninstall(o uninstallOpts) error {
 	// Reinstall path: the NSIS installer runs the uninstaller with `_?=<dir>`
 	// to remove the previous version, then checks that the main binary is gone
 	// (installer.nsi: "$INSTDIR\hull-gui.exe"). So here we delete the files
-	// SYNCHRONOUSLY and must NOT schedule the async dir wipe — that would race
+	// SYNCHRONOUSLY and must NOT schedule the async dir wipe , that would race
 	// the fresh install and the leftover hull-gui.exe would fail the check
 	// ("Unable to uninstall"). The installer re-creates registry/PATH/shortcuts.
 	if isReinstall() {
@@ -73,7 +73,7 @@ func runUninstall(o uninstallOpts) error {
 	}
 
 	fmt.Println("Removing program files…")
-	removeInstalledFiles(dir) // sync — so most is gone even if the async wipe is blocked
+	removeInstalledFiles(dir) // sync , so most is gone even if the async wipe is blocked
 	scheduleDirDelete(dir)     // removes the running hull.exe + dir after we exit
 	fmt.Println("Hull uninstalled. (Open a new terminal so the PATH change applies.)")
 	return nil
@@ -151,7 +151,7 @@ func shortcutPaths() []string {
 
 // removeAutostart deletes the launch-at-login Run entry (tauri-plugin-autostart
 // writes one when enabled), matched by name or by a value pointing at the
-// install dir — so we never strip an unrelated app's entry.
+// install dir , so we never strip an unrelated app's entry.
 func removeAutostart(dir string) {
 	k, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.QUERY_VALUE|registry.SET_VALUE)
 	if err != nil {
@@ -182,12 +182,12 @@ func backupHullHome() error {
 	return os.Rename(src, bak)
 }
 
-// scheduleDirDelete removes dir shortly after this process exits — we can't
+// scheduleDirDelete removes dir shortly after this process exits , we can't
 // delete the running hull.exe inside it, so a detached cmd waits, then deletes.
 // `ping` is the delay (timeout needs a console, which a detached process lacks);
 // the rmdir is retried once in case hull.exe is still releasing.
 func scheduleDirDelete(dir string) {
-	// Set the command line verbatim — letting Go re-quote a single script arg
+	// Set the command line verbatim , letting Go re-quote a single script arg
 	// mangles the quoted "dir". ping is the delay (timeout needs a console);
 	// the rmdir is retried once while hull.exe finishes releasing.
 	line := `cmd /c ping 127.0.0.1 -n 4 >nul & rmdir /s /q "` + dir + `" & ping 127.0.0.1 -n 3 >nul & rmdir /s /q "` + dir + `"`

@@ -13,11 +13,11 @@ import (
 // runGUI shows the Hull-themed installer window (WebKitGTK). The install runs in
 // a goroutine and streams progress to the page. Unlike the Windows WebView2
 // build there's no frameless/custom-chrome mode here, so the window keeps its
-// native title bar — which is the expected look on Linux desktops anyway.
+// native title bar , which is the expected look on Linux desktops anyway.
 func runGUI(def InstallOpts) {
 	w := webview.New(false)
 	if w == nil {
-		// No display / WebKitGTK — fall back to a headless install so the user
+		// No display / WebKitGTK , fall back to a headless install so the user
 		// still ends up set up.
 		_ = install(def, func(string, int) {})
 		return
@@ -121,15 +121,15 @@ const installerPage = `<!doctype html>
 <body>
   <div class="wrap">
     <div class="brand"><span class="logo">H</span>Hull</div>
-    <div class="tag">A local environment for your sites &amp; apps — GUI, daemon and CLI.</div>
+    <div class="tag">A local environment for your sites &amp; apps , GUI, daemon and CLI.</div>
 
     <div id="opts">
       <div class="loc">Installs to <code id="dir"></code></div>
-      <label class="opt"><input type="checkbox" id="gui" checked> Install the desktop app <span class="sub">— uncheck for CLI only</span></label>
+      <label class="opt"><input type="checkbox" id="gui" checked> Install the desktop app <span class="sub">, uncheck for CLI only</span></label>
       <label class="opt"><input type="checkbox" id="path" checked> Add <b>hull</b> to your PATH</label>
       <label class="opt gui-only"><input type="checkbox" id="menu" checked> Add to the applications menu</label>
       <label class="opt gui-only"><input type="checkbox" id="login"> Launch Hull at login</label>
-      <label class="opt"><input type="checkbox" id="service"> Run the daemon in the background <span class="sub">— systemd&nbsp;user service</span></label>
+      <label class="opt"><input type="checkbox" id="service"> Run the daemon in the background <span class="sub">, systemd&nbsp;user service</span></label>
       <button class="btn" id="go">Install Hull</button>
     </div>
 

@@ -38,7 +38,7 @@ Import the result anywhere with: hull import <name>-bundle.zip`,
 				return err
 			}
 			if p.Manifest == nil {
-				return fmt.Errorf("%s is a legacy v1 project — adopt it first with: hull migrate %s", p.Name, p.Name)
+				return fmt.Errorf("%s is a legacy v1 project , adopt it first with: hull migrate %s", p.Name, p.Name)
 			}
 			m := p.Manifest
 

@@ -155,7 +155,7 @@ apply live, otherwise they're written straight to config.yaml.`,
 
 func dash(s string) string {
 	if s == "" {
-		return "—"
+		return ","
 	}
 	return s
 }

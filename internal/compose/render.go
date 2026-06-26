@@ -11,7 +11,7 @@ import (
 )
 
 // Context carries the machine/global settings a render needs. Generated
-// compose files embed concrete values (paths, TLD) — they are disposable
+// compose files embed concrete values (paths, TLD) , they are disposable
 // artifacts, regenerated whenever the manifest or settings change.
 type Context struct {
 	// TLD is the local top-level domain, e.g. "test".

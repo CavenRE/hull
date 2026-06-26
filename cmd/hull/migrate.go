@@ -15,7 +15,7 @@ func init() {
 		Short: "Adopt bash-Hull (v1) projects into v2",
 		Long: `Reconstruct a hull.yaml from a v1 project's compose file, back the old
 file up as *.v1-backup, and regenerate the compose artifact. The project
-.env is untouched — v2 keeps v1's service names for dedicated services.`,
+.env is untouched , v2 keeps v1's service names for dedicated services.`,
 		Example: `  hull migrate my-old-site
   hull migrate --all`,
 		Args: cobra.MaximumNArgs(1),
@@ -59,7 +59,7 @@ file up as *.v1-backup, and regenerate the compose artifact. The project
 				if _, db, ok := m.DatabaseService(); ok {
 					fmt.Printf(", db: %s", db.Engine)
 				}
-				fmt.Println(") — old compose saved as *.v1-backup")
+				fmt.Println(") , old compose saved as *.v1-backup")
 			}
 			fmt.Println("Restart migrated projects with: hull up <name>")
 			return nil

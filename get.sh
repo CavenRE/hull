@@ -1,5 +1,5 @@
 #!/bin/sh
-# Hull bootstrap — install or uninstall straight from GitHub.
+# Hull bootstrap , install or uninstall straight from GitHub.
 #
 #   Install (desktop app + CLI):
 #     curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh
@@ -71,7 +71,7 @@ OS="$(uname -s)"
 ARCH="$(uname -m)"
 
 # ── download helpers ─────────────────────────────────────────────────────────
-dl() { # dl URL OUTFILE — fails (non-zero) on HTTP error or 404
+dl() { # dl URL OUTFILE , fails (non-zero) on HTTP error or 404
   if have curl; then curl -fsSL "$1" -o "$2"
   elif have wget; then wget -qO "$2" "$1"
   else die "need curl or wget to download"; fi
@@ -91,7 +91,7 @@ if [ "$ACTION" = uninstall ]; then
     # icons, systemd unit, PATH). On a package install it defers to pacman.
     if [ "$PURGE" = 1 ]; then "$HULL" uninstall --quiet --purge-data; else "$HULL" uninstall --quiet; fi
   else
-    # No binary on disk — fetch the standalone uninstall script and run it.
+    # No binary on disk , fetch the standalone uninstall script and run it.
     warn "no hull binary found; fetching uninstall.sh"
     tmp="$(mktemp)"; trap 'rm -f "$tmp"' EXIT
     dl "$RAW/uninstall.sh" "$tmp" || die "could not download uninstall.sh"
@@ -106,7 +106,7 @@ try_prebuilt() {
   [ "$OS" = Linux ] || return 1
   [ "$FORCE_SOURCE" = 0 ] || return 1
   if ! webkit_present; then
-    warn "WebKitGTK 4.1 not found — the prebuilt installer needs it; building from source instead"
+    warn "WebKitGTK 4.1 not found , the prebuilt installer needs it; building from source instead"
     return 1
   fi
   tmp="$(mktemp)"; trap 'rm -f "$tmp"' EXIT

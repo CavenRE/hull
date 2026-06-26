@@ -73,7 +73,7 @@ func TestScanDuplicateNamesFirstWins(t *testing.T) {
 	b := t.TempDir()
 	writeFile(t, filepath.Join(a, "dup", "hull.yaml"), "schema: 1\nname: dup\ntemplate: plain\n")
 	writeFile(t, filepath.Join(b, "dup", "hull.yaml"), "schema: 1\nname: dup\ntemplate: plain\n")
-	// A name collision across roots must NOT break the scan — first wins.
+	// A name collision across roots must NOT break the scan , first wins.
 	projects, err := Scan([]string{a, b})
 	if err != nil {
 		t.Fatalf("duplicate names should not error: %v", err)

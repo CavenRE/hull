@@ -12,7 +12,7 @@ import (
 )
 
 // Cmd is a host command specification (pure data, executed by the caller
-// via dockerx — keeps this package testable without an engine).
+// via dockerx , keeps this package testable without an engine).
 type Cmd struct {
 	Dir  string
 	Name string

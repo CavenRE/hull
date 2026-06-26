@@ -21,7 +21,7 @@ var adminerLogin string
 // EnsureSystemFiles writes Hull-owned support files (the shared xdebug.ini
 // every PHP container mounts, Adminer's auto-login plugin) into the Hull
 // home directory if missing, so a fresh v2 machine works without a v1
-// installation. Existing files are left untouched — they may carry user
+// installation. Existing files are left untouched , they may carry user
 // tweaks.
 func EnsureSystemFiles(hullHome string) error {
 	files := map[string]string{
@@ -61,7 +61,7 @@ type ScaffoldOptions struct {
 	Run Runner
 }
 
-// Scaffold populates a fresh project directory for the template — the Go
+// Scaffold populates a fresh project directory for the template , the Go
 // port of v1's templates/scripts/*-init.sh.
 func Scaffold(ctx context.Context, template string, opts ScaffoldOptions) error {
 	switch template {

@@ -18,7 +18,7 @@ import (
 // set up. ~/.hull (config, certs, projects) is left alone unless --purge-data.
 //
 // Unlike Windows, Linux lets us delete a running executable (the kernel keeps
-// the open inode), so there's no self-delete dance — we just unlink the files.
+// the open inode), so there's no self-delete dance , we just unlink the files.
 func runUninstall(o uninstallOpts) error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -37,7 +37,7 @@ func runUninstall(o uninstallOpts) error {
 	}
 	// Safety: only proceed if this really is a Hull bin directory.
 	if !looksLikeHullDir(dir) {
-		return fmt.Errorf("%s does not look like a Hull install — aborting", dir)
+		return fmt.Errorf("%s does not look like a Hull install , aborting", dir)
 	}
 
 	// Stop the daemon and undo trust while the binaries still exist.
@@ -94,7 +94,7 @@ func runHull(dir string, args ...string) error {
 }
 
 // backupHullHome moves ~/.hull aside to ~/.hull.bak (matching the Windows
-// uninstaller's --purge-data behaviour — reversible, not a delete).
+// uninstaller's --purge-data behaviour , reversible, not a delete).
 func backupHullHome() error {
 	h, err := os.UserHomeDir()
 	if err != nil {

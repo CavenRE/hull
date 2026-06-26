@@ -1,4 +1,4 @@
-/* Hull — Services screen: instance cards + add-instance engine picker. */
+/* Hull , Services screen: instance cards + add-instance engine picker. */
 (function () {
   const H = () => window.HULL;
   function dotClass(s) { return s === "running" ? "dot-on pulse" : s === "error" ? "dot-err" : "dot-off"; }

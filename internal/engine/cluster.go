@@ -18,7 +18,7 @@ import (
 )
 
 // ClusterOptions describes adopting an existing compose project as a Hull
-// cluster (type: cluster) — Hull wraps it, it does not regenerate it.
+// cluster (type: cluster) , Hull wraps it, it does not regenerate it.
 type ClusterOptions struct {
 	Dir          string   // the cluster project root (becomes the Hull project dir)
 	Name         string   // optional; defaults to the slugified dir base name
@@ -353,8 +353,8 @@ var webPorts = map[int]bool{
 	8080: true, 8081: true, 8443: true, 8888: true, 9000: true,
 }
 
-// portSpec decodes one compose `ports` entry — short ("8080:80", "80/tcp",
-// "127.0.0.1:8080:80") or long ({target: 80, published: 8080}) — keeping only
+// portSpec decodes one compose `ports` entry , short ("8080:80", "80/tcp",
+// "127.0.0.1:8080:80") or long ({target: 80, published: 8080}) , keeping only
 // the container (target) port.
 type portSpec struct{ container int }
 
@@ -382,7 +382,7 @@ func shortPortTarget(s string) int {
 
 // parseComposeRoutes seeds routes from the compose file when there's no
 // Caddyfile: one route per service that publishes a web-looking port, keyed
-// (and subdomained) by the service name. Best-effort — unparseable compose
+// (and subdomained) by the service name. Best-effort , unparseable compose
 // yields no routes rather than an error.
 func parseComposeRoutes(composeDir string, files []string) map[string]*manifest.ClusterRoute {
 	path := firstComposeFile(composeDir, files)

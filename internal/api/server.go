@@ -21,7 +21,7 @@ import (
 )
 
 // Server hosts Hull's local API (hulld). Both the CLI and the GUI are
-// clients of this surface — see docs/api.md.
+// clients of this surface , see docs/api.md.
 type Server struct {
 	Config *config.Config
 	Engine *engine.Engine
@@ -104,7 +104,7 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// CORS for the GUI webview (tauri://localhost etc.). Safe because
-		// the bearer token — not the origin — is the access control, and
+		// the bearer token , not the origin , is the access control, and
 		// the server only listens on loopback.
 		if origin := r.Header.Get("Origin"); origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -256,7 +256,7 @@ func (s *Server) handleProjectAction(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
-	// rebuild/reset can be slow (image builds, volume teardown) — run them as
+	// rebuild/reset can be slow (image builds, volume teardown) , run them as
 	// background jobs with streamed logs, like create/destroy.
 	switch action {
 	case "rebuild", "reset":
@@ -310,7 +310,7 @@ func (s *Server) handleProjectVolumes(w http.ResponseWriter, r *http.Request) {
 	}
 	vols, err := s.Engine.Volumes(r.Context(), p)
 	if err != nil {
-		// Surface the error — a destructive Reset must not be confirmed
+		// Surface the error , a destructive Reset must not be confirmed
 		// against a misleading empty "nothing to delete" list.
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -329,7 +329,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	}
 	job := s.Jobs.Start("create:"+req.Name, func(log func(string)) error {
 		jobEngine := s.NewJobEngine(log)
-		// Jobs outlive the request that started them — background context.
+		// Jobs outlive the request that started them , background context.
 		dir, err := jobEngine.NewProject(context.Background(), engine.NewOptions{
 			Name:      req.Name,
 			Template:  req.Template,
@@ -459,8 +459,8 @@ func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleStopAll brings down everything Hull started — every managed project
-// (sites/apps/clusters) then every running shared service — so nothing keeps
+// handleStopAll brings down everything Hull started , every managed project
+// (sites/apps/clusters) then every running shared service , so nothing keeps
 // holding ports after the daemon stops. Best-effort: one failure never blocks
 // the rest. Synchronous so the caller knows when the machine is clear.
 func (s *Server) handleStopAll(w http.ResponseWriter, r *http.Request) {
@@ -469,7 +469,7 @@ func (s *Server) handleStopAll(w http.ResponseWriter, r *http.Request) {
 		for i := range projects {
 			p := &projects[i]
 			if p.Manifest == nil {
-				continue // unmanaged folder — Hull never started it
+				continue // unmanaged folder , Hull never started it
 			}
 			if err := s.Engine.Down(r.Context(), p); err == nil {
 				stopped++

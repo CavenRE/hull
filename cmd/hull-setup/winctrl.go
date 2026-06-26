@@ -4,7 +4,7 @@ package main
 
 import "syscall"
 
-// Minimal user32 calls to make the WebView2 window frameless and draggable —
+// Minimal user32 calls to make the WebView2 window frameless and draggable ,
 // matching the app's decorationless window with custom controls.
 var (
 	user32             = syscall.NewLazyDLL("user32.dll")

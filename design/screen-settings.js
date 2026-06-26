@@ -1,4 +1,4 @@
-/* Hull — Settings screen. Folders, defaults, domain, dependency updates, startup, doctor. */
+/* Hull , Settings screen. Folders, defaults, domain, dependency updates, startup, doctor. */
 (function () {
   const H = () => window.HULL;
   let rootEl = null;
@@ -104,7 +104,7 @@
             <button class="btn" id="rerunSetup">${icon("restart",15)}Re-run setup</button>
           </div>
         </div>
-        <p class="help">Changing these rewrites every site's domain and re-issues certificates — Hull will ask for one admin prompt to update DNS.</p>
+        <p class="help">Changing these rewrites every site's domain and re-issues certificates , Hull will ask for one admin prompt to update DNS.</p>
       </div>`;
   }
 

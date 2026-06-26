@@ -1,6 +1,6 @@
 //go:build linux && installer
 
-// Command hull-setup (Linux) is Hull's graphical installer — the counterpart to
+// Command hull-setup (Linux) is Hull's graphical installer , the counterpart to
 // the Windows Hull-Setup.exe. It's a single self-contained binary that embeds
 // the daemon, CLI, GUI and icons, and installs them per-user (into ~/.local/bin
 // plus the XDG desktop dirs). Run with no arguments it opens a Hull-themed
@@ -50,7 +50,7 @@ func defaultDir() string {
 func main() {
 	dir := flag.String("dir", defaultDir(), "install directory for the binaries")
 	silent := flag.Bool("silent", false, "install headless, no window (scripting)")
-	noGUI := flag.Bool("no-gui", false, "CLI only — skip the desktop app")
+	noGUI := flag.Bool("no-gui", false, "CLI only , skip the desktop app")
 	noPath := flag.Bool("no-path", false, "don't add the CLI to PATH")
 	noMenu := flag.Bool("no-menu", false, "don't add an application-menu launcher")
 	autostart := flag.Bool("autostart", false, "launch Hull at login")
@@ -120,9 +120,9 @@ func install(o InstallOpts, report func(msg string, pct int)) error {
 
 	report("Allowing the daemon to bind ports 80/443…", 55)
 	// Best-effort: a polkit prompt. If declined, the daemon can still run as
-	// root or with a lowered unprivileged-port sysctl — so don't fail the install.
+	// root or with a lowered unprivileged-port sysctl , so don't fail the install.
 	if err := platform.GrantPortBind(filepath.Join(o.Dir, "hulld")); err != nil {
-		report("(skipped port permission — grant it later with setcap)", 55)
+		report("(skipped port permission , grant it later with setcap)", 55)
 	}
 
 	if o.AddPath {

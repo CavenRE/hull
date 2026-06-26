@@ -13,7 +13,7 @@ func init() {
 		Use:   "group",
 		Short: "Organize projects into virtual groups",
 		Long: `Virtual groups are organizational labels shown inside each project
-root. They are stored Hull-side (groups.yaml) keyed by project path — nothing
+root. They are stored Hull-side (groups.yaml) keyed by project path , nothing
 in your project folders changes, and unmanaged folders can be grouped too.`,
 	}
 

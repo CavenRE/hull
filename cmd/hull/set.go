@@ -43,7 +43,7 @@ flags you pass are changed. Applies through a running daemon when one is up.`,
 				req.Serve, opts.Serve = &serve, &serve
 			}
 			if req.PHP == nil && req.Domain == nil && req.Serve == nil {
-				return fmt.Errorf("nothing to change — pass --php, --domain, or --serve")
+				return fmt.Errorf("nothing to change , pass --php, --domain, or --serve")
 			}
 
 			if client, ok := a.client(); ok {

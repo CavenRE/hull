@@ -10,7 +10,7 @@ import (
 	"github.com/CavenRE/hull/internal/envfile"
 )
 
-// Detection is what auto-discovery learned about an existing project —
+// Detection is what auto-discovery learned about an existing project ,
 // the Go port of v1's import sniffing.
 type Detection struct {
 	Template string // laravel | wordpress | plain (PHP site template)
@@ -19,7 +19,7 @@ type Detection struct {
 	Database string // database name, "" = derive from project name
 	Redis    bool
 	// Extras are additional shared-service engines discovered in .env
-	// (mailpit, meilisearch, typesense, memcached, minio) — wired the same
+	// (mailpit, meilisearch, typesense, memcached, minio) , wired the same
 	// way redis/db are, so an imported app comes up fully connected.
 	Extras []string
 	// Kind is the broader project kind for non-PHP projects too:
@@ -81,7 +81,7 @@ func detectTemplate(dir string) string {
 	return "plain"
 }
 
-// DetectKind classifies a project by the files it ships — used so the GUI
+// DetectKind classifies a project by the files it ships , used so the GUI
 // stops defaulting everything to Laravel. PHP frameworks win first; then
 // language/runtime markers; then a generic "static"/"plain" fallback.
 func DetectKind(dir string) string {

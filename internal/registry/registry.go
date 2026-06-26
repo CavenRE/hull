@@ -174,7 +174,7 @@ type semver struct {
 
 // CleanVersions reduces a tag list to one representative per major version
 // (preferring the bare "16" over "16.3"), newest first, plus an "lts" entry
-// when present — the "latest LTS down to N back" shape the picker wants.
+// when present , the "latest LTS down to N back" shape the picker wants.
 func CleanVersions(tags []string, limit int) []string {
 	byMajor := map[int][]semver{}
 	hasLTS := false
@@ -230,7 +230,7 @@ func CleanVersions(tags []string, limit int) []string {
 var verPrefixRE = regexp.MustCompile(`^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?`)
 
 // FilterTags returns tags containing q (case-insensitive), newest-version
-// first, capped at limit — the "search for a specific version" path. Tags
+// first, capped at limit , the "search for a specific version" path. Tags
 // with no numeric prefix sort last.
 func FilterTags(tags []string, q string, limit int) []string {
 	q = strings.ToLower(strings.TrimSpace(q))
@@ -290,7 +290,7 @@ func less(a, b [3]int) bool {
 var minorRE = regexp.MustCompile(`^v?(\d+)\.(\d+)(?:\.\d+)?$`)
 
 // MinorVersions reduces tags to distinct X.Y versions (e.g. PHP 8.4, 8.3),
-// newest first — used where the minor matters, not just the major.
+// newest first , used where the minor matters, not just the major.
 func MinorVersions(tags []string, limit int) []string {
 	seen := map[string]bool{}
 	var vers []semver

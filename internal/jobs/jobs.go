@@ -74,7 +74,7 @@ func (j *Job) Snapshot() Info {
 }
 
 // LinesFrom returns lines starting at offset and whether the job is still
-// running — the polling primitive used by stream endpoints and the CLI.
+// running , the polling primitive used by stream endpoints and the CLI.
 func (j *Job) LinesFrom(offset int) (lines []string, running bool) {
 	j.mu.Lock()
 	defer j.mu.Unlock()

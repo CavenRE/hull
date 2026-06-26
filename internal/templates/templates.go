@@ -191,7 +191,7 @@ func (e EngineDef) Image(version string) string {
 
 // Env returns the engine's container environment (KEY=value pairs) for the
 // given database name. An empty database omits the create-database variable
-// — shared instances create databases per linked project instead.
+// , shared instances create databases per linked project instead.
 func (e EngineDef) Env(database string) []string {
 	env := append([]string(nil), e.fixedEnv...)
 	if e.IsDatabase && database != "" {

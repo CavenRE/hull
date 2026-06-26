@@ -5,11 +5,11 @@
 # Hull 🚢
 
 **A fast, cross-platform local development environment.**
-Docker-based dev sites with automatic HTTPS domains, shared databases, and a one-command setup — driven by a CLI, a daemon, and an optional desktop app.
+Docker-based dev sites with automatic HTTPS domains, shared databases, and a one-command setup , driven by a CLI, a daemon, and an optional desktop app.
 
 Runs on **Windows · macOS · Linux** (Arch & Debian/Ubuntu).
 
-<img src="design/screenshots/sites-overview.jpg" alt="Hull — Sites overview" width="860">
+<img src="design/screenshots/sites-overview.jpg" alt="Hull , Sites overview" width="860">
 
 </div>
 
@@ -17,13 +17,13 @@ Runs on **Windows · macOS · Linux** (Arch & Debian/Ubuntu).
 
 ## What is Hull?
 
-Hull provisions Docker-based local development environments and serves each project at a trusted `https://<name>.test` address — no port juggling, no manual nginx/Caddy config, no `/etc/hosts` editing.
+Hull provisions Docker-based local development environments and serves each project at a trusted `https://<name>.test` address , no port juggling, no manual nginx/Caddy config, no `/etc/hosts` editing.
 
 It scaffolds Laravel, WordPress, and plain-PHP projects in one command, runs shared database instances multiple projects can share, and routes everything through an embedded HTTPS reverse proxy with a locally-trusted certificate authority.
 
 Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on the [`legacy`](../../tree/legacy) branch). It is cross-platform, daemon-backed, and ships with an optional desktop GUI.
 
-> **Source of truth:** every project is described by a small `hull.yaml`. The `compose.yaml` Hull runs is a generated artifact — never hand-edited.
+> **Source of truth:** every project is described by a small `hull.yaml`. The `compose.yaml` Hull runs is a generated artifact , never hand-edited.
 
 ---
 
@@ -47,13 +47,13 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
 
 ## Features
 
-- **One-command scaffolding** — `hull new shop laravel --db postgres` creates the project, wires the framework, and boots it at `https://shop.test`.
-- **Automatic HTTPS & DNS** — an embedded Caddy reverse proxy with a local root CA serves every site over trusted TLS; a built-in wildcard resolver answers `*.test` (no `dnsmasq` container required).
-- **Shared service instances** — run `postgres-16`, `mariadb-lts`, `redis`, etc. once and link many projects to them; multiple versions live side by side.
-- **Headless or GUI** — the CLI is fully featured on its own. A running daemon adds live routing, a desktop app, and background jobs — but is never required.
-- **Portable bundles** — `hull export` produces a `hull-bundle.zip` (project + fresh DB dumps) that `hull import` restores on another machine.
-- **Adopt what you already have** — import existing projects, wrap multi-container `docker compose` stacks as **clusters**, or migrate projects from bash-Hull (v1).
-- **Ephemeral & native tooling** — `hull npm run dev` runs in a throwaway Node container; `hull artisan ...` and `hull exec ...` run straight against your project's app container — no host pollution.
+- **One-command scaffolding** , `hull new shop laravel --db postgres` creates the project, wires the framework, and boots it at `https://shop.test`.
+- **Automatic HTTPS & DNS** , an embedded Caddy reverse proxy with a local root CA serves every site over trusted TLS; a built-in wildcard resolver answers `*.test` (no `dnsmasq` container required).
+- **Shared service instances** , run `postgres-16`, `mariadb-lts`, `redis`, etc. once and link many projects to them; multiple versions live side by side.
+- **Headless or GUI** , the CLI is fully featured on its own. A running daemon adds live routing, a desktop app, and background jobs , but is never required.
+- **Portable bundles** , `hull export` produces a `hull-bundle.zip` (project + fresh DB dumps) that `hull import` restores on another machine.
+- **Adopt what you already have** , import existing projects, wrap multi-container `docker compose` stacks as **clusters**, or migrate projects from bash-Hull (v1).
+- **Ephemeral & native tooling** , `hull npm run dev` runs in a throwaway Node container; `hull artisan ...` and `hull exec ...` run straight against your project's app container , no host pollution.
 
 ---
 
@@ -74,7 +74,7 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
         hull.yaml │ generates  compose.yaml ──▶ docker compose
 ```
 
-- **`hulld`** is one Go daemon that owns everything: the project engine, shared services, the embedded Caddy router (with a local SSL CA), the wildcard DNS resolver, and OS trust-store management — all behind a localhost API guarded by a bearer token.
+- **`hulld`** is one Go daemon that owns everything: the project engine, shared services, the embedded Caddy router (with a local SSL CA), the wildcard DNS resolver, and OS trust-store management , all behind a localhost API guarded by a bearer token.
 - **`hull`** is a thin client over that API. When no daemon is running it executes the **same engine code in-process**, so the CLI works fully headless.
 - The **desktop app** is a Tauri shell that talks to the same API and can manage the daemon's lifecycle.
 - Each project's **`hull.yaml`** is rendered into a `compose.yaml` (covered by golden tests) and run with `docker compose`. The router discovers each container's published loopback port and proxies `https://<name>.test` to it.
@@ -95,10 +95,10 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
 
 ### Windows
 
-**Download [`Hull-Setup.exe`](../../releases/latest) and run it** — a small graphical installer (no console, no admin rights). A checkbox lets you pick what to install:
+**Download [`Hull-Setup.exe`](../../releases/latest) and run it** , a small graphical installer (no console, no admin rights). A checkbox lets you pick what to install:
 
-- **Desktop app + CLI** (default) — the full Hull: the app, the daemon, and the `hull` CLI.
-- **CLI only** — just the `hull` CLI + daemon, no desktop app.
+- **Desktop app + CLI** (default) , the full Hull: the app, the daemon, and the `hull` CLI.
+- **CLI only** , just the `hull` CLI + daemon, no desktop app.
 
 Either way it adds `hull` to your `PATH` and registers a clean one-click uninstall.
 
@@ -112,7 +112,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1   # → bin\Hull-Setup.exe
 
 ### Linux
 
-**Quickest — one line:**
+**Quickest , one line:**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh          # desktop app + CLI
@@ -121,7 +121,7 @@ curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh -s 
 
 This downloads the prebuilt installer when a Release exists for your platform, and otherwise clones the repo and builds from source. Flags after `--` are passed through: `--cli`, `--silent`, `--service`, `--prefix DIR`, `--source` (force a source build).
 
-**Graphical installer.** Download [`hull-installer`](../../releases/latest) and run it — a small WebKitGTK window (the counterpart to Windows' `Hull-Setup.exe`) with the same checkbox to pick **Desktop app + CLI** (default) or **CLI only**. It also offers a menu launcher, launch-at-login, and running the daemon as a `systemd --user` service. Prefer to build it yourself?
+**Graphical installer.** Download [`hull-installer`](../../releases/latest) and run it , a small WebKitGTK window (the counterpart to Windows' `Hull-Setup.exe`) with the same checkbox to pick **Desktop app + CLI** (default) or **CLI only**. It also offers a menu launcher, launch-at-login, and running the daemon as a `systemd --user` service. Prefer to build it yourself?
 
 ```bash
 git clone https://github.com/CavenRE/hull.git
@@ -169,7 +169,7 @@ The `install.sh` script checks your dependencies, offers to install any that are
 
 ## First-run setup
 
-The **desktop app does this for you** — on first launch its setup wizard walks through Docker, your projects folder, the local domain/loopback, and any starter services, then provisions everything.
+The **desktop app does this for you** , on first launch its setup wizard walks through Docker, your projects folder, the local domain/loopback, and any starter services, then provisions everything.
 
 From the CLI, enable native networking on the machine (one time):
 
@@ -274,11 +274,11 @@ Run `hull <command> --help` for full flags on any command.
 
 ## The desktop app
 
-The optional Tauri app is a thin client over the same daemon API — every action it takes is one you can also do from the CLI. Close it to the tray and the daemon keeps your sites running.
+The optional Tauri app is a thin client over the same daemon API , every action it takes is one you can also do from the CLI. Close it to the tray and the daemon keeps your sites running.
 
 <table>
 <tr>
-<td width="50%"><img src="design/screenshots/dashboard.jpg" alt="Dashboard"><br><sub>Dashboard — sites, services & system health at a glance</sub></td>
+<td width="50%"><img src="design/screenshots/dashboard.jpg" alt="Dashboard"><br><sub>Dashboard , sites, services & system health at a glance</sub></td>
 <td width="50%"><img src="design/screenshots/sites-create-app.jpg" alt="Create a project"><br><sub>Create a site, app, or multi-container cluster</sub></td>
 </tr>
 <tr>
@@ -286,7 +286,7 @@ The optional Tauri app is a thin client over the same daemon API — every actio
 <td width="50%"><img src="design/screenshots/service-create.jpg" alt="Add a service"><br><sub>Spin up a shared service in a click</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="design/screenshots/settings-domain.jpg" alt="Settings — local domain"><br><sub>Settings: loopback address, TLD & daemon control</sub></td>
+<td width="50%"><img src="design/screenshots/settings-domain.jpg" alt="Settings , local domain"><br><sub>Settings: loopback address, TLD & daemon control</sub></td>
 <td width="50%"><img src="design/screenshots/settings-light.jpg" alt="Light mode"><br><sub>Light & dark themes</sub></td>
 </tr>
 </table>
@@ -297,7 +297,7 @@ Highlights: a project dashboard, shared-service management, a mail catcher, live
 
 ## Configuration
 
-**Global** — `~/.hull/config.yaml`:
+**Global** , `~/.hull/config.yaml`:
 
 ```yaml
 tld: test                     # local top-level domain
@@ -318,7 +318,7 @@ defaults:
   db_tool: tableplus
 ```
 
-**Per project** — `hull.yaml` (the source of truth):
+**Per project** , `hull.yaml` (the source of truth):
 
 ```yaml
 schema: 1
@@ -336,7 +336,7 @@ services:
 
 ## Platform notes
 
-**Linux — privileged ports.** The embedded router binds `:80`/`:443` directly (no container). Grant the capability once with the installer, or lower the unprivileged-port threshold system-wide:
+**Linux , privileged ports.** The embedded router binds `:80`/`:443` directly (no container). Grant the capability once with the installer, or lower the unprivileged-port threshold system-wide:
 
 ```bash
 sudo setcap 'cap_net_bind_service=+ep' ~/.local/bin/hulld
@@ -344,9 +344,9 @@ sudo setcap 'cap_net_bind_service=+ep' ~/.local/bin/hulld
 echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/10-hull-ports.conf && sudo sysctl --system
 ```
 
-**Linux — DNS resolver.** `hull setup` auto-detects how your machine resolves DNS. On **systemd-resolved** it registers `*.<tld>` for you. On **NetworkManager + dnsmasq** (common on Arch/CachyOS) it detects that systemd-resolved isn't in charge and **leaves DNS to your existing resolver** — it won't enable the embedded resolver or fight for `:53`. Just point `.<tld>` at `127.0.0.1` in your dnsmasq config. (Pass `--skip-dns` to force-skip the step yourself.)
+**Linux , DNS resolver.** `hull setup` auto-detects how your machine resolves DNS. On **systemd-resolved** it registers `*.<tld>` for you. On **NetworkManager + dnsmasq** (common on Arch/CachyOS) it detects that systemd-resolved isn't in charge and **leaves DNS to your existing resolver** , it won't enable the embedded resolver or fight for `:53`. Just point `.<tld>` at `127.0.0.1` in your dnsmasq config. (Pass `--skip-dns` to force-skip the step yourself.)
 
-**Linux — file permissions.** On native Docker, Hull automatically remaps PHP containers to your host UID so bind-mounted project files (SQLite databases, `storage/`, caches) stay writable. Docker Desktop on macOS/Windows handles this in its VM.
+**Linux , file permissions.** On native Docker, Hull automatically remaps PHP containers to your host UID so bind-mounted project files (SQLite databases, `storage/`, caches) stay writable. Docker Desktop on macOS/Windows handles this in its VM.
 
 **Coexisting with other stacks.** If you already run a local proxy on `127.0.0.2:443`, set `router.loopback` to a free `127.0.0.x` so Hull binds its own loopback IP without a port clash.
 
@@ -354,9 +354,9 @@ echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/10-hull-p
 
 ## Uninstalling
 
-**Windows** — Settings → Apps → **Hull** → Uninstall, or run `hull uninstall` in a terminal. It stops the app, removes the program files, the PATH entry, shortcuts, and the autostart entry. Add `--purge-data` to also clear `~/.hull` (config, CA, service data).
+**Windows** , Settings → Apps → **Hull** → Uninstall, or run `hull uninstall` in a terminal. It stops the app, removes the program files, the PATH entry, shortcuts, and the autostart entry. Add `--purge-data` to also clear `~/.hull` (config, CA, service data).
 
-**Linux** — one line from anywhere (works even if you no longer have the source tree):
+**Linux** , one line from anywhere (works even if you no longer have the source tree):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh -s -- --uninstall
@@ -370,7 +370,7 @@ hull uninstall            # remove binaries, menu launcher, icons, systemd unit,
 hull uninstall --purge-data   # also move ~/.hull aside to ~/.hull.bak
 ```
 
-…or use the script from the source tree (equivalent — both clean up the same things):
+…or use the script from the source tree (equivalent , both clean up the same things):
 
 ```bash
 ./uninstall.sh            # remove binaries + desktop integration; stop the daemon; undo trust/DNS
@@ -394,9 +394,9 @@ Your project files are never touched.
 
 **Built for me, free for you.** Hull exists to solve my own local-dev workflow, and it's designed to be simple to hack, modify, and extend.
 
-Fork it and mould it to your stack. Pull requests are welcome, but be aware I may not merge (or review) changes that don't fit how I work — if you need Hull to do something specific, forking is your fastest path.
+Fork it and mould it to your stack. Pull requests are welcome, but be aware I may not merge (or review) changes that don't fit how I work , if you need Hull to do something specific, forking is your fastest path.
 
-**Enjoying Hull?** If it saves you some time, you can support its development — it's hugely appreciated:
+**Enjoying Hull?** If it saves you some time, you can support its development , it's hugely appreciated: (_Friend made me do it_)
 
 [![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/cavenre)
 
@@ -404,4 +404,4 @@ Fork it and mould it to your stack. Pull requests are welcome, but be aware I ma
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Use it, modify it, ship it, take it apart. No strings attached.
+MIT , see [LICENSE](LICENSE). Use it, modify it, ship it, take it apart. No strings attached.

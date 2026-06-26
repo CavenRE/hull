@@ -26,7 +26,7 @@ type Instance struct {
 	Dir       string
 	Running   bool
 	// HostPort is the stable loopback port the primary service port is
-	// published on (0 = none) — what desktop tools connect to.
+	// published on (0 = none) , what desktop tools connect to.
 	HostPort int
 }
 
@@ -234,7 +234,7 @@ func (m *Manager) Remove(ctx context.Context, instance string) error {
 var stablePortRE = regexp.MustCompile(`127\.0\.0\.1:(\d+):(\d+)`)
 
 // existingHostPort returns the stable host port already persisted in an
-// instance's compose file for the given container port — re-adding an
+// instance's compose file for the given container port , re-adding an
 // instance must never move its port.
 func existingHostPort(dir, containerPort string) int {
 	data, err := os.ReadFile(filepath.Join(dir, "compose.yaml"))

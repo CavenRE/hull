@@ -1,6 +1,6 @@
 //go:build windows && installer
 
-// Command hull-setup is Hull's own installer — a self-contained exe that
+// Command hull-setup is Hull's own installer , a self-contained exe that
 // embeds the binaries and installs them, with NO NSIS. Double-clicking opens a
 // Hull-themed WebView2 window (it's built as a GUI app, so it never shows a
 // console); --silent runs headless for scripting. It never copies itself to
@@ -51,7 +51,7 @@ func defaultDir() string { return filepath.Join(os.Getenv("LOCALAPPDATA"), "Hull
 func main() {
 	dir := flag.String("dir", defaultDir(), "install directory")
 	silent := flag.Bool("silent", false, "install headless, no window (scripting)")
-	noGUI := flag.Bool("no-gui", false, "CLI only — skip the desktop app")
+	noGUI := flag.Bool("no-gui", false, "CLI only , skip the desktop app")
 	noPath := flag.Bool("no-path", false, "don't add the CLI to PATH")
 	noShortcut := flag.Bool("no-shortcut", false, "don't create shortcuts")
 	autostart := flag.Bool("autostart", false, "launch Hull at login")
@@ -97,7 +97,7 @@ func install(o InstallOpts, report func(msg string, pct int)) error {
 			return fmt.Errorf("PATH: %w", err)
 		}
 	}
-	// Clear any old shortcuts, recreate only for a GUI install — so a
+	// Clear any old shortcuts, recreate only for a GUI install , so a
 	// full→CLI-only reinstall never leaves a dangling app shortcut.
 	for _, lnk := range guiShortcutPaths() {
 		_ = os.Remove(lnk)
@@ -115,7 +115,7 @@ func install(o InstallOpts, report func(msg string, pct int)) error {
 		return fmt.Errorf("registry: %w", err)
 	}
 
-	// Autostart + the GUI binaries are GUI-only — clean them up for CLI-only.
+	// Autostart + the GUI binaries are GUI-only , clean them up for CLI-only.
 	if o.GUI && o.Autostart {
 		setRun("Hull", `"`+filepath.Join(o.Dir, "hull-gui.exe")+`"`)
 	} else {

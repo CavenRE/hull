@@ -80,7 +80,7 @@ restored into the provisioned database.`,
 					return fmt.Errorf("move your project to %s first (%w)", filepath.Join(a.Config.Roots[0], arg), err)
 				}
 				if p.Manifest != nil {
-					return fmt.Errorf("%s already has a hull.yaml — it is managed by Hull", arg)
+					return fmt.Errorf("%s already has a hull.yaml , it is managed by Hull", arg)
 				}
 				dir = p.Dir
 			}
@@ -146,7 +146,7 @@ func describeDB(m *manifest.Manifest) string {
 }
 
 // offerDumpImport finds SQL dumps in the project, lets the user pick one,
-// waits for the database, and restores it — the Go port of v1's flow.
+// waits for the database, and restores it , the Go port of v1's flow.
 func offerDumpImport(ctx context.Context, m *manifest.Manifest, dir string) error {
 	dbKey, _, hasDB := m.DatabaseService()
 	dumps := bundle.FindDumps(dir)

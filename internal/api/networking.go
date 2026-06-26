@@ -40,10 +40,10 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 		if err := server.Start(); err != nil {
 			// Degrade, never die: routing is the critical path, and hosts
 			// file entries keep resolving without us.
-			logf("dns: DISABLED — %v (names in the hosts file still resolve; router unaffected)", err)
+			logf("dns: DISABLED , %v (names in the hosts file still resolve; router unaffected)", err)
 		} else {
 			if server.TCPErr != nil {
-				logf("dns: udp-only — %v (fine for resolver lookups)", server.TCPErr)
+				logf("dns: udp-only , %v (fine for resolver lookups)", server.TCPErr)
 			}
 			logf("dns: answering *.%s on %s", cfg.TLD, server.LocalAddr())
 			stops = append(stops, server.Stop)

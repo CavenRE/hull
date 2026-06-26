@@ -24,7 +24,7 @@ func runGUI(def InstallOpts) {
 		},
 	})
 	if w == nil {
-		// No WebView2 runtime — install headless so the user still ends up set up.
+		// No WebView2 runtime , install headless so the user still ends up set up.
 		_ = install(def, func(string, int) {})
 		return
 	}
@@ -140,11 +140,11 @@ const installerPage = `<!doctype html>
 
   <div class="wrap">
     <div class="brand"><span class="logo">H</span>Hull</div>
-    <div class="tag">A local environment for your sites &amp; apps — GUI, daemon and CLI.</div>
+    <div class="tag">A local environment for your sites &amp; apps , GUI, daemon and CLI.</div>
 
     <div id="opts">
       <div class="loc">Installs to <code id="dir"></code></div>
-      <label class="opt"><input type="checkbox" id="gui" checked> Install the desktop app <span class="sub">— uncheck for CLI only</span></label>
+      <label class="opt"><input type="checkbox" id="gui" checked> Install the desktop app <span class="sub">, uncheck for CLI only</span></label>
       <label class="opt"><input type="checkbox" id="path" checked> Add <b>hull</b> to your PATH</label>
       <label class="opt gui-only"><input type="checkbox" id="desktop" checked> Create a desktop shortcut</label>
       <label class="opt gui-only"><input type="checkbox" id="login"> Launch Hull at login</label>

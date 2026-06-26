@@ -1,4 +1,4 @@
-/* Hull — Logs screen. Source + level + text filters over a live monospace stream. */
+/* Hull , Logs screen. Source + level + text filters over a live monospace stream. */
 (function () {
   const H = () => window.HULL;
   let rootEl = null, panel = null, timer = null;
@@ -15,7 +15,7 @@
   const SAMPLES = {
     info: ["GET / 200 · {ms}ms", "GET /assets/app.css 200", "POST /login 302", "GET /api/user 200 · {ms}ms", "view rendered home.blade.php", "cache write users.{n}"],
     warn: ["slow query {ms}ms · orders index scan", "deprecated: Str::random() signature", "queue backlog {n} jobs", "cache miss · regenerating"],
-    error: ["SQLSTATE[08006] connection refused", "uncaught TypeError in OrderController:42", "500 Internal Server Error · GET /checkout", "failed to bind :443 — in use"],
+    error: ["SQLSTATE[08006] connection refused", "uncaught TypeError in OrderController:42", "500 Internal Server Error · GET /checkout", "failed to bind :443 , in use"],
   };
   function seed() {
     lines = [];

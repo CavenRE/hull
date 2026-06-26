@@ -16,7 +16,7 @@ import (
 // regenerates compose.yaml. Returns the instance name.
 func (e *Engine) Link(ctx context.Context, p *state.Project, spec string, svcs *services.Manager) (string, error) {
 	if p.Manifest == nil {
-		return "", fmt.Errorf("%s is a legacy v1 project — adopt it first with: hull migrate %s", p.Name, p.Name)
+		return "", fmt.Errorf("%s is a legacy v1 project , adopt it first with: hull migrate %s", p.Name, p.Name)
 	}
 	def, version, err := services.Resolve(spec)
 	if err != nil {

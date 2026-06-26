@@ -11,7 +11,7 @@ type Compose struct {
 	// Run executes commands; defaults to Exec when nil (tests inject).
 	Run Runner
 	// Name pins the compose project name via `-p`. When empty, docker derives
-	// it from the directory basename — which breaks for dirs with spaces or
+	// it from the directory basename , which breaks for dirs with spaces or
 	// capitals. Set it to a slug so the project identity is deterministic.
 	Name string
 	// Files are extra `-f` compose files (for wrapped cluster stacks). Empty
@@ -97,7 +97,7 @@ func (c Compose) ExecIn(ctx context.Context, service string, cmd ...string) erro
 	return c.run(ctx, append([]string{"exec", service}, cmd...)...)
 }
 
-// ExecNoTTY runs a command inside a service container without a TTY — for
+// ExecNoTTY runs a command inside a service container without a TTY , for
 // programmatic/daemon use (interactive `compose exec` fails when stdin is not
 // a terminal). Used by post-create steps like `artisan migrate`.
 func (c Compose) ExecNoTTY(ctx context.Context, service string, cmd ...string) error {

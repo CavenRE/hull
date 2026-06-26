@@ -52,7 +52,7 @@ confirm() { # confirm "question" -> 0 yes / 1 no
   printf '%s [y/N] ' "$1"; read -r a; case "$a" in y|Y|yes) return 0 ;; *) return 1 ;; esac
 }
 
-# Canonical XDG locations — these MUST match internal/platform/desktop_linux.go
+# Canonical XDG locations , these MUST match internal/platform/desktop_linux.go
 # so `hull uninstall` / uninstall.sh can clean up whatever installed Hull.
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
@@ -63,7 +63,7 @@ install_desktop_files() {
   local apps="$DATA_HOME/applications" icons="$DATA_HOME/icons/hicolor"
   local src="$REPO_DIR/gui/src-tauri/icons"
   mkdir -p "$apps"
-  # size_dir:source-file — matches the sizes RemoveIcons() cleans up.
+  # size_dir:source-file , matches the sizes RemoveIcons() cleans up.
   for pair in "32x32:32x32.png" "128x128:128x128.png" "256x256:128x128@2x.png" "512x512:icon.png"; do
     local size="${pair%%:*}" file="${pair##*:}"
     [ -f "$src/$file" ] || continue
@@ -110,7 +110,7 @@ EOF
   if systemctl --user enable --now hulld.service 2>/dev/null; then
     ok "hulld running as a systemd --user service"
   else
-    warn "installed hulld.service — enable it with: systemctl --user enable --now hulld.service"
+    warn "installed hulld.service , enable it with: systemctl --user enable --now hulld.service"
   fi
 }
 
@@ -158,7 +158,7 @@ else
     brew)   maybe_install "Go" "go" "https://go.dev/dl/" ;;
     *)      warn "install Go: https://go.dev/dl/" ;;
   esac
-  command -v go >/dev/null 2>&1 || die "Go not found — install it and re-run"
+  command -v go >/dev/null 2>&1 || die "Go not found , install it and re-run"
 fi
 
 # Docker engine + compose plugin (required at runtime, not to build)
@@ -190,7 +190,7 @@ gui_linux_libs_ok() {
   pkg-config --exists ayatana-appindicator3-0.1 || pkg-config --exists appindicator3-0.1 || return 1
 }
 if [ "$WANT_GUI" != no ]; then
-  have_cargo || { GUI_BUILDABLE=0; [ "$WANT_GUI" = yes ] && warn "Rust/cargo missing — needed for the GUI (https://rustup.rs)"; }
+  have_cargo || { GUI_BUILDABLE=0; [ "$WANT_GUI" = yes ] && warn "Rust/cargo missing , needed for the GUI (https://rustup.rs)"; }
   if [ "$OS" = Linux ] && ! gui_linux_libs_ok; then
     GUI_BUILDABLE=0
     if [ "$WANT_GUI" = yes ] || { [ "$WANT_GUI" = auto ] && have_cargo; }; then
@@ -233,7 +233,7 @@ if [ "$OS" = Linux ] && command -v setcap >/dev/null 2>&1; then
       if sudo setcap 'cap_net_bind_service=+ep' "$PREFIX/hulld"; then
         ok "hulld may now bind 80/443"
       else
-        warn "setcap failed — run: sudo setcap 'cap_net_bind_service=+ep' $PREFIX/hulld"
+        warn "setcap failed , run: sudo setcap 'cap_net_bind_service=+ep' $PREFIX/hulld"
       fi
     else
       warn "without it, run the daemon as root or lower net.ipv4.ip_unprivileged_port_start"
@@ -280,7 +280,7 @@ case ":$PATH:" in
     esac
     if ! grep -qs 'Added by Hull' "$RC" 2>/dev/null; then
       printf '\n# Added by Hull\nexport PATH="$PATH:%s"\n' "$PREFIX" >> "$RC"
-      ok "updated $RC — open a new terminal or: export PATH=\"\$PATH:$PREFIX\""
+      ok "updated $RC , open a new terminal or: export PATH=\"\$PATH:$PREFIX\""
     fi ;;
 esac
 

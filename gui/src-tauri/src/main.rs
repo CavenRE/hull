@@ -1,4 +1,4 @@
-// Hull GUI — a thin Tauri shell over the hulld local API (ADR 0002).
+// Hull GUI , a thin Tauri shell over the hulld local API (ADR 0002).
 // All business logic lives in the daemon; this process owns only the
 // window, the tray icon, and daemon discovery.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -32,7 +32,7 @@ fn hull_home() -> PathBuf {
 fn daemon_info() -> Result<DaemonInfo, String> {
     let path = hull_home().join("daemon.json");
     let data = fs::read_to_string(&path)
-        .map_err(|_| "daemon not running (no daemon.json) — start hulld".to_string())?;
+        .map_err(|_| "daemon not running (no daemon.json) , start hulld".to_string())?;
     let v: serde_json::Value = serde_json::from_str(&data).map_err(|e| e.to_string())?;
     let port = v["port"].as_u64().unwrap_or(0) as u16;
     if port == 0 {
@@ -121,7 +121,7 @@ fn start_daemon() -> Result<(), String> {
         }
     }
     spawn_detached(std::path::Path::new(name))
-        .map_err(|_| "hulld not found — start it from a terminal".to_string())
+        .map_err(|_| "hulld not found , start it from a terminal".to_string())
 }
 
 fn spawn_detached(path: &std::path::Path) -> Result<(), String> {

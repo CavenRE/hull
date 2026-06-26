@@ -65,7 +65,7 @@ func main() {
 
 // openLog opens ~/.hull/hulld.log for appending. It truncates first if the
 // file has grown past ~1 MB so it never balloons unbounded. Returns nil on
-// any failure — logging then falls back to stdout only, never fatal.
+// any failure , logging then falls back to stdout only, never fatal.
 func openLog(home string) *os.File {
 	if home == "" {
 		return nil

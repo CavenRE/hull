@@ -1,4 +1,4 @@
-/* Hull — app shell: routing, theme, nav, shared utilities. */
+/* Hull , app shell: routing, theme, nav, shared utilities. */
 (function () {
   const NAV = [
     { id: "dashboard", label: "Dashboard",    icon: "dashboard" },
@@ -95,7 +95,7 @@
   function renderStub(el, r) {
     const titles = { mail: "Mail", logs: "Logs", settings: "Settings" };
     const blurbs = {
-      mail: "SMTP integration surface — wire apps to Mailpit and open the inbox.",
+      mail: "SMTP integration surface , wire apps to Mailpit and open the inbox.",
       logs: "Live tailing of any running project or service.",
       settings: "Project folders, defaults, local domain, and the Doctor panel.",
     };
@@ -105,7 +105,7 @@
         <div class="page-body center">
           <div class="empty">
             <div class="ic">${window.icon(r, 22)}</div>
-            <h2>${titles[r]} — coming next</h2>
+            <h2>${titles[r]} , coming next</h2>
             <p>${blurbs[r]} Designed in a later drop; the route is wired so navigation feels complete.</p>
           </div>
         </div>

@@ -71,7 +71,7 @@ func TestGolden(t *testing.T) {
 }
 
 // TestRenderDeterministic guards against map-iteration order leaking into
-// output — golden tests would flake before users ever saw it, but fail fast
+// output , golden tests would flake before users ever saw it, but fail fast
 // and clearly here.
 func TestRenderDeterministic(t *testing.T) {
 	dir := filepath.Join("testdata", "golden", "app-multi")

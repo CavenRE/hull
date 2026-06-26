@@ -67,7 +67,7 @@ func BuildImportManifest(name string, det bundle.Detection, overrides NewOptions
 		m.Services["redis"] = &manifest.Service{Engine: "redis"}
 	}
 	// Extra shared services discovered in .env (mailpit, meilisearch, …). The
-	// engine name doubles as the manifest key — wireLaravelEnv keys on Engine,
+	// engine name doubles as the manifest key , wireLaravelEnv keys on Engine,
 	// so each comes up wired. Keyed by engine, so duplicates collapse.
 	for _, eng := range det.Extras {
 		if m.Services == nil {
@@ -95,7 +95,7 @@ func sanitizeDBName(name string) string {
 }
 
 // Adopt writes Hull artifacts into an existing project directory and
-// patches its framework config to point at Hull's services — the apply
+// patches its framework config to point at Hull's services , the apply
 // half of v1's import. Original files get .hull-backup copies.
 func (e *Engine) Adopt(m *manifest.Manifest, dir string) error {
 	if err := e.WriteArtifacts(m, dir); err != nil {
@@ -154,7 +154,7 @@ func backup(path string) error {
 }
 
 // ImportExisting turns an unmanaged folder or legacy v1 project into a
-// managed one and boots it — the GUI's one-click Import. Progress goes to
+// managed one and boots it , the GUI's one-click Import. Progress goes to
 // log; SQL dump restore stays interactive (CLI hull import) for now.
 func (e *Engine) ImportExisting(ctx context.Context, p *state.Project, log func(string)) error {
 	if p.Manifest != nil {
@@ -162,7 +162,7 @@ func (e *Engine) ImportExisting(ctx context.Context, p *state.Project, log func(
 	}
 
 	if p.Legacy {
-		log("legacy v1 compose detected — migrating")
+		log("legacy v1 compose detected , migrating")
 		m, err := e.MigrateV1(p)
 		if err != nil {
 			return err

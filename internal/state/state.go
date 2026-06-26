@@ -33,7 +33,7 @@ type Project struct {
 // Roots that do not exist are skipped silently (a machine may register a
 // Sites and an Apps root before both exist). When two roots contain a
 // project of the same name, the first one found wins and later duplicates
-// are skipped — a name collision across roots must never break the listing
+// are skipped , a name collision across roots must never break the listing
 // (a developer can easily have the same folder name in two places).
 func Scan(roots []string) ([]Project, error) {
 	var projects []Project

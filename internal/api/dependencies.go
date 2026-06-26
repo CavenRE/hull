@@ -39,7 +39,7 @@ func DetectDependencies(ctx context.Context, tld string) []DependencyInfo {
 	docker := DependencyInfo{
 		Name:        "Docker Engine",
 		Key:         "docker",
-		Blurb:       "Container runtime — Hull's one external dependency.",
+		Blurb:       "Container runtime , Hull's one external dependency.",
 		InstallURL:  dockerInstallURL(),
 		InstallHint: dockerInstallHint(),
 	}

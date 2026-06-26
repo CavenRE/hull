@@ -1,4 +1,4 @@
-/* Hull — Logs screen. Live SSE from the daemon (/v1/logs) with a source
+/* Hull , Logs screen. Live SSE from the daemon (/v1/logs) with a source
    picker, heuristic level filter, text filter, follow + clear. */
 (function () {
   const H = () => window.HULL;
@@ -51,7 +51,7 @@
     el.querySelector("#logFollow").addEventListener("change", e => { follow = e.target.checked; });
     el.querySelector("#logClear").addEventListener("click", () => { lines = []; repaint(); });
 
-    if (!sites.length && !svcs.length) { panel.innerHTML = `<div class="ln faint">Nothing running yet — start a site or service.</div>`; return; }
+    if (!sites.length && !svcs.length) { panel.innerHTML = `<div class="ln faint">Nothing running yet , start a site or service.</div>`; return; }
     open();
     App.onLeave(closeStreams);
   };

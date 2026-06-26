@@ -15,13 +15,13 @@ func RootCertPath(routerDataDir string) string {
 }
 
 // InstallTrust installs Hull's root certificate into the system trust
-// store (and Firefox's NSS store where applicable) — the mkcert approach,
+// store (and Firefox's NSS store where applicable) , the mkcert approach,
 // via smallstep/truststore. On Windows this triggers the standard
 // certificate-confirmation dialog; on unix it may require sudo.
 func InstallTrust(routerDataDir string) error {
 	path := RootCertPath(routerDataDir)
 	if _, err := os.Stat(path); err != nil {
-		return fmt.Errorf("root certificate not found at %s — run `hulld` or `hull daemon run` once (or `hull trust` provisions it) so the CA exists", path)
+		return fmt.Errorf("root certificate not found at %s , run `hulld` or `hull daemon run` once (or `hull trust` provisions it) so the CA exists", path)
 	}
 	if err := truststore.InstallFile(path); err != nil {
 		return fmt.Errorf("installing trust: %w", err)

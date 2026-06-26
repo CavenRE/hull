@@ -12,10 +12,10 @@ import (
 func DNSSupported() (bool, string) { return true, "" }
 
 // RegisterDNS routes *.<tld> lookups to Hull's resolver via an NRPT rule.
-// Requires elevation — launched through a UAC prompt, like v1's hosts sync.
+// Requires elevation , launched through a UAC prompt, like v1's hosts sync.
 func RegisterDNS(tld string, port int) error {
 	if port != 53 {
-		return fmt.Errorf("windows NRPT cannot target a custom DNS port — keep dns.port at 53")
+		return fmt.Errorf("windows NRPT cannot target a custom DNS port , keep dns.port at 53")
 	}
 	script := fmt.Sprintf(`$ErrorActionPreference = "Stop"
 Get-DnsClientNrptRule | Where-Object { $_.Namespace -eq ".%[1]s" } | ForEach-Object { Remove-DnsClientNrptRule -Name $_.Name -Force }

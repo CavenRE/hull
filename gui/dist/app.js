@@ -1,4 +1,4 @@
-/* Hull — app shell: async boot against the live daemon, routing, theme,
+/* Hull , app shell: async boot against the live daemon, routing, theme,
    window controls (frameless), shared utilities. Screen modules and the
    data layer (data.js → window.HULL) are unchanged in spirit; this wires
    them to hulld. */
@@ -204,12 +204,12 @@
   // App.api(method, path, body) → daemon; App.reload() refreshes state + view.
   async function api(method, path, body) { return window.HULL.api(method, path, body); }
   async function reload() {
-    if (wizardActive) return; // the setup wizard owns the screen — never re-mount over it
+    if (wizardActive) return; // the setup wizard owns the screen , never re-mount over it
     // A load failure here means status/config didn't come back. If we still
-    // believe we're connected, surface it — otherwise the reconnect path
+    // believe we're connected, surface it , otherwise the reconnect path
     // (events.onerror → scheduleReconnect) already owns the messaging.
     try { await window.HULL.load(); }
-    catch (e) { if (connected) toast("Couldn't refresh — " + (e.message || "daemon error")); return; }
+    catch (e) { if (connected) toast("Couldn't refresh , " + (e.message || "daemon error")); return; }
     renderNav();
     buildPopover();
     rerender();
@@ -271,7 +271,7 @@
   function paintBar() {
     if (!statusbar || !job) return;
     statusbar.className = "statusbar show" + (job.done ? (job.failed ? " err" : " ok") : "");
-    if (sbTitle) sbTitle.textContent = job.title + (job.done ? (job.failed ? " — failed" : " — done") : "");
+    if (sbTitle) sbTitle.textContent = job.title + (job.done ? (job.failed ? " , failed" : " , done") : "");
     if (sbLine && !job.lines.length) sbLine.textContent = job.done ? "" : "starting…";
     if (detailOpen) paintDetail();
     if (job.done) { clearTimeout(sbHide); sbHide = setTimeout(() => { if (statusbar) statusbar.className = "statusbar"; }, job.failed ? 14000 : 4500); }
@@ -295,7 +295,7 @@
   }
   function paintDetail() {
     if (!job) return;
-    const t = document.getElementById("jmTitle"); if (t) t.textContent = job.title + (job.done ? (job.failed ? " — failed" : " — done") : " — running");
+    const t = document.getElementById("jmTitle"); if (t) t.textContent = job.title + (job.done ? (job.failed ? " , failed" : " , done") : " , running");
     const bar = document.getElementById("jmBar"); if (bar) bar.className = "jobbar" + (job.done ? (job.failed ? " err" : " ok") : "");
     const log = document.getElementById("jmLog"); if (log) { log.textContent = job.lines.join("\n"); log.scrollTop = log.scrollHeight; }
   }
@@ -396,7 +396,7 @@
       };
     } catch (e) {}
   }
-  // Persistent reconnect — keep trying until the daemon is back (survives a
+  // Persistent reconnect , keep trying until the daemon is back (survives a
   // daemon restart without dropping the user to the offline screen).
   function scheduleReconnect() {
     if (reconnectTimer) return;
@@ -444,7 +444,7 @@
   async function boot() {
     setPill(false, "Connecting…");
     if (await tryConnect()) return;
-    // Daemon down — auto-start it if the user opted in (Settings › Startup).
+    // Daemon down , auto-start it if the user opted in (Settings › Startup).
     let auto = true;
     try { const p = await window.__TAURI__.core.invoke("get_gui_prefs"); auto = p.start_daemon_on_launch !== false; } catch (e) {}
     if (auto) {
@@ -458,7 +458,7 @@
   /* ---------------- DAEMON LIFECYCLE (start/stop/restart) ---------------- */
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   // Ask the daemon to exit, then wait until it has removed its discovery file
-  // and released its ports — so a fresh one can start cleanly.
+  // and released its ports , so a fresh one can start cleanly.
   async function shutdownDaemon() {
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     if (events) { events.close(); events = null; }
@@ -475,14 +475,14 @@
     // Bring down everything Hull started first, so nothing keeps holding ports.
     try { await window.HULL.api("POST", "/v1/stop-all"); } catch (e) {}
     await shutdownDaemon();
-    showOffline("Stopped — all sites & services were shut down.");
+    showOffline("Stopped , all sites & services were shut down.");
   }
   async function restartDaemon() {
     setPill(false, "Restarting…");
     await shutdownDaemon();
     try { await window.__TAURI__.core.invoke("start_daemon"); } catch (e) {}
     for (let i = 0; i < 25; i++) { await sleep(600); if (await tryConnect()) { toast("Hull restarted"); return; } }
-    showOffline("Restart timed out — try Start.");
+    showOffline("Restart timed out , try Start.");
   }
   // Clicking the daemon pill forces an immediate reconnect attempt.
   if (daemonPill) daemonPill.addEventListener("click", () => { if (!connected) { if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; } tryConnect().then(ok => { if (!ok) scheduleReconnect(); }); } });

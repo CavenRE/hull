@@ -118,10 +118,10 @@ func ConfigJSON(routes []Route, o Options) ([]byte, error) {
 						// Bind loopback explicitly (v4 + v6), never 0.0.0.0:
 						// keeps dev sites off the LAN and lets Hull coexist with
 						// other local proxies bound to a different loopback IP
-						// (e.g. a stack on 127.0.0.2) — an all-interfaces bind
+						// (e.g. a stack on 127.0.0.2) , an all-interfaces bind
 						// would collide with those on the same port.
 						"listen": loopbackListen(o.BindHost, o.HTTPSPort),
-						// h3 would add a QUIC/UDP listener — pointless for
+						// h3 would add a QUIC/UDP listener , pointless for
 						// a loopback dev proxy, and Windows reserves large
 						// UDP port ranges that make those binds flaky.
 						"protocols": []string{"h1", "h2"},

@@ -1,4 +1,4 @@
-/* Hull — New-project & Import dialogs.
+/* Hull , New-project & Import dialogs.
    Directory presets + Name, a services repeater (scales to a large catalog),
    and an App container flow with Docker Hub search + editable Dockerfile. */
 (function () {
@@ -35,12 +35,12 @@
   }
   function versionsFor(engine) {
     const it = H().CATALOG.flatMap(g => g.items).find(x => x.engine === engine);
-    return (it && it.versions) || ["—"];
+    return (it && it.versions) || [","];
   }
   function repeaterHTML() {
     return `
       <div class="repeater" data-rep>
-        <div class="rep-empty" data-rep-empty>No services yet — add one below.</div>
+        <div class="rep-empty" data-rep-empty>No services yet , add one below.</div>
         <div class="rep-rows" data-rep-rows></div>
         <button type="button" class="btn btn-sm" data-add-svc>${icon("plus",14)}Add service</button>
       </div>`;
@@ -76,11 +76,11 @@
   function dockerSectionHTML() {
     return `
       <div class="form-row" data-docker style="display:none">
-        <label class="field-label">App containers <span class="faint">— search Docker Hub</span></label>
+        <label class="field-label">App containers <span class="faint">, search Docker Hub</span></label>
         <div class="search">${icon("search",14)}<input class="input" data-docker-q placeholder="Search images… e.g. node, python, nginx"></div>
         <div class="docker-status" data-docker-status></div>
         <div class="docker-results" data-docker-results></div>
-        <button class="adv-toggle" type="button">${icon("chevright",16)}Advanced — edit Dockerfile</button>
+        <button class="adv-toggle" type="button">${icon("chevright",16)}Advanced , edit Dockerfile</button>
         <div class="adv-body">
           <p class="help" style="margin:0 0 8px">Tweak the generated Dockerfile before Hull builds the image. It regenerates from your selection until you edit it.</p>
           <textarea class="input dockerfile-ed" data-dockerfile spellcheck="false"></textarea>
@@ -103,7 +103,7 @@
       prev.innerHTML = `${base.replace(/\/$/, "")}/<b>${slug}</b>`;
       if (domainEl) {
         domainEl.innerHTML = (serveEl && !serveEl.checked)
-          ? `<span class="faint">headless — no domain</span>`
+          ? `<span class="faint">headless , no domain</span>`
           : `→ <b>https://${slug}.${H().tld}</b>`;
       }
     };
@@ -191,7 +191,7 @@
         return `<div class="docker-result${isSel ? " sel" : ""}" data-img="${im.name}">
           <span class="dr-ic">${icon("cube",16)}</span>
           <div style="min-width:0"><div class="dr-name">${label}</div><div class="dr-desc">${im.desc}</div></div>
-          <div class="dr-meta">${im.official ? `<span class="badge-official">OFFICIAL</span>` : ""}${im.pulls ? `<span>${icon("download",12)} ${im.pulls}</span>` : ""}<button type="button" class="star-btn${H().isStarred(im.name) ? " on" : ""}" data-star="${im.name}" title="Star — keep at top">${icon("star",14)}</button><select class="select dr-ver" onclick="event.stopPropagation()" style="width:auto${isSel ? "" : ";display:none"}"></select><span class="dr-check">${icon("check",15)}</span></div>
+          <div class="dr-meta">${im.official ? `<span class="badge-official">OFFICIAL</span>` : ""}${im.pulls ? `<span>${icon("download",12)} ${im.pulls}</span>` : ""}<button type="button" class="star-btn${H().isStarred(im.name) ? " on" : ""}" data-star="${im.name}" title="Star , keep at top">${icon("star",14)}</button><select class="select dr-ver" onclick="event.stopPropagation()" style="width:auto${isSel ? "" : ";display:none"}"></select><span class="dr-check">${icon("check",15)}</span></div>
         </div>`;
       }).join("") || `<div class="rep-empty">No images match “${q.value.trim()}”.</div>`;
       results.querySelectorAll("[data-star]").forEach(b => b.addEventListener("click", (e) => {
@@ -266,7 +266,7 @@
     return `<div class="docker-result${sel ? " sel" : ""}" data-img="${im.name}">
       <span class="dr-ic">${icon("cube",16)}</span>
       <div style="min-width:0"><div class="dr-name">${label}</div><div class="dr-desc">${im.desc||""}</div></div>
-      <div class="dr-meta">${im.official?`<span class="badge-official">OFFICIAL</span>`:""}${im.pulls?`<span>${im.pulls}</span>`:""}<button type="button" class="star-btn${H().isStarred(im.name)?" on":""}" data-star="${im.name}" title="Star — keep at top">${icon("star",14)}</button><span class="dr-check">${icon("check",15)}</span></div>
+      <div class="dr-meta">${im.official?`<span class="badge-official">OFFICIAL</span>`:""}${im.pulls?`<span>${im.pulls}</span>`:""}<button type="button" class="star-btn${H().isStarred(im.name)?" on":""}" data-star="${im.name}" title="Star , keep at top">${icon("star",14)}</button><span class="dr-check">${icon("check",15)}</span></div>
     </div>`;
   }
 
@@ -278,7 +278,7 @@
       <div data-cluster style="display:none">
         <div class="form-row">
           <label class="field-label">Containers</label>
-          <p class="help" style="margin:-2px 0 8px">Each container is a Docker Hub image — search, pick, repeat. Ports default to the image's usual port; add linked services per container.</p>
+          <p class="help" style="margin:-2px 0 8px">Each container is a Docker Hub image , search, pick, repeat. Ports default to the image's usual port; add linked services per container.</p>
           <div data-ccards></div>
           <button type="button" class="btn btn-sm" data-add-card>${icon("plus",14)}Add container</button>
         </div>
@@ -492,7 +492,7 @@
       const containers = readContainerCards(scope);
       if (!containers.length) { App.toast("Add a container: name it and pick a Docker Hub image"); return; }
       const bad = containers.find(c => c.serve && !c.port);
-      if (bad) { App.toast(`Container "${bad.name}" is served — set a port`); return; }
+      if (bad) { App.toast(`Container "${bad.name}" is served , set a port`); return; }
       const tog = scope.querySelector("[data-subroot-tog]");
       const sub = scope.querySelector("[data-subroot]");
       const body = {
@@ -578,11 +578,11 @@
         if (det.redis) svcs.push("Redis");
         (det.extras || []).forEach(e => svcs.push(label(e)));
         noteWrap.innerHTML = svcs.length
-          ? `<p class="help" style="margin:8px 0 0">Hull will provision <b>${svcs.join(", ")}</b> — detected from your project and wired into <span class="mono">.env</span> on import.</p>`
+          ? `<p class="help" style="margin:8px 0 0">Hull will provision <b>${svcs.join(", ")}</b> , detected from your project and wired into <span class="mono">.env</span> on import.</p>`
           : "";
       } else {
         chip.innerHTML = `${icon("alert", 13)} Detected a ${det.kind} project`;
-        noteWrap.innerHTML = `<p class="help" style="margin:8px 0 0">Hull imports PHP sites directly. For a <b>${det.kind}</b> project, adopt it as a <b>Cluster</b> (New ▸ Cluster) — Hull now auto-detects its services and routes from the compose file.</p>`;
+        noteWrap.innerHTML = `<p class="help" style="margin:8px 0 0">Hull imports PHP sites directly. For a <b>${det.kind}</b> project, adopt it as a <b>Cluster</b> (New ▸ Cluster) , Hull now auto-detects its services and routes from the compose file.</p>`;
       }
     }).catch(() => {
       const chip = scope.querySelector("[data-detect]");

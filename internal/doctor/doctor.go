@@ -54,17 +54,17 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 	// Container engine.
 	dockerFound := false
 	if _, err := deps.LookPath("docker"); err != nil {
-		add(Fail, "docker CLI", "not in PATH — install Docker (or a docker-compatible engine)")
+		add(Fail, "docker CLI", "not in PATH , install Docker (or a docker-compatible engine)")
 	} else {
 		dockerFound = true
 		add(OK, "docker CLI", "found")
 		if v, err := deps.Output(ctx, "", "docker", "version", "--format", "{{.Server.Version}}"); err != nil {
-			add(Fail, "container engine", "not responding — is it running?")
+			add(Fail, "container engine", "not responding , is it running?")
 		} else {
 			add(OK, "container engine", "server "+v)
 		}
 		if v, err := deps.Output(ctx, "", "docker", "compose", "version", "--short"); err != nil {
-			add(Fail, "docker compose", "missing — install the compose plugin")
+			add(Fail, "docker compose", "missing , install the compose plugin")
 		} else {
 			add(OK, "docker compose", v)
 		}
@@ -84,7 +84,7 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 	xdebug := filepath.Join(cfg.HullHome, "system", "php", "xdebug.ini")
 	if _, err := os.Stat(xdebug); err != nil {
 		if err := templates.EnsureSystemFiles(cfg.HullHome); err == nil {
-			add(OK, "system files", "were missing — provisioned now")
+			add(OK, "system files", "were missing , provisioned now")
 		} else {
 			add(Warn, "system files", "missing and could not be written: "+err.Error())
 		}
@@ -98,7 +98,7 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 			if containsLine(out, "caddy") {
 				add(OK, "caddy network", "exists")
 			} else {
-				add(Warn, "caddy network", "missing — created automatically on first start")
+				add(Warn, "caddy network", "missing , created automatically on first start")
 			}
 		}
 	}
@@ -106,19 +106,19 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 		if portListening(cfg.Router.Loopback, cfg.Router.HTTPSPort) {
 			add(OK, "router (embedded)", fmt.Sprintf("listening on %s:%d", cfg.Router.Loopback, cfg.Router.HTTPSPort))
 		} else {
-			add(Warn, "router (embedded)", fmt.Sprintf("enabled but %s:%d not listening — start the daemon (hulld)", cfg.Router.Loopback, cfg.Router.HTTPSPort))
+			add(Warn, "router (embedded)", fmt.Sprintf("enabled but %s:%d not listening , start the daemon (hulld)", cfg.Router.Loopback, cfg.Router.HTTPSPort))
 		}
 		if certs.Trusted(cfg.RouterDataDir()) {
 			add(OK, "certificate", "local CA provisioned (trust install: hull trust)")
 		} else {
-			add(Warn, "certificate", "no local CA yet — run: hull trust")
+			add(Warn, "certificate", "no local CA yet , run: hull trust")
 		}
 	} else if dockerFound {
 		if out, err := deps.Output(ctx, "", "docker", "ps", "--format", "{{.Names}}"); err == nil {
 			if containsLine(out, "hull-router") {
 				add(OK, "router", "hull-router running (v1 stack)")
 			} else {
-				add(Warn, "router", "no router active — run `hull setup` for v2-native routing")
+				add(Warn, "router", "no router active , run `hull setup` for v2-native routing")
 			}
 		}
 	}
@@ -134,7 +134,7 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 	} else if n := platform.ManagedHostsCount(); n > 0 {
 		add(OK, "name resolution", fmt.Sprintf("%d site name(s) via the managed hosts block", n))
 	} else {
-		add(Warn, "name resolution", "no *."+cfg.TLD+" resolution yet — run `hull setup`")
+		add(Warn, "name resolution", "no *."+cfg.TLD+" resolution yet , run `hull setup`")
 	}
 
 	// Daemon.

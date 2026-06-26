@@ -1,10 +1,10 @@
 /* ============================================================
-   Hull — design tokens + component kit
+   Hull , design tokens + component kit
    Dual-theme (dark default, light override) via CSS variables.
    Consumed by every screen. No build step, no dependencies.
    ============================================================ */
 
-/* Bundled UI typeface — Play (Jonas Hecksher, OFL). Local woff2 so the
+/* Bundled UI typeface , Play (Jonas Hecksher, OFL). Local woff2 so the
    app needs no network. 700 covers the 500/600 weights the UI uses. */
 @font-face {
   font-family: "Play"; font-style: normal; font-weight: 400;
@@ -23,9 +23,9 @@
   color-scheme: dark;
 
   /* surfaces */
-  --bg-app:    #242423;   /* Shadow Grey — window background */
+  --bg-app:    #242423;   /* Shadow Grey , window background */
   --bg-panel:  #2a2b28;   /* sidebar, list pane */
-  --bg-card:   #333533;   /* Graphite — raised cards, rows */
+  --bg-card:   #333533;   /* Graphite , raised cards, rows */
   --bg-card-2: #3c3e3a;   /* hover / nested */
   --bg-inset:  #1d1e1c;   /* recessed: logs, code, conn block */
 
@@ -39,7 +39,7 @@
   --text-faint: #7e8377;
   --text-on-accent: #242423;
 
-  /* accent — Tuscan Sun (fill stays gold; text variant is readable on dark) */
+  /* accent , Tuscan Sun (fill stays gold; text variant is readable on dark) */
   --accent:        #f5cb5c;
   --accent-text:   #f5cb5c;
   --accent-hover:  #f8d572;
@@ -60,7 +60,7 @@
   --ctrl-hover:  #45473f;
   --ctrl-border: rgba(232,237,223,0.13);
 
-  /* shadows (used sparingly — dialogs, popovers only) */
+  /* shadows (used sparingly , dialogs, popovers only) */
   --shadow-pop: 0 12px 32px -8px rgba(0,0,0,0.55), 0 2px 6px rgba(0,0,0,0.4);
 
   /* ---------- scales (theme-independent) ---------- */
@@ -100,7 +100,7 @@
     --text-faint: #8b9083;
     --text-on-accent: #242423;
     --accent:        #f5cb5c;
-    --accent-text:   #7c5e10;   /* deep gold — readable on ivory */
+    --accent-text:   #7c5e10;   /* deep gold , readable on ivory */
     --accent-hover:  #f0bf3f;
     --accent-press:  #e2ad2a;
     --accent-soft:   rgba(245,203,92,0.34);

@@ -1,4 +1,4 @@
-/* Hull — Sites & Apps master–detail screen.
+/* Hull , Sites & Apps master–detail screen.
    The New-project / Import dialogs live in project-dialog.js (window.ProjectDialog). */
 (function () {
   const H = () => window.HULL;
@@ -19,7 +19,7 @@
 
   function clearLog() { if (logTimer) { clearInterval(logTimer); logTimer = null; } if (typeof clearLogStream === "function") clearLogStream(); }
 
-  // Let other screens (Dashboard) open a specific site — routes to its root.
+  // Let other screens (Dashboard) open a specific site , routes to its root.
   window.selectSite = function (name) {
     const root = rootOf(name);
     selected = name; tab = "overview"; App.touchSite(name);
@@ -234,7 +234,7 @@
     const urlRow = s.url
       ? `<button class="url-btn" data-act="open-url">${icon("lock",13)}${s.url}</button>
          <button class="btn" data-act="open-url">${icon("external",15)}Open</button>`
-      : `<span class="path-preview" style="margin:0">headless — no routed domain (enable in Settings)</span>`;
+      : `<span class="path-preview" style="margin:0">headless , no routed domain (enable in Settings)</span>`;
     refs.detail.innerHTML = `
       <div class="detail-head">
         <div class="dh-top">
@@ -288,7 +288,7 @@
     App.api("GET", `/v1/projects/${s.name}/volumes`).then(vols => {
       const pre = document.querySelector("#resetVols pre");
       if (!pre) return;
-      pre.textContent = (vols && vols.length) ? vols.map(v => "• " + v).join("\n") : "No named volumes — nothing to delete.";
+      pre.textContent = (vols && vols.length) ? vols.map(v => "• " + v).join("\n") : "No named volumes , nothing to delete.";
     }).catch(() => {});
     const ri = document.getElementById("resetInput"), rb = document.getElementById("resetBtn");
     ri.addEventListener("input", () => {
@@ -307,7 +307,7 @@
   }
 
   // Cluster overview: the wrapped stack's routed subdomains (its other
-  // containers — workers, dbs — run unserved and aren't listed here).
+  // containers , workers, dbs , run unserved and aren't listed here).
   function renderClusterOverview(s, body) {
     const tld = H().tld;
     const rows = (s.routes || []).map(r => `
@@ -427,7 +427,7 @@
     // Type-aware: PHP only for PHP sites; serve toggle only for single
     // projects (clusters route per-service, not project-wide).
     const isPHP = ["laravel", "wordpress", "php"].includes(s.kind);
-    const domainVal = s.isCluster ? "routes — see Overview" : (s.served ? s.name + "." + H().tld : "— headless —");
+    const domainVal = s.isCluster ? "routes , see Overview" : (s.served ? s.name + "." + H().tld : ", headless ,");
     const phpField = isPHP
       ? `<div><label class="field-label">PHP version</label>
            <select class="select" id="phpSel"></select></div>`
@@ -450,7 +450,7 @@
       <div class="section-label mt">Danger zone</div>
       <div class="card danger">
         <div class="section-label">${s.isCluster ? "Un-adopt cluster" : "Destroy project"}</div>
-        <p style="color:var(--text-dim);margin:0 0 12px">${s.isCluster ? "Stops the stack and removes Hull's manifest — your compose files and repo are left untouched." : "Removes Hull's configuration, certificate, and unlinks services. Your files are not deleted."}</p>
+        <p style="color:var(--text-dim);margin:0 0 12px">${s.isCluster ? "Stops the stack and removes Hull's manifest , your compose files and repo are left untouched." : "Removes Hull's configuration, certificate, and unlinks services. Your files are not deleted."}</p>
         <p style="color:var(--text-dim);margin:0 0 8px;font-size:12px">Type <span class="confirm-name">${s.name}</span> to confirm.</p>
         <div style="display:flex;gap:8px;max-width:380px">
           <input class="input mono" id="destroyInput" placeholder="${s.name}">
@@ -465,12 +465,12 @@
         phpSel.innerHTML = opts.map(v => `<option ${v === s.php ? "selected" : ""}>${v}</option>`).join("");
       });
       phpSel.addEventListener("change", e =>
-        App.act(App.api("PATCH", `/v1/projects/${s.name}`, { php: e.target.value }), `PHP set to ${e.target.value} — restart to apply`));
+        App.act(App.api("PATCH", `/v1/projects/${s.name}`, { php: e.target.value }), `PHP set to ${e.target.value} , restart to apply`));
     }
     const serveTog = body.querySelector("#serveTog");
     if (serveTog) serveTog.addEventListener("change", e =>
       App.act(App.api("PATCH", `/v1/projects/${s.name}`, { serve: e.target.checked }),
-        e.target.checked ? "Domain enabled — restart to apply" : "Domain removed — restart to apply"));
+        e.target.checked ? "Domain enabled , restart to apply" : "Domain removed , restart to apply"));
     const di = body.querySelector("#destroyInput"), db = body.querySelector("#destroyBtn");
     di.addEventListener("input", () => {
       const ok = di.value === s.name;
@@ -504,7 +504,7 @@
               <div><div class="eo-name">${i.name}</div><div class="eo-blurb">${meta.label}${i.version&&i.version!=="latest"?" "+i.version:""}${i.host_port?" · "+i.host+":"+i.host_port:""}</div></div>
               <span class="dot ${dotClass(i.status)} eo-ver" style="margin-left:auto"></span>
             </div>`;
-          }).join("") : `<div style="color:var(--text-dim)">No shared instances yet — add one on the Services page.</div>`}
+          }).join("") : `<div style="color:var(--text-dim)">No shared instances yet , add one on the Services page.</div>`}
         </div>
         <div class="dialog-foot"><button class="btn" data-dialog-close>Done</button></div>
       </div>`);

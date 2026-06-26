@@ -1,4 +1,4 @@
-/* Hull — New-project & Import dialogs.
+/* Hull , New-project & Import dialogs.
    Directory presets + Name, a services repeater (scales to a large catalog),
    and an App container flow with Docker Hub search + editable Dockerfile. */
 (function () {
@@ -35,12 +35,12 @@
   }
   function versionsFor(engine) {
     const it = H().CATALOG.flatMap(g => g.items).find(x => x.engine === engine);
-    return (it && it.versions) || ["—"];
+    return (it && it.versions) || [","];
   }
   function repeaterHTML() {
     return `
       <div class="repeater" data-rep>
-        <div class="rep-empty" data-rep-empty>No services yet — add one below.</div>
+        <div class="rep-empty" data-rep-empty>No services yet , add one below.</div>
         <div class="rep-rows" data-rep-rows></div>
         <button type="button" class="btn btn-sm" data-add-svc>${icon("plus",14)}Add service</button>
       </div>`;
@@ -74,11 +74,11 @@
   function dockerSectionHTML() {
     return `
       <div class="form-row" data-docker style="display:none">
-        <label class="field-label">App containers <span class="faint">— search Docker Hub</span></label>
+        <label class="field-label">App containers <span class="faint">, search Docker Hub</span></label>
         <div class="search">${icon("search",14)}<input class="input" data-docker-q placeholder="Search images… e.g. node, python, nginx"></div>
         <div class="docker-status" data-docker-status></div>
         <div class="docker-results" data-docker-results></div>
-        <button class="adv-toggle" type="button">${icon("chevright",16)}Advanced — edit Dockerfile</button>
+        <button class="adv-toggle" type="button">${icon("chevright",16)}Advanced , edit Dockerfile</button>
         <div class="adv-body">
           <p class="help" style="margin:0 0 8px">Tweak the generated Dockerfile before Hull builds the image. It regenerates from your selection until you edit it.</p>
           <textarea class="input dockerfile-ed" data-dockerfile spellcheck="false"></textarea>

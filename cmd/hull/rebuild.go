@@ -40,7 +40,7 @@ func init() {
 		Use:   "reset [name]",
 		Short: "Wipe a project's data volumes and start fresh",
 		Long: `Removes the project's named volumes (databases, caches) and starts it
-again from scratch. Host bind-mounts are NOT touched — only named volumes.`,
+again from scratch. Host bind-mounts are NOT touched , only named volumes.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
@@ -57,7 +57,7 @@ again from scratch. Host bind-mounts are NOT touched — only named volumes.`,
 			if !force {
 				vols, verr := a.Engine.Volumes(cmd.Context(), p)
 				if verr != nil {
-					fmt.Printf("Warning: could not list volumes for %s (%v) — reset will still run `down -v`.\n", p.Name, verr)
+					fmt.Printf("Warning: could not list volumes for %s (%v) , reset will still run `down -v`.\n", p.Name, verr)
 				} else if len(vols) > 0 {
 					fmt.Printf("This deletes %d named volume(s) for %s:\n", len(vols), p.Name)
 					for _, v := range vols {

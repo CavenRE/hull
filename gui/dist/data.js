@@ -1,4 +1,4 @@
-/* Hull — LIVE data layer. Replaces the design mock: static catalogs +
+/* Hull , LIVE data layer. Replaces the design mock: static catalogs +
    state shaped from the hulld API into the structure the screen modules
    expect (window.HULL.ROOTS / SERVICES / HEALTH / JOBS / DIRS / ...). */
 (function () {
@@ -119,7 +119,7 @@
     // DIRS from configured roots
     HULL.DIRS = (config.roots || []).map(p => ({ label: baseName(p), path: p.replace(/\\/g, "/") }));
 
-    // SERVICES — map API shape to the screen shape
+    // SERVICES , map API shape to the screen shape
     HULL.SERVICES = (services || []).map(s => ({
       name: s.name, engine: s.engine, version: s.version || "",
       status: s.running ? "running" : "stopped",
@@ -128,7 +128,7 @@
       url: s.url || null, linked: s.linked_projects || [],
     }));
 
-    // ROOTS — group projects by configured root
+    // ROOTS , group projects by configured root
     const roots = (config.roots || []).map(p => ({ path: p.replace(/\\/g, "/"), _abs: p, managed: [], unmanaged: [] }));
     const other = { path: "other", _abs: "", managed: [], unmanaged: [] };
     const norm = (p) => (p || "").replace(/\\/g, "/").replace(/\/+$/, "");
@@ -163,11 +163,11 @@
     HULL.ROOTS = roots.filter(r => r.managed.length || r.unmanaged.length);
     if (other.managed.length || other.unmanaged.length) HULL.ROOTS.push(other);
 
-    // HEALTH from doctor — pick the headline checks
+    // HEALTH from doctor , pick the headline checks
     const pick = (needle) => (doctor || []).find(c => c.name.toLowerCase().includes(needle));
     const st = (c) => !c ? "warn" : c.status === "ok" ? "ok" : c.status === "warn" ? "warn" : "err";
     const eng = pick("container engine") || pick("docker");
-    const clip = (s) => { s = (s || "—").split(" — ")[0]; return s.length > 38 ? s.slice(0, 37) + "…" : s; };
+    const clip = (s) => { s = (s || ",").split(" , ")[0]; return s.length > 38 ? s.slice(0, 37) + "…" : s; };
     HULL.HEALTH = [
       { icon: "server", name: "Engine",      status: st(eng), detail: clip(eng && eng.detail) },
       { icon: "route",  name: "Router",      status: st(pick("router")), detail: clip((pick("router") || {}).detail) },
@@ -176,10 +176,10 @@
     ];
     HULL._doctor = doctor || [];
 
-    // DEPENDENCIES — live from /v1/dependencies (real Docker detection +
+    // DEPENDENCIES , live from /v1/dependencies (real Docker detection +
     // embedded components). Falls back to a Docker stub if the call failed.
     HULL.DEPENDENCIES = (deps && deps.length) ? deps : [
-      { name: "Docker Engine", key: "docker", status: "missing", blurb: "Container runtime — Hull's one external dependency.", install_url: "https://www.docker.com/products/docker-desktop/" },
+      { name: "Docker Engine", key: "docker", status: "missing", blurb: "Container runtime , Hull's one external dependency.", install_url: "https://www.docker.com/products/docker-desktop/" },
     ];
 
     // JOBS → recent activity feed
@@ -266,7 +266,7 @@
       return out;
     } catch (e) { return PHP_FALLBACK; }
   };
-  // Live version search (specific tags) — q filters Docker Hub tags.
+  // Live version search (specific tags) , q filters Docker Hub tags.
   HULL.versionSearch = async function (engine, q) {
     try { return await HULL.api("GET", `/v1/registry/versions?engine=${encodeURIComponent(engine)}&q=${encodeURIComponent(q)}`); } catch (e) { return []; }
   };

@@ -36,7 +36,7 @@ func New(cfg *config.Config) *Engine {
 }
 
 // prepareNetworks creates the external networks generated compose files
-// reference — a fresh v2 machine has no v1 setup to have made them.
+// reference , a fresh v2 machine has no v1 setup to have made them.
 func (e *Engine) prepareNetworks(ctx context.Context) error {
 	if e.EnsureNet == nil {
 		return nil
@@ -51,7 +51,7 @@ func (e *Engine) ComposeContext() compose.Context {
 		HullHome: filepath.ToSlash(e.Config.HullHome),
 	}
 	// On native Linux, bind-mounted files keep the host's uid/gid and the
-	// container's www-data (uid 33) cannot write them — so pass PUID/PGID to
+	// container's www-data (uid 33) cannot write them , so pass PUID/PGID to
 	// remap the container user. macOS/Windows Docker Desktop handle this in
 	// the VM, so leave the identity empty there.
 	if runtime.GOOS == "linux" {
@@ -71,7 +71,7 @@ func isCluster(p *state.Project) bool {
 	return p.Manifest != nil && p.Manifest.Type == manifest.TypeCluster
 }
 
-// projectName is the docker compose project name for p — always a slug, so a
+// projectName is the docker compose project name for p , always a slug, so a
 // directory with spaces or capitals never decides (or breaks) the identity.
 func projectName(p *state.Project) string {
 	if p.Manifest != nil && p.Manifest.Name != "" {
@@ -80,7 +80,7 @@ func projectName(p *state.Project) string {
 	return manifest.Slug(p.Name)
 }
 
-// composeFor returns the compose driver for a project — for clusters that's
+// composeFor returns the compose driver for a project , for clusters that's
 // the wrapped stack (operational root + -f files + profiles); for sites/apps
 // it's the project's own generated compose.yaml. The project name is pinned
 // with -p so adopted dirs with spaces/capitals stay deterministic.
@@ -189,7 +189,7 @@ func (e *Engine) NewProject(ctx context.Context, opts NewOptions) (string, error
 			return dir, err
 		}
 		// Laravel ships SESSION_DRIVER=database etc., so the app 500s on the
-		// first request until its tables exist — run migrations once it's up.
+		// first request until its tables exist , run migrations once it's up.
 		if opts.Template == "laravel" {
 			e.laravelMigrate(ctx, dir)
 		}
@@ -199,7 +199,7 @@ func (e *Engine) NewProject(ctx context.Context, opts NewOptions) (string, error
 
 // laravelMigrate runs `php artisan migrate --force` once the app container is
 // reachable, retrying briefly (a dedicated DB may still be coming up). Best
-// effort: a failure leaves the project created — the user can re-run migrate.
+// effort: a failure leaves the project created , the user can re-run migrate.
 func (e *Engine) laravelMigrate(ctx context.Context, dir string) {
 	c := e.compose(dir)
 	for i := 0; i < 6; i++ {
@@ -294,7 +294,7 @@ func (e *Engine) Rebuild(ctx context.Context, p *state.Project, noCache bool) er
 }
 
 // Reset wipes the project's named volumes (databases, caches) and starts it
-// fresh — the "drop the data, start from scratch" flow. Bind-mounted files on
+// fresh , the "drop the data, start from scratch" flow. Bind-mounted files on
 // the host are untouched; only named volumes are removed.
 func (e *Engine) Reset(ctx context.Context, p *state.Project) error {
 	if err := e.composeFor(p).DownVolumes(ctx); err != nil {
@@ -303,7 +303,7 @@ func (e *Engine) Reset(ctx context.Context, p *state.Project) error {
 	return e.Up(ctx, p)
 }
 
-// Volumes lists the project's named volumes — the blast radius of a Reset.
+// Volumes lists the project's named volumes , the blast radius of a Reset.
 func (e *Engine) Volumes(ctx context.Context, p *state.Project) ([]string, error) {
 	return e.composeFor(p).Volumes(ctx)
 }
@@ -320,7 +320,7 @@ func (e *Engine) ExecIn(ctx context.Context, p *state.Project, service string, c
 
 // Destroy tears down containers and volumes and deletes the project
 // directory. The caller is responsible for confirmation. For a CLUSTER it
-// never deletes files (that's the user's repo) — it tears the stack down and
+// never deletes files (that's the user's repo) , it tears the stack down and
 // un-adopts by removing only the Hull manifest.
 func (e *Engine) Destroy(ctx context.Context, p *state.Project) error {
 	if isCluster(p) {
@@ -351,7 +351,7 @@ type PatchOptions struct {
 // Shared by the CLI `hull set` and the daemon PATCH handler (core-first).
 func (e *Engine) SetProjectFields(p *state.Project, opts PatchOptions) error {
 	if p.Manifest == nil {
-		return fmt.Errorf("%s is not managed by Hull yet — import it first", p.Name)
+		return fmt.Errorf("%s is not managed by Hull yet , import it first", p.Name)
 	}
 	m := p.Manifest
 	old := *m
@@ -419,11 +419,11 @@ func buildManifest(opts NewOptions) (*manifest.Manifest, error) {
 }
 
 // wireLaravelEnv points a scaffolded Laravel .env at the project's
-// services — the Go port of v1's env wiring in commands/new.
+// services , the Go port of v1's env wiring in commands/new.
 func wireLaravelEnv(dir string, m *manifest.Manifest) error {
 	envPath := filepath.Join(dir, ".env")
 	if _, err := os.Stat(envPath); err != nil {
-		return nil // no .env scaffolded (skipped scaffold) — nothing to wire
+		return nil // no .env scaffolded (skipped scaffold) , nothing to wire
 	}
 
 	set := func(key, value string) error {

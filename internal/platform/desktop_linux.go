@@ -14,7 +14,7 @@ import (
 // install routes (install.sh and the graphical installer) and the two
 // uninstall routes (uninstall.sh and `hull uninstall`). Keeping the canonical
 // paths and the file contents here means any uninstaller cleans up after any
-// installer — they must agree on every path and marker below.
+// installer , they must agree on every path and marker below.
 //
 // Everything lives under the user's XDG dirs (no root): a Hull install is
 // per-user, mirroring ~/.local/bin for the binaries.
@@ -251,7 +251,7 @@ func systemdUnit(hulldExe string) string {
 }
 
 // WriteSystemdUserUnit installs the unit and reloads the user manager. It does
-// not enable the unit — that's a separate, opt-in step.
+// not enable the unit , that's a separate, opt-in step.
 func WriteSystemdUserUnit(hulldExe string) error {
 	path := SystemdUserUnitPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

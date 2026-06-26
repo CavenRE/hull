@@ -39,7 +39,7 @@ type ClusterRouteInfo struct {
 	Served    bool   `json:"served"`
 }
 
-// DetectInfo answers GET /v1/detect — file-based project detection.
+// DetectInfo answers GET /v1/detect , file-based project detection.
 type DetectInfo struct {
 	Kind     string `json:"kind"`     // laravel|wordpress|plain|python|node|go|docker|static
 	Template string `json:"template"` // PHP site template (laravel|wordpress|plain)
@@ -192,7 +192,7 @@ type PatchProjectRequest struct {
 	Serve  *bool   `json:"serve,omitempty"`
 }
 
-// AddServiceRequest answers POST /v1/services (a job — image pulls).
+// AddServiceRequest answers POST /v1/services (a job , image pulls).
 type AddServiceRequest struct {
 	Engine  string `json:"engine"`
 	Version string `json:"version,omitempty"`

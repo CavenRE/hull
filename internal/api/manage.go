@@ -100,7 +100,7 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 
 	// The GUI is v2-native: the embedded router must run (it serves every site
 	// on the loopback). The legacy `enabled:false` was for side-by-side v1
-	// dogfooding only — coexistence is handled by the loopback octet now. The
+	// dogfooding only , coexistence is handled by the loopback octet now. The
 	// router binds at daemon start, so flipping it on needs a restart.
 	if !s.Config.Router.Enabled {
 		s.Config.Router.Enabled = true
@@ -135,12 +135,12 @@ func (s *Server) handleProjectOpen(w http.ResponseWriter, r *http.Request) {
 	case "folder":
 		name, args := fileManagerCommand(p.Dir)
 		// File managers (explorer.exe notoriously) return nonzero on
-		// success — fire and forget.
+		// success , fire and forget.
 		_ = s.Engine.Run(r.Context(), "", name, args...)
 	case "editor":
 		editor := s.Config.Defaults.Editor
 		if editor == "" {
-			writeError(w, http.StatusBadRequest, fmt.Errorf("no editor configured — set one in Settings"))
+			writeError(w, http.StatusBadRequest, fmt.Errorf("no editor configured , set one in Settings"))
 			return
 		}
 		if err := s.Engine.Run(r.Context(), p.Dir, editor, p.Dir); err != nil {
@@ -177,7 +177,7 @@ func (s *Server) handleProjectPatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p.Manifest == nil {
-		writeError(w, http.StatusConflict, fmt.Errorf("%s is not managed by Hull yet — import it first", p.Name))
+		writeError(w, http.StatusConflict, fmt.Errorf("%s is not managed by Hull yet , import it first", p.Name))
 		return
 	}
 	if err := s.Engine.SetProjectFields(p, engine.PatchOptions{PHP: req.PHP, Domain: req.Domain, Serve: req.Serve}); err != nil {

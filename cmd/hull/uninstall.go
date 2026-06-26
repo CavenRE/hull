@@ -24,7 +24,7 @@ func init() {
 		Long: `Uninstall the Hull app (binaries, PATH entry, shortcuts, and the
 Apps & Features entry). Your project files are never touched.
 
-This is what Windows' "Uninstall" button runs — it works from the install
+This is what Windows' "Uninstall" button runs , it works from the install
 directory, so it isn't blocked when a policy stops the NSIS uninstaller from
 launching its temporary copy.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
