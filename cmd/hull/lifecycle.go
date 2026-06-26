@@ -107,6 +107,29 @@ func init() {
 
 func init() {
 	rootCmd.AddCommand(&cobra.Command{
+		Use:   "repair [name]",
+		Short: "Recreate a project from a clean slate (fixes a wedged/detached state; keeps data)",
+		Long:  "Bring a project down (containers + networks; named volumes kept) and back\nup. Use it when a half-finished start left a container detached or wedged\nand a plain restart won't recover it.",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := loadApp()
+			if err != nil {
+				return err
+			}
+			p, err := oneTarget(a, args)
+			if err != nil {
+				return err
+			}
+			if client, viaDaemon := a.client(); viaDaemon {
+				return client.ProjectAction(cmd.Context(), p.Name, "repair")
+			}
+			return a.Engine.Repair(cmd.Context(), p)
+		},
+	})
+}
+
+func init() {
+	rootCmd.AddCommand(&cobra.Command{
 		Use:   "logs [name]",
 		Short: "Tail a project's container logs",
 		Args:  cobra.MaximumNArgs(1),

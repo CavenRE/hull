@@ -287,6 +287,8 @@ func (s *Server) handleProjectAction(w http.ResponseWriter, r *http.Request) {
 		err = s.Engine.Down(r.Context(), p)
 	case "restart":
 		err = s.Engine.Restart(r.Context(), p)
+	case "repair":
+		err = s.Engine.Repair(r.Context(), p)
 	default:
 		writeError(w, http.StatusNotFound, fmt.Errorf("unknown action %q", action))
 		return

@@ -69,6 +69,13 @@ func (c Compose) Restart(ctx context.Context) error {
 	return c.run(ctx, "restart")
 }
 
+// Recreate brings the project up, forcing containers to be recreated even when
+// their config is unchanged , the repair for a container left with drifted
+// config or detached networks, which plain Restart cannot fix.
+func (c Compose) Recreate(ctx context.Context) error {
+	return c.run(ctx, "up", "-d", "--force-recreate")
+}
+
 // Volumes lists the project's named volumes (for a destructive-reset preview).
 func (c Compose) Volumes(ctx context.Context) ([]string, error) {
 	out, err := Output(ctx, c.Dir, "docker", "compose", "config", "--volumes")

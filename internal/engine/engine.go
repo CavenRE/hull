@@ -247,16 +247,8 @@ func (e *Engine) Up(ctx context.Context, p *state.Project) error {
 			return err
 		}
 	} else {
-		if err := templates.EnsureSystemFiles(e.Config.HullHome); err != nil {
+		if err := e.renderForUp(ctx, p); err != nil {
 			return err
-		}
-		if err := e.prepareNetworks(ctx); err != nil {
-			return err
-		}
-		if p.Manifest != nil {
-			if err := e.Render(p.Manifest, p.Dir); err != nil {
-				return err
-			}
 		}
 		if err := e.compose(p.Dir).Up(ctx); err != nil {
 			return err
@@ -264,6 +256,21 @@ func (e *Engine) Up(ctx context.Context, p *state.Project) error {
 	}
 	e.recordStarted(p)
 	return e.runHooks(ctx, p, "post_up", true)
+}
+
+// renderForUp prepares a non-cluster project to start: self-heal system files,
+// ensure external networks, and regenerate compose.yaml from the manifest.
+func (e *Engine) renderForUp(ctx context.Context, p *state.Project) error {
+	if err := templates.EnsureSystemFiles(e.Config.HullHome); err != nil {
+		return err
+	}
+	if err := e.prepareNetworks(ctx); err != nil {
+		return err
+	}
+	if p.Manifest != nil {
+		return e.Render(p.Manifest, p.Dir)
+	}
+	return nil
 }
 
 // Down stops a project. pre_down hooks run best-effort , stopping must always
@@ -277,9 +284,34 @@ func (e *Engine) Down(ctx context.Context, p *state.Project) error {
 	return nil
 }
 
-// Restart restarts a project.
+// Restart recreates the project's containers (force-recreate) so a container
+// left with drifted config or detached networks is rebuilt, not merely bounced
+// , plain `compose restart` cannot repair attachment drift (the Sentinel bug).
 func (e *Engine) Restart(ctx context.Context, p *state.Project) error {
-	return e.composeFor(p).Restart(ctx)
+	if isCluster(p) {
+		if err := e.composeFor(p).Recreate(ctx); err != nil {
+			return err
+		}
+	} else {
+		if err := e.renderForUp(ctx, p); err != nil {
+			return err
+		}
+		if err := e.compose(p.Dir).Recreate(ctx); err != nil {
+			return err
+		}
+	}
+	e.recordStarted(p)
+	return nil
+}
+
+// Repair brings a project down (containers + networks; named volumes kept) and
+// back up , the clean-slate fix when a half-finished `up` left a container
+// detached or otherwise wedged.
+func (e *Engine) Repair(ctx context.Context, p *state.Project) error {
+	if err := e.composeFor(p).Down(ctx); err != nil {
+		fmt.Fprintln(os.Stderr, "repair: compose down reported (continuing to bring it back up):", err)
+	}
+	return e.Up(ctx, p)
 }
 
 // Rebuild rebuilds the project's images and brings it back up. With noCache
