@@ -398,7 +398,9 @@ Fork it and mould it to your stack. Pull requests are welcome, but be aware I ma
 
 **Enjoying Hull?** If it saves you some time, you can support its development , it's hugely appreciated: 
 
-[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/cavenre) - _(Friend made me do it)_
+[![Support me on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/cavenre)
+
+_(Friend made me do it)_
 
 ---
 
