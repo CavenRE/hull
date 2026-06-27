@@ -8,17 +8,17 @@
                 <TextBlock Text="Services" Style="{StaticResource ScreenTitle}" />
                 <TextBlock x:Name="Sub" Style="{StaticResource Muted}" Margin="14,9,0,0" VerticalAlignment="Center" />
             </StackPanel>
-            <Button Style="{StaticResource BtnPrimary}" HorizontalAlignment="Right" Margin="0,0,112,0"
+            <Button Style="{StaticResource BtnPrimary}" HorizontalAlignment="Right"
                     VerticalAlignment="Center" Click="OnAdd">
                 <StackPanel Orientation="Horizontal">
-                    <h:Icon Glyph="plus" Width="13" Height="13" Brush="{StaticResource TextOnAccent}" VerticalAlignment="Center" />
+                    <h:Icon Glyph="plus" Width="13" Height="13" Brush="{DynamicResource TextOnAccent}" VerticalAlignment="Center" />
                     <TextBlock Text="Add instance" Margin="7,0,0,0" />
                 </StackPanel>
             </Button>
         </Grid>
 
         <Grid>
-            <TextBlock x:Name="EmptyMsg" Text="No shared services yet , add one with `hull services add`."
+            <TextBlock x:Name="EmptyMsg" Text="No shared services yet — add one with “Add instance”."
                        Style="{StaticResource Muted}" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <ItemsControl x:Name="List">
@@ -33,102 +33,121 @@
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
                                             <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <h:Icon Grid.Column="0" Glyph="{Binding Glyph}" Width="18" Height="18"
-                                                Brush="{StaticResource TextDim}" VerticalAlignment="Center" Margin="0,0,10,0" />
-                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding name}" FontWeight="SemiBold" FontSize="15" VerticalAlignment="Center" />
-                                            <Border Style="{StaticResource Chip}" Background="{StaticResource AccentSoft}"
-                                                    BorderThickness="0" Margin="9,0,0,0">
-                                                <TextBlock Text="{Binding Badge}" Foreground="{StaticResource Accent}" FontSize="11" />
-                                            </Border>
-                                        </StackPanel>
-                                        <Ellipse Grid.Column="2" Width="8" Height="8" VerticalAlignment="Center" Margin="0,0,10,0">
+                                        <Ellipse Grid.Column="0" Width="8" Height="8" VerticalAlignment="Center" Margin="0,0,9,0">
                                             <Ellipse.Style>
                                                 <Style TargetType="Ellipse">
-                                                    <Setter Property="Fill" Value="{StaticResource TextFaint}" />
+                                                    <Setter Property="Fill" Value="{DynamicResource TextFaint}" />
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding running}" Value="True">
-                                                            <Setter Property="Fill" Value="{StaticResource Green}" />
+                                                            <Setter Property="Fill" Value="{DynamicResource Green}" />
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
                                             </Ellipse.Style>
                                         </Ellipse>
-                                        <Button Grid.Column="3" Style="{StaticResource Btn}" Height="26" FontSize="12"
+                                        <h:Icon Grid.Column="1" Glyph="{Binding Glyph}" Width="18" Height="18"
+                                                Brush="{DynamicResource TextDim}" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding name}" FontWeight="SemiBold" FontSize="15" VerticalAlignment="Center" />
+                                            <Border Style="{StaticResource ChipAccent}" Margin="9,0,0,0">
+                                                <TextBlock Text="{Binding Badge}" Foreground="{DynamicResource Accent}" FontSize="11" />
+                                            </Border>
+                                        </StackPanel>
+                                        <Button Grid.Column="3" Style="{StaticResource BtnSm}"
                                                 Content="Start" Click="OnStart" Visibility="{Binding NotRunning, Converter={StaticResource B2V}}" />
-                                        <Button Grid.Column="3" Style="{StaticResource Btn}" Height="26" FontSize="12"
+                                        <Button Grid.Column="3" Style="{StaticResource BtnSm}"
                                                 Content="Stop" Click="OnStop" Visibility="{Binding running, Converter={StaticResource B2V}}" />
+                                        <Button Grid.Column="4" Style="{StaticResource IconBtn}" Margin="4,0,0,0" Click="OnRestart" ToolTip="Restart">
+                                            <h:Icon Glyph="restart" Width="14" Height="14" Brush="{DynamicResource TextDim}" />
+                                        </Button>
                                     </Grid>
 
-                                    <TextBlock Margin="28,8,0,0" Visibility="{Binding HasUrl, Converter={StaticResource B2V}}">
-                                        <Hyperlink Click="OnOpenUrl" Foreground="{StaticResource Accent}" TextDecorations="None">
+                                    <TextBlock Margin="29,8,0,0" Visibility="{Binding HasUrl, Converter={StaticResource B2V}}">
+                                        <Hyperlink Click="OnOpenUrl" Foreground="{DynamicResource Accent}" TextDecorations="None">
+                                            <h:Icon Glyph="external" Width="12" Height="12" Brush="{DynamicResource Accent}" />
                                             <Run Text="{Binding url, Mode=OneWay}" />
                                         </Hyperlink>
                                     </TextBlock>
 
                                     <!-- connection details -->
-                                    <Border Background="{StaticResource BgInset}" BorderBrush="{StaticResource Border}"
-                                            BorderThickness="1" CornerRadius="7" Margin="0,10,0,0"
-                                            Visibility="{Binding HasPort, Converter={StaticResource B2V}}">
+                                    <Border Background="{DynamicResource BgInset}" BorderBrush="{DynamicResource Border}"
+                                            BorderThickness="1" CornerRadius="7" Margin="0,10,0,0">
                                         <StackPanel>
                                             <Grid Margin="11,7">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="80" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
-                                                <TextBlock Grid.Column="0" Text="host" Style="{StaticResource Muted}" />
-                                                <TextBlock Grid.Column="1" Text="{Binding HostText}" FontFamily="Consolas" FontSize="12" />
+                                                <TextBlock Grid.Column="0" Text="host" Style="{StaticResource Faint}" />
+                                                <TextBlock Grid.Column="1" Text="{Binding HostText}" FontFamily="{StaticResource FontMono}" FontSize="12" Foreground="{DynamicResource Text}" />
                                                 <Button Grid.Column="2" Style="{StaticResource IconBtn}" Padding="4" Tag="{Binding HostText}" Click="OnCopy">
-                                                    <h:Icon Glyph="copy" Width="13" Height="13" Brush="{StaticResource TextFaint}" />
+                                                    <h:Icon Glyph="copy" Width="13" Height="13" Brush="{DynamicResource TextFaint}" />
                                                 </Button>
                                             </Grid>
-                                            <Border Height="1" Background="{StaticResource Border}" />
+                                            <Border Height="1" Background="{DynamicResource Border}" />
                                             <Grid Margin="11,7">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="80" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
-                                                <TextBlock Grid.Column="0" Text="port" Style="{StaticResource Muted}" />
-                                                <TextBlock Grid.Column="1" Text="{Binding PortText}" FontFamily="Consolas" FontSize="12" />
-                                                <Button Grid.Column="2" Style="{StaticResource IconBtn}" Padding="4" Tag="{Binding PortText}" Click="OnCopy">
-                                                    <h:Icon Glyph="copy" Width="13" Height="13" Brush="{StaticResource TextFaint}" />
+                                                <TextBlock Grid.Column="0" Text="port" Style="{StaticResource Faint}" />
+                                                <TextBlock Grid.Column="1" Text="{Binding PortLabel}" FontFamily="{StaticResource FontMono}" FontSize="12" Foreground="{DynamicResource Text}" />
+                                                <Button Grid.Column="2" Style="{StaticResource IconBtn}" Padding="4" Tag="{Binding PortText}" Click="OnCopy"
+                                                        Visibility="{Binding HasPort, Converter={StaticResource B2V}}">
+                                                    <h:Icon Glyph="copy" Width="13" Height="13" Brush="{DynamicResource TextFaint}" />
                                                 </Button>
                                             </Grid>
-                                            <Border Height="1" Background="{StaticResource Border}" />
-                                            <Grid Margin="11,7">
+                                            <Border Height="1" Background="{DynamicResource Border}" Visibility="{Binding HasUser, Converter={StaticResource B2V}}" />
+                                            <Grid Margin="11,7" Visibility="{Binding HasUser, Converter={StaticResource B2V}}">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="80" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
-                                                <TextBlock Grid.Column="0" Text="user" Style="{StaticResource Muted}" />
-                                                <TextBlock Grid.Column="1" Text="{Binding UserText}" FontFamily="Consolas" FontSize="12" />
+                                                <TextBlock Grid.Column="0" Text="user" Style="{StaticResource Faint}" />
+                                                <TextBlock Grid.Column="1" Text="{Binding UserText}" FontFamily="{StaticResource FontMono}" FontSize="12" Foreground="{DynamicResource Text}" />
                                                 <Button Grid.Column="2" Style="{StaticResource IconBtn}" Padding="4" Tag="{Binding UserText}" Click="OnCopy">
-                                                    <h:Icon Glyph="copy" Width="13" Height="13" Brush="{StaticResource TextFaint}" />
+                                                    <h:Icon Glyph="copy" Width="13" Height="13" Brush="{DynamicResource TextFaint}" />
                                                 </Button>
                                             </Grid>
-                                            <Border Height="1" Background="{StaticResource Border}" />
+                                            <Border Height="1" Background="{DynamicResource Border}" />
                                             <Grid Margin="11,7">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="80" /><ColumnDefinition Width="*" />
                                                 </Grid.ColumnDefinitions>
-                                                <TextBlock Grid.Column="0" Text="password" Style="{StaticResource Muted}" />
-                                                <TextBlock Grid.Column="1" Text="(no password)" Foreground="{StaticResource TextFaint}"
+                                                <TextBlock Grid.Column="0" Text="password" Style="{StaticResource Faint}" />
+                                                <TextBlock Grid.Column="1" Text="(no password)" Foreground="{DynamicResource TextFaint}"
                                                            FontStyle="Italic" FontSize="12" />
                                             </Grid>
                                         </StackPanel>
                                     </Border>
 
-                                    <TextBlock Text="{Binding Linked}" Style="{StaticResource Faint}" Margin="2,10,0,0"
-                                               Visibility="{Binding HasLinked, Converter={StaticResource B2V}}" />
-                                    <TextBlock Text="No linked projects" Style="{StaticResource Faint}" Margin="2,10,0,0"
-                                               Visibility="{Binding NoLinked, Converter={StaticResource B2V}}" />
+                                    <StackPanel Orientation="Horizontal" Margin="2,10,0,0">
+                                        <TextBlock Text="Linked" Style="{StaticResource Faint}" VerticalAlignment="Center"
+                                                   Visibility="{Binding HasLinked, Converter={StaticResource B2V}}" Margin="0,0,6,0" />
+                                        <ItemsControl ItemsSource="{Binding linked_projects}" VerticalAlignment="Center"
+                                                      Visibility="{Binding HasLinked, Converter={StaticResource B2V}}">
+                                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Border Style="{StaticResource Chip}" Margin="0,0,5,0">
+                                                        <TextBlock Text="{Binding}" FontSize="11" Foreground="{DynamicResource TextDim}" />
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <TextBlock Text="No linked projects" Style="{StaticResource Faint}"
+                                                   Visibility="{Binding NoLinked, Converter={StaticResource B2V}}" />
+                                    </StackPanel>
 
                                     <!-- footer -->
-                                    <Grid Margin="0,12,0,0">
+                                    <Grid Margin="0,14,0,0">
                                         <StackPanel Orientation="Horizontal">
-                                            <Button Style="{StaticResource Btn}" Height="26" FontSize="12" Content="Open with…" Click="OnOpenWith" />
-                                            <Button Style="{StaticResource Btn}" Height="26" FontSize="12" Content="Link a project" Margin="6,0,0,0" Click="OnLink" />
+                                            <Button x:Name="OpenWithBtn" Style="{StaticResource BtnSm}" Content="Open with…" Click="OnOpenWith"
+                                                    Visibility="{Binding IsDatabase, Converter={StaticResource B2V}}" />
+                                            <Button Style="{StaticResource BtnSm}" Content="Link a project" Margin="6,0,0,0" Click="OnLink" />
                                         </StackPanel>
                                         <Button Style="{StaticResource BtnDanger}" HorizontalAlignment="Right" Height="26" FontSize="12"
                                                 Content="Destroy" Click="OnDestroy" />

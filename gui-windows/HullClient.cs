@@ -62,10 +62,13 @@ public record ServiceInfo(
     public bool NotRunning => !running;
     public bool HasUrl => !string.IsNullOrEmpty(url);
     public bool HasPort => host_port > 0;
+    public bool HasUser => !string.IsNullOrEmpty(username);
     public bool HasLinked => linked_projects is { Length: > 0 };
     public bool NoLinked => !HasLinked;
+    public bool IsDatabase => engine is "postgres" or "mysql" or "mariadb";
     public string HostText => host ?? "127.0.0.1";
     public string PortText => host_port > 0 ? host_port.ToString() : "";
+    public string PortLabel => host_port > 0 ? host_port.ToString() : "— not running";
     public string UserText => string.IsNullOrEmpty(username) ? "(none)" : username!;
     public string Badge => Friendly(engine) + (string.IsNullOrEmpty(version) || version == "latest" ? "" : " " + version);
 

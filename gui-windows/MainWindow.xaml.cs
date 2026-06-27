@@ -22,6 +22,8 @@ public partial class MainWindow : Window
 
     public HullClient? Client => _client;
     public ConfigInfo? Config => _config;
+    public IReadOnlyList<ProjectInfo> Projects => _projects;
+    public string Tld => _config?.tld ?? "test";
     public bool Connected => _client is not null;
 
     public MainWindow()
