@@ -35,6 +35,20 @@ public partial class MainWindow : Window
         ThemeManager.Changed += OnThemeChanged;
     }
 
+    private void ShowWizard()
+    {
+        WizardWinBtns.Visibility = Visibility.Visible;
+        WizardLayer.Visibility = Visibility.Visible;
+        WizardLayer.Child = new WizardView(_client, _config, async restart =>
+        {
+            WizardLayer.Visibility = Visibility.Collapsed;
+            WizardWinBtns.Visibility = Visibility.Collapsed;
+            WizardLayer.Child = null;
+            if (restart) { await RestartDaemonAsync(); }
+            else { await Reload(); BuildNav(_serviceCount); SelectNav("dashboard"); }
+        });
+    }
+
     private void OnThemeChanged()
     {
         // StaticResource-bound view content doesn't react to a palette swap;
@@ -65,6 +79,14 @@ public partial class MainWindow : Window
         try { _config = await _client.ConfigAsync(); } catch { }
         try { _projects = await _client.ProjectsAsync(); } catch { }
         try { _serviceCount = (await _client.ServicesAsync()).Count; } catch { }
+
+        // First-run wizard: shown until ~/.hull/config.yaml exists (or forced).
+        string hullHome = "";
+        try { hullHome = (await _client.StatusAsync())?.hullHome ?? ""; } catch { }
+        bool force = Environment.GetEnvironmentVariable("HULL_FORCE_WIZARD") == "1";
+        bool firstRun = !string.IsNullOrEmpty(hullHome) && !File.Exists(Path.Combine(hullHome, "config.yaml"));
+        if (force || firstRun) { ShowWizard(); return; }
+
         BuildNav(_serviceCount);
         SelectNav("dashboard");
         // Optional deep-link for screenshots/tests: HULL_START_SCREEN=services|

@@ -27,21 +27,25 @@ public partial class DashboardView : UserControl, IRefreshable
             _projects = await _client.ProjectsAsync();
             _services = await _client.ServicesAsync();
             var checks = await _client.DoctorAsync();
+            var jobs = await _client.JobsAsync();
 
-            var running = _projects.Count(p => p.running);
-            var issues = _projects.Count(p => !string.IsNullOrEmpty(p.error));
+            var sites = _projects.Where(p => !p.IsFolder).ToList();
+            var running = sites.Count(p => p.running);
+            var issues = sites.Count(p => !string.IsNullOrEmpty(p.error));
             var svcOn = _services.Count(s => s.running);
 
-            Sub.Text = $"{running} of {_projects.Count} sites running";
-            Ratio(TileSites, running, _projects.Count);
+            Sub.Text = $"{running} of {sites.Count} sites running";
+            Ratio(TileSites, running, sites.Count);
             Ratio(TileServices, svcOn, _services.Count);
             TileIssues.Text = issues.ToString();
             TileIssues.Foreground = (Brush)FindResource(issues > 0 ? "Red" : "Text");
             TileShared.Text = _services.Count.ToString();
 
-            RecentList.ItemsSource = _projects.OrderByDescending(p => p.running).Take(5).ToList();
+            RecentList.ItemsSource = sites.OrderByDescending(p => p.running).Take(5).ToList();
             ActiveList.ItemsSource = _services;
             NoServices.Visibility = _services.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            ActivityList.ItemsSource = jobs.Take(8).ToList();
+            NoActivity.Visibility = jobs.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
             BuildHealth(checks);
         }
@@ -106,22 +110,52 @@ public partial class DashboardView : UserControl, IRefreshable
     private async Task ForEachSite(string action, Func<ProjectInfo, bool> when)
     {
         if (_client is null) return;
-        foreach (var p in _projects.Where(when))
-        {
-            try { await _client.ProjectActionAsync(p.name, action); } catch { /* continue */ }
-        }
+        var targets = _projects.Where(p => !p.IsFolder).Where(when).ToList();
+        if (targets.Count == 0) { Ui.Toast(action == "start" ? "Nothing to start" : "Nothing to stop"); return; }
+        Ui.Toast($"{(action == "start" ? "Starting" : "Stopping")} {targets.Count} site(s)…");
+        foreach (var p in targets) { try { await _client.ProjectActionAsync(p.name, action); } catch { } }
         await RefreshAsync();
     }
 
     private async void OnStartSite(object sender, RoutedEventArgs e)
     {
         if (_client is null || (sender as FrameworkElement)?.DataContext is not ProjectInfo p) return;
-        try { await _client.ProjectActionAsync(p.name, "start"); await RefreshAsync(); } catch { /* ignore */ }
+        await Ui.Run(() => _client.ProjectActionAsync(p.name, "start"), $"Starting {p.name}…");
+        await RefreshAsync();
+    }
+
+    private void OnOpenSite(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is ProjectInfo p && !string.IsNullOrEmpty(p.url)) Ui.OpenExternal(p.url!);
+    }
+
+    private void OnRecentRowClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (e.OriginalSource is System.Windows.Controls.Primitives.ButtonBase) return;
+        if ((sender as FrameworkElement)?.DataContext is not ProjectInfo p) return;
+        var roots = Ui.Main?.Config?.roots ?? Array.Empty<string>();
+        var root = roots.FirstOrDefault(r => Under(p.dir, r));
+        Ui.Navigate(root is not null ? "root:" + root : "dashboard");
     }
 
     private async void OnStartService(object sender, RoutedEventArgs e)
     {
         if (_client is null || (sender as FrameworkElement)?.DataContext is not ServiceInfo svc) return;
-        try { await _client.ServiceActionAsync(svc.name, "start"); await RefreshAsync(); } catch { /* ignore */ }
+        await Ui.Run(() => _client.ServiceActionAsync(svc.name, "start"), $"Starting {svc.name}…");
+        await RefreshAsync();
+    }
+
+    private async void OnStopService(object sender, RoutedEventArgs e)
+    {
+        if (_client is null || (sender as FrameworkElement)?.DataContext is not ServiceInfo svc) return;
+        await Ui.Run(() => _client.ServiceActionAsync(svc.name, "stop"), $"Stopping {svc.name}…");
+        await RefreshAsync();
+    }
+
+    private static bool Under(string dir, string root)
+    {
+        static string N(string p) => p.Replace('\\', '/').TrimEnd('/').ToLowerInvariant();
+        var d = N(dir); var r = N(root);
+        return d == r || d.StartsWith(r + "/");
     }
 }

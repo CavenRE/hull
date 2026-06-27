@@ -47,6 +47,7 @@ public record ProjectInfo(
     ProjectServiceInfo[]? services = null, ClusterRouteInfo[]? routes = null)
 {
     public string State => running ? "running" : "stopped";
+    public bool NotRunning => !running;
     public bool IsFolder => kind == "folder";
     public bool IsCluster => kind == "cluster";
     public string GroupName => string.IsNullOrEmpty(group) ? "Ungrouped" : group!;
@@ -121,6 +122,14 @@ public record DependencyInfo(
 public record ReapplyStep(string name, string status, string detail, string? manual);
 public record ReapplyResult(ReapplyStep[]? steps);
 public record RegistryImage(string name, string? description, bool official, int stars);
+
+public record JobSummary(string id, string kind, string status, string? created, string[]? lines)
+{
+    public string Time => created is { Length: >= 19 } ? created[11..19] : "";
+    public string Last => lines is { Length: > 0 } ? lines[^1] : "";
+    public string DotState => status switch { "done" => "ok", "failed" => "error", _ => "warn" };
+    public string Kindly => (kind ?? "").Replace('_', ' ').Replace('-', ' ');
+}
 
 public record RootGroups(string[]? groups);
 public record GroupsStore(Dictionary<string, RootGroups>? roots, Dictionary<string, string>? members);
@@ -338,6 +347,12 @@ public sealed class HullClient
     {
         var resp = await _http.PostAsync($"/v1/services/{Uri.EscapeDataString(name)}/{action}", null, ct);
         resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task<List<JobSummary>> JobsAsync(CancellationToken ct = default)
+    {
+        try { return await _http.GetFromJsonAsync<List<JobSummary>>("/v1/jobs", JsonOpts, ct) ?? new(); }
+        catch { return new(); }
     }
 
     public Task<ConfigInfo?> ConfigAsync(CancellationToken ct = default) =>

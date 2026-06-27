@@ -83,6 +83,16 @@
           <ContentPresenter x:Name="DialogHost" HorizontalAlignment="Center" VerticalAlignment="Center" />
       </Grid>
 
+      <!-- First-run wizard (covers the whole window) -->
+      <Border x:Name="WizardLayer" Visibility="Collapsed" Background="{DynamicResource BgApp}" />
+
+      <!-- Window controls also available over the wizard -->
+      <StackPanel x:Name="WizardWinBtns" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Visibility="Collapsed" Panel.ZIndex="10">
+          <Button Style="{StaticResource WinBtn}" Click="OnMinimize"><h:Icon Glyph="winmin" Width="15" Height="15" Brush="{DynamicResource TextDim}" /></Button>
+          <Button Style="{StaticResource WinBtn}" Click="OnMaximize"><h:Icon Glyph="winmax" Width="14" Height="14" Brush="{DynamicResource TextDim}" /></Button>
+          <Button Style="{StaticResource WinClose}" Click="OnClose"><h:Icon Glyph="x" Width="15" Height="15" Brush="{DynamicResource TextDim}" /></Button>
+      </StackPanel>
+
       <!-- Toast (top-most) -->
       <Border x:Name="ToastHost" Style="{StaticResource Toast}" Visibility="Collapsed">
           <TextBlock x:Name="ToastText" Foreground="{DynamicResource Text}" FontSize="13" />
