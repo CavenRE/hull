@@ -1,8 +1,38 @@
+using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
 using System.Windows;
+using Microsoft.Win32;
 
 namespace Hull.Gui;
+
+/// <summary>Launch-at-login via the per-user Run registry key.</summary>
+public static class StartupRegistration
+{
+    private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string Name = "Hull";
+
+    public static bool IsEnabled()
+    {
+        try { using var k = Registry.CurrentUser.OpenSubKey(RunKey); return k?.GetValue(Name) != null; }
+        catch { return false; }
+    }
+
+    public static void Set(bool on)
+    {
+        try
+        {
+            using var k = Registry.CurrentUser.OpenSubKey(RunKey, writable: true) ?? Registry.CurrentUser.CreateSubKey(RunKey);
+            if (on)
+            {
+                var exe = Process.GetCurrentProcess().MainModule?.FileName;
+                if (!string.IsNullOrEmpty(exe)) k!.SetValue(Name, $"\"{exe}\"");
+            }
+            else k!.DeleteValue(Name, throwOnMissingValue: false);
+        }
+        catch { /* best effort */ }
+    }
+}
 
 /// <summary>
 /// GUI-local preferences (theme + startup behaviour) persisted to

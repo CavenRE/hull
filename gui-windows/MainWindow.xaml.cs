@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -41,6 +43,13 @@ public partial class MainWindow : Window
     private async Task ConnectAndLoad()
     {
         _client = await HullClient.ConnectAsync();
+        // Auto-start the daemon if it isn't running and the user opted in.
+        if (_client is null && ThemeManager.Prefs.start_daemon_on_launch)
+        {
+            DaemonText.Text = "Starting daemon…";
+            SpawnDaemon();
+            for (int i = 0; i < 16 && _client is null; i++) { await Task.Delay(500); _client = await HullClient.ConnectAsync(); }
+        }
         if (_client is null)
         {
             DaemonDot.Fill = (Brush)FindResource("TextFaint");
@@ -363,6 +372,55 @@ public partial class MainWindow : Window
     private async void OnDaemonPillClick(object sender, MouseButtonEventArgs e)
     {
         if (_client is null) await ConnectAndLoad();
+    }
+
+    // ---- daemon lifecycle (Settings → Hull service) ------------------
+    private void SpawnDaemon()
+    {
+        try
+        {
+            var hulld = Path.Combine(AppContext.BaseDirectory, "hulld.exe");
+            var psi = File.Exists(hulld)
+                ? new ProcessStartInfo(hulld) { UseShellExecute = false, CreateNoWindow = true }
+                : new ProcessStartInfo("hulld") { UseShellExecute = false, CreateNoWindow = true };
+            Process.Start(psi);
+        }
+        catch { /* daemon binary not found; user can start Hull manually */ }
+    }
+
+    public async Task StopDaemonAsync()
+    {
+        if (_client is null) return;
+        Toast("Stopping sites & services…");
+        try { await _client.StopAllAsync(); } catch { }
+        try { await _client.ShutdownAsync(); } catch { }
+        _events?.Cancel();
+        _client = null;
+        DaemonDot.Fill = (Brush)FindResource("TextFaint");
+        DaemonText.Text = "Daemon offline";
+        Toast("Daemon stopped — all sites & services shut down");
+    }
+
+    public async Task RestartDaemonAsync()
+    {
+        if (_client is not null)
+        {
+            try { await _client.ShutdownAsync(); } catch { }
+            _events?.Cancel();
+            _client = null;
+        }
+        DaemonDot.Fill = (Brush)FindResource("TextFaint");
+        DaemonText.Text = "Restarting…";
+        await Task.Delay(700);
+        SpawnDaemon();
+        for (int i = 0; i < 25; i++)
+        {
+            await Task.Delay(600);
+            var c = await HullClient.ConnectAsync();
+            if (c is not null) { await ConnectAndLoad(); Toast("Hull restarted"); return; }
+        }
+        DaemonText.Text = "Daemon not running";
+        Toast("Restart timed out — try again");
     }
 
     // ---- path helpers --------------------------------------------------

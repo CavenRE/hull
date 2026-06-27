@@ -112,6 +112,9 @@ public record DependencyInfo(
     string name, string key, bool installed, string? version, bool running,
     string status, string blurb, string? install_url, string? install_hint, bool embedded);
 
+public record ReapplyStep(string name, string status, string detail, string? manual);
+public record ReapplyResult(ReapplyStep[]? steps);
+
 /// <summary>
 /// Thin client over the local hulld API. All logic lives in the daemon; this
 /// only reads ~/.hull/daemon.json, authenticates with the bearer token, and
@@ -299,6 +302,13 @@ public sealed class HullClient
 
     public async Task<List<DependencyInfo>> DependenciesAsync(CancellationToken ct = default) =>
         await _http.GetFromJsonAsync<List<DependencyInfo>>("/v1/dependencies", JsonOpts, ct) ?? new();
+
+    public async Task<ReapplyResult?> ReapplyAsync(CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsync("/v1/setup/reapply", null, ct);
+        resp.EnsureSuccessStatusCode();
+        return await resp.Content.ReadFromJsonAsync<ReapplyResult>(JsonOpts, ct);
+    }
 
     /// <summary>
     /// Streams GET /v1/events (SSE). Invokes onRunning with the running compose
