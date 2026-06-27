@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <DockPanel Margin="22,20">
         <Grid DockPanel.Dock="Top" Margin="0,0,0,16">
-            <TextBlock Text="Sites" Style="{StaticResource ScreenTitle}" VerticalAlignment="Center" />
+            <TextBlock x:Name="Title" Text="Sites" Style="{StaticResource ScreenTitle}" VerticalAlignment="Center" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <TextBox x:Name="Search" Style="{StaticResource Input}" Width="210" TextChanged="OnSearch" />
                 <Button Content="Refresh" Style="{StaticResource Btn}" Margin="8,0,0,0" Click="OnRefresh" />

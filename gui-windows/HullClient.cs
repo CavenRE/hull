@@ -23,7 +23,7 @@ public record StatusInfo(
 /// <summary>One project as served by GET /v1/projects (see docs/api/openapi.yaml).</summary>
 public record ProjectInfo(
     string name, string dir, string kind, string? url,
-    bool running, string? php, bool served, string? group)
+    bool running, string? php, bool served, string? group, string? error = null)
 {
     public string State => running ? "running" : "stopped";
 }

@@ -7,6 +7,10 @@
             <Button Content="Refresh" Style="{StaticResource Btn}" HorizontalAlignment="Right" Click="OnRefresh" />
         </Grid>
 
+        <Grid>
+        <TextBlock x:Name="EmptyMsg" Text="No shared services yet , add one with `hull services add`."
+                   Style="{StaticResource Muted}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Visibility="Collapsed" />
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <ItemsControl x:Name="List">
                 <ItemsControl.ItemTemplate>
@@ -56,5 +60,6 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </ScrollViewer>
+        </Grid>
     </DockPanel>
 </UserControl>

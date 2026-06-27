@@ -17,7 +17,14 @@ public partial class ServicesView : UserControl, IRefreshable
     public async Task RefreshAsync()
     {
         if (_client is null) return;
-        try { List.ItemsSource = await _client.ServicesAsync(); }
+        try
+        {
+            var services = await _client.ServicesAsync();
+            List.ItemsSource = services;
+            EmptyMsg.Visibility = services.Count == 0
+                ? System.Windows.Visibility.Visible
+                : System.Windows.Visibility.Collapsed;
+        }
         catch { /* ignore */ }
     }
 

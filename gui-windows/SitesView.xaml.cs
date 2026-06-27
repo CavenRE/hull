@@ -6,12 +6,20 @@ namespace Hull.Gui;
 public partial class SitesView : UserControl, IRefreshable
 {
     private readonly HullClient? _client;
+    private readonly string? _root;
     private List<ProjectInfo> _all = new();
 
-    public SitesView(HullClient? client)
+    public SitesView(HullClient? client, string? rootPath = null)
     {
         InitializeComponent();
         _client = client;
+        _root = rootPath;
+        if (rootPath is not null)
+        {
+            var t = rootPath.TrimEnd('/', '\\');
+            var i = t.LastIndexOfAny(new[] { '/', '\\' });
+            Title.Text = i >= 0 ? t[(i + 1)..] : t;
+        }
         Loaded += async (_, _) => await RefreshAsync();
     }
 
@@ -20,10 +28,21 @@ public partial class SitesView : UserControl, IRefreshable
         if (_client is null) return;
         try
         {
-            _all = await _client.ProjectsAsync();
+            var projects = await _client.ProjectsAsync();
+            _all = _root is null
+                ? projects
+                : projects.Where(p => Under(p.dir, _root)).ToList();
             ApplyFilter();
         }
         catch { /* surfaced elsewhere */ }
+    }
+
+    private static bool Under(string dir, string root)
+    {
+        static string N(string p) => p.Replace('\\', '/').TrimEnd('/').ToLowerInvariant();
+        var d = N(dir);
+        var r = N(root);
+        return d == r || d.StartsWith(r + "/");
     }
 
     private void ApplyFilter()

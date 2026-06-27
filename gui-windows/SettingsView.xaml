@@ -79,7 +79,8 @@
                                                 </Style>
                                             </Ellipse.Style>
                                         </Ellipse>
-                                        <TextBlock Grid.Column="1" Text="{Binding name}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="{Binding name}" VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" Margin="0,0,14,0" />
                                         <TextBlock Grid.Column="2" Text="{Binding detail}" Style="{StaticResource Faint}"
                                                    VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                                     </Grid>
