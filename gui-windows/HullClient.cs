@@ -98,6 +98,11 @@ public record ServiceInfo(
 
 public record Check(string name, string status, string detail);
 
+/// <summary>A started background job (image pull, create, rebuild, …).</summary>
+public record JobInfo(string id, string kind, string status);
+public record JobRef(JobInfo job);
+public record ErrorEnvelope(string error);
+
 public record Defaults(string php, string editor, string db_tool);
 
 public record ConfigInfo(
@@ -212,6 +217,67 @@ public sealed class HullClient
 
     public async Task<List<ServiceInfo>> ServicesAsync(CancellationToken ct = default) =>
         await _http.GetFromJsonAsync<List<ServiceInfo>>("/v1/services", JsonOpts, ct) ?? new();
+
+    /// <summary>
+    /// Sends a request whose response may be a JobRef ({"job":{...}}). Returns
+    /// the started job, or null for plain 2xx/204 responses. Throws the daemon's
+    /// {"error":...} message on failure.
+    /// </summary>
+    public async Task<JobInfo?> SendForJobAsync(HttpMethod method, string path, object? body = null, CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(method, path);
+        if (body is not null) req.Content = JsonContent.Create(body);
+        var resp = await _http.SendAsync(req, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            string msg = $"HTTP {(int)resp.StatusCode}";
+            try { var e = await resp.Content.ReadFromJsonAsync<ErrorEnvelope>(JsonOpts, ct); if (!string.IsNullOrEmpty(e?.error)) msg = e!.error; } catch { }
+            throw new HttpRequestException(msg);
+        }
+        if (resp.StatusCode == System.Net.HttpStatusCode.NoContent) return null;
+        try { var jr = await resp.Content.ReadFromJsonAsync<JobRef>(JsonOpts, ct); return jr?.job; } catch { return null; }
+    }
+
+    public Task<JobInfo?> PostForJobAsync(string path, object? body = null, CancellationToken ct = default) =>
+        SendForJobAsync(HttpMethod.Post, path, body, ct);
+
+    public Task<JobInfo?> DeleteForJobAsync(string path, CancellationToken ct = default) =>
+        SendForJobAsync(HttpMethod.Delete, path, null, ct);
+
+    public Task<JobInfo?> PatchForJobAsync(string path, object body, CancellationToken ct = default) =>
+        SendForJobAsync(HttpMethod.Patch, path, body, ct);
+
+    /// <summary>Streams a job's live log over SSE. onLine per data line; onDone(error,failed) when the job ends.</summary>
+    public async Task StreamJobAsync(string id, Action<string> onLine, Action<string?, bool> onDone, CancellationToken ct)
+    {
+        var url = $"/v1/jobs/{Uri.EscapeDataString(id)}/stream?token={Uri.EscapeDataString(Token)}";
+        using var stream = await _http.GetStreamAsync(url, ct);
+        using var reader = new StreamReader(stream);
+        string evt = "message";
+        string data = "";
+        while (!ct.IsCancellationRequested)
+        {
+            var line = await reader.ReadLineAsync(ct);
+            if (line is null) break;
+            if (line.Length == 0)
+            {
+                if (data.Length > 0 || evt != "message")
+                {
+                    if (evt == "done")
+                    {
+                        bool failed = false; string? err = null;
+                        try { var j = JsonSerializer.Deserialize<JsonElement>(data); if (j.TryGetProperty("status", out var st)) failed = st.GetString() == "failed"; if (j.TryGetProperty("error", out var er)) err = er.GetString(); } catch { }
+                        onDone(err, failed);
+                    }
+                    else if (data.Length > 0) onLine(data);
+                }
+                evt = "message"; data = "";
+                continue;
+            }
+            if (line.StartsWith("event:")) evt = line[6..].Trim();
+            else if (line.StartsWith("data:")) data = (data.Length > 0 ? data + "\n" : "") + line[5..].TrimStart();
+        }
+    }
 
     public async Task ServiceActionAsync(string name, string action, CancellationToken ct = default)
     {

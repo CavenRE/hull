@@ -48,6 +48,18 @@ public static class Icons
         ["cube"] = "<path d='M12 2 3 7v10l9 5 9-5V7l-9-5Z'/><path d='m3 7 9 5 9-5'/><path d='M12 12v10'/>",
         ["winmin"] = "<path d='M5 12h14'/>",
         ["winmax"] = "<rect x='5' y='5' width='14' height='14' rx='1.5'/>",
+        ["winrestore"] = "<rect x='8' y='8' width='11' height='11' rx='1.5'/><path d='M8 8V6.5A1.5 1.5 0 0 1 9.5 5H17.5A1.5 1.5 0 0 1 19 6.5V14.5A1.5 1.5 0 0 1 17.5 16H16'/>",
+        ["chevup"] = "<path d='m6 15 6-6 6 6'/>",
+        ["alert"] = "<path d='M12 9v4M12 17h.01'/><path d='M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z'/>",
+        ["unlink"] = "<path d='M9 17H7A5 5 0 0 1 7 7'/><path d='M15 7h2a5 5 0 0 1 3.5 8.5'/><path d='m3 3 18 18'/>",
+        ["search2"] = "<circle cx='11' cy='11' r='7'/><path d='m21 21-4.3-4.3'/>",
+        ["download"] = "<path d='M12 3v12m0 0 4-4m-4 4-4-4'/><path d='M5 21h14'/>",
+        ["star"] = "<path d='M12 3.5l2.6 5.27 5.82.85-4.21 4.1.99 5.78L12 16.77l-5.2 2.73.99-5.78-4.21-4.1 5.82-.85L12 3.5Z'/>",
+        ["sun"] = "<circle cx='12' cy='12' r='4'/><path d='M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4'/>",
+        ["moon"] = "<path d='M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z'/>",
+        ["monitor"] = "<rect x='3' y='4' width='18' height='12' rx='2'/><path d='M8 20h8M12 16v4'/>",
+        ["grip"] = "<circle cx='9' cy='6' r='1'/><circle cx='15' cy='6' r='1'/><circle cx='9' cy='12' r='1'/><circle cx='15' cy='12' r='1'/><circle cx='9' cy='18' r='1'/><circle cx='15' cy='18' r='1'/>",
+        ["clock"] = "<circle cx='12' cy='12' r='9'/><path d='M12 7v5l3 2'/>",
     };
 
     private static readonly HashSet<string> Filled = new() { "play", "stop" };

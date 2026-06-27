@@ -2,23 +2,40 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace Hull.Gui;
 
 public partial class MainWindow : Window
 {
+    public static MainWindow? Current { get; private set; }
+
     private HullClient? _client;
     private CancellationTokenSource? _events;
     private ConfigInfo? _config;
     private List<ProjectInfo> _projects = new();
     private string _current = "";
+    private int _serviceCount;
     private readonly List<(Border border, Icon icon, TextBlock text, string route)> _navRows = new();
+
+    public HullClient? Client => _client;
+    public ConfigInfo? Config => _config;
+    public bool Connected => _client is not null;
 
     public MainWindow()
     {
         InitializeComponent();
+        Current = this;
         Loaded += async (_, _) => await ConnectAndLoad();
-        Closed += (_, _) => _events?.Cancel();
+        Closed += (_, _) => { _events?.Cancel(); _jobCts?.Cancel(); };
+        ThemeManager.Changed += OnThemeChanged;
+    }
+
+    private void OnThemeChanged()
+    {
+        // StaticResource-bound view content doesn't react to a palette swap;
+        // re-mount the current screen so it re-resolves brushes.
+        if (!string.IsNullOrEmpty(_current)) ContentHost.Content = MakeView(_current);
     }
 
     private async Task ConnectAndLoad()
@@ -36,9 +53,8 @@ public partial class MainWindow : Window
         DaemonText.Text = "Daemon running";
         try { _config = await _client.ConfigAsync(); } catch { }
         try { _projects = await _client.ProjectsAsync(); } catch { }
-        var svc = 0;
-        try { svc = (await _client.ServicesAsync()).Count; } catch { }
-        BuildNav(svc);
+        try { _serviceCount = (await _client.ServicesAsync()).Count; } catch { }
+        BuildNav(_serviceCount);
         SelectNav("dashboard");
         // Optional deep-link for screenshots/tests: HULL_START_SCREEN=services|
         // mail|logs|settings|sites.
@@ -186,6 +202,7 @@ public partial class MainWindow : Window
     {
         DialogLayer.Visibility = Visibility.Collapsed;
         DialogHost.Content = null;
+        _jobDetailOpen = false;
     }
 
     private void OnScrimClick(object sender, MouseButtonEventArgs e)
@@ -197,6 +214,156 @@ public partial class MainWindow : Window
     private void OnMaximize(object sender, RoutedEventArgs e) => ToggleMax();
     private void OnClose(object sender, RoutedEventArgs e) => Close();
     private void ToggleMax() => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+
+    // ---- toast -------------------------------------------------------
+    private DispatcherTimer? _toastTimer;
+    public void Toast(string msg)
+    {
+        ToastText.Text = msg;
+        ToastHost.Visibility = Visibility.Visible;
+        _toastTimer?.Stop();
+        _toastTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(2100) };
+        _toastTimer.Tick += (_, _) => { ToastHost.Visibility = Visibility.Collapsed; _toastTimer?.Stop(); };
+        _toastTimer.Start();
+    }
+
+    // ---- reload + navigation ----------------------------------------
+    public async Task Reload()
+    {
+        if (_client is null) return;
+        try { _config = await _client.ConfigAsync(); } catch { }
+        try { _projects = await _client.ProjectsAsync(); } catch { }
+        try { _serviceCount = (await _client.ServicesAsync()).Count; } catch { }
+        BuildNav(_serviceCount);
+        // keep the current row highlighted after a rebuild
+        foreach (var (border, icon, text, r) in _navRows)
+        {
+            var active = r == _current;
+            border.Background = active ? (Brush)FindResource("AccentSoft") : Brushes.Transparent;
+            icon.Brush = active ? (Brush)FindResource("Accent") : (Brush)FindResource("TextFaint");
+            text.Foreground = active ? (Brush)FindResource("Accent") : (Brush)FindResource("TextDim");
+        }
+        RefreshCurrent();
+    }
+
+    public void RefreshCurrent()
+    {
+        if (ContentHost.Content is IRefreshable r) _ = r.RefreshAsync();
+    }
+
+    public void Navigate(string route)
+    {
+        // Re-mount even if it's the same route (used after roots change).
+        if (_navRows.All(n => n.route != route)) route = "dashboard";
+        SelectNav(route);
+    }
+
+    // ---- job-aware action helper + status bar ------------------------
+    private CancellationTokenSource? _jobCts;
+    private string _jobTitle = "";
+    private readonly List<string> _jobLines = new();
+    private bool _jobDone, _jobFailed, _jobDetailOpen;
+
+    /// <summary>Runs an action; streams its job in the status bar, or toasts + reloads.</summary>
+    public async Task RunJob(Func<Task<JobInfo?>> call, string okMsg)
+    {
+        JobInfo? job;
+        try { job = await call(); }
+        catch (Exception ex) { Toast(Friendly(ex)); return; }
+        if (job is not null) { StreamJob(job, Pretty(okMsg, job.kind)); return; }
+        if (!string.IsNullOrEmpty(okMsg)) Toast(okMsg);
+        await Reload();
+    }
+
+    /// <summary>Runs a non-job action; toasts the result and reloads.</summary>
+    public async Task Run(Func<Task> call, string okMsg)
+    {
+        try { await call(); }
+        catch (Exception ex) { Toast(Friendly(ex)); return; }
+        if (!string.IsNullOrEmpty(okMsg)) Toast(okMsg);
+        await Reload();
+    }
+
+    private static string Friendly(Exception ex) => string.IsNullOrWhiteSpace(ex.Message) ? "Action failed" : ex.Message;
+    private static string Pretty(string okMsg, string kind) => !string.IsNullOrEmpty(okMsg) ? okMsg : (kind ?? "Working").Replace('_', ' ').Replace('-', ' ');
+
+    private void StreamJob(JobInfo job, string title)
+    {
+        _jobCts?.Cancel();
+        _jobCts = new CancellationTokenSource();
+        var ct = _jobCts.Token;
+        _jobTitle = title; _jobLines.Clear(); _jobDone = false; _jobFailed = false;
+        PaintStatusBar();
+        if (_client is null) return;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _client.StreamJobAsync(job.id,
+                    line => Dispatcher.InvokeAsync(() => { _jobLines.Add(line); PaintStatusBar(); }),
+                    (err, failed) => Dispatcher.InvokeAsync(async () =>
+                    {
+                        _jobFailed = failed; _jobDone = true;
+                        if (failed && !string.IsNullOrEmpty(err)) _jobLines.Add(err!);
+                        PaintStatusBar();
+                        await Reload();
+                    }), ct);
+            }
+            catch { _ = Dispatcher.InvokeAsync(async () => { _jobDone = true; PaintStatusBar(); await Reload(); }); }
+        }, ct);
+    }
+
+    private DispatcherTimer? _sbHide;
+    private void PaintStatusBar()
+    {
+        StatusBar.Visibility = Visibility.Visible;
+        StatusBarIcon.Glyph = _jobDone ? (_jobFailed ? "alert" : "check") : "restart";
+        StatusBarIcon.Brush = (Brush)FindResource(_jobDone ? (_jobFailed ? "Red" : "Green") : "Accent");
+        StatusBarTitle.Text = _jobTitle + (_jobDone ? (_jobFailed ? " — failed" : " — done") : "");
+        StatusBarLine.Text = _jobLines.Count > 0 ? _jobLines[^1] : (_jobDone ? "" : "starting…");
+        if (_jobDetailOpen) PaintJobDetail();
+        if (_jobDone)
+        {
+            _sbHide?.Stop();
+            _sbHide = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(_jobFailed ? 14000 : 4500) };
+            _sbHide.Tick += (_, _) => { StatusBar.Visibility = Visibility.Collapsed; _sbHide?.Stop(); };
+            _sbHide.Start();
+        }
+    }
+
+    private TextBox? _jobLog;
+    private void OnStatusBarClick(object sender, MouseButtonEventArgs e)
+    {
+        _jobDetailOpen = true;
+        var log = new TextBox
+        {
+            IsReadOnly = true, BorderThickness = new Thickness(0), Background = Brushes.Transparent,
+            Foreground = (Brush)FindResource("TextDim"), FontFamily = (FontFamily)FindResource("FontMono"),
+            FontSize = 12, TextWrapping = TextWrapping.NoWrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Height = 320,
+        };
+        _jobLog = log;
+        var panel = new StackPanel { Width = 560 };
+        panel.Children.Add(new TextBlock { Text = _jobTitle, FontSize = 16, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 12) });
+        panel.Children.Add(log);
+        var close = new Button { Style = (Style)FindResource("Btn"), Content = "Close", HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 14, 0, 0) };
+        close.Click += (_, _) => { _jobDetailOpen = false; CloseDialog(); };
+        panel.Children.Add(close);
+        var card = new Border { Style = (Style)FindResource("Card"), Padding = new Thickness(20), Child = panel };
+        ShowDialog(card);
+        PaintJobDetail();
+    }
+    private void PaintJobDetail()
+    {
+        if (_jobLog is null) return;
+        _jobLog.Text = string.Join("\n", _jobLines);
+        _jobLog.ScrollToEnd();
+    }
+
+    private async void OnDaemonPillClick(object sender, MouseButtonEventArgs e)
+    {
+        if (_client is null) await ConnectAndLoad();
+    }
 
     // ---- path helpers --------------------------------------------------
 

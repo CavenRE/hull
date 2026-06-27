@@ -16,12 +16,20 @@ public partial class App : System.Windows.Application
 
     private void OnStartup(object sender, StartupEventArgs e)
     {
+        ThemeManager.Init();
         _main = new MainWindow();
-        // Close hides to tray instead of exiting.
+        // Close hides to tray (daemon keeps running) unless the user opted out.
         _main.Closing += (_, args) =>
         {
-            args.Cancel = true;
-            _main.Hide();
+            if (ThemeManager.Prefs.close_to_tray)
+            {
+                args.Cancel = true;
+                _main.Hide();
+            }
+            else
+            {
+                QuitApp();
+            }
         };
 
         _tray = new WinForms.NotifyIcon

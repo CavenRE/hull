@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:h="clr-namespace:Hull.Gui"
         Title="Hull" Height="700" Width="1124" MinWidth="900" MinHeight="560"
-        WindowStyle="None" Background="{StaticResource BgApp}" UseLayoutRounding="True">
+        WindowStyle="None" Background="{DynamicResource BgApp}" UseLayoutRounding="True">
     <WindowChrome.WindowChrome>
         <WindowChrome CaptionHeight="0" ResizeBorderThickness="6" GlassFrameThickness="0" CornerRadius="0" />
     </WindowChrome.WindowChrome>
@@ -16,24 +16,26 @@
         </Grid.ColumnDefinitions>
 
         <!-- Sidebar -->
-        <Border Grid.Column="0" Background="{StaticResource BgPanel}"
-                BorderBrush="{StaticResource Border}" BorderThickness="0,0,1,0">
+        <Border Grid.Column="0" Background="{DynamicResource BgPanel}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,0,1,0">
             <DockPanel>
                 <Border DockPanel.Dock="Top" Background="Transparent" Padding="16,16,16,12"
                         MouseLeftButtonDown="TitleBar_MouseDown">
                     <StackPanel Orientation="Horizontal">
-                        <Border Width="26" Height="26" CornerRadius="7" Background="{StaticResource Accent}">
-                            <TextBlock Text="H" Foreground="{StaticResource TextOnAccent}" FontWeight="Bold"
+                        <Border Width="26" Height="26" CornerRadius="7" Background="{DynamicResource Accent}">
+                            <TextBlock Text="H" Foreground="{DynamicResource TextOnAccent}" FontWeight="Bold"
                                        FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
-                        <TextBlock Text="hull" Foreground="{StaticResource Text}" FontSize="17" FontWeight="SemiBold"
+                        <TextBlock Text="hull" Foreground="{DynamicResource Text}" FontSize="17" FontWeight="SemiBold"
                                    Margin="9,0,0,0" VerticalAlignment="Center" />
                     </StackPanel>
                 </Border>
 
-                <Border DockPanel.Dock="Bottom" Style="{StaticResource Pill}" HorizontalAlignment="Left" Margin="12,12,12,14">
+                <Border DockPanel.Dock="Bottom" x:Name="DaemonPill" Style="{StaticResource Pill}"
+                        HorizontalAlignment="Left" Margin="12,12,12,14" Cursor="Hand"
+                        MouseLeftButtonUp="OnDaemonPillClick">
                     <StackPanel Orientation="Horizontal">
-                        <Ellipse x:Name="DaemonDot" Width="7" Height="7" Fill="{StaticResource TextFaint}" VerticalAlignment="Center" />
+                        <Ellipse x:Name="DaemonDot" Width="7" Height="7" Fill="{DynamicResource TextFaint}" VerticalAlignment="Center" />
                         <TextBlock x:Name="DaemonText" Text="connecting…" Style="{StaticResource Muted}" Margin="8,0,0,0" />
                     </StackPanel>
                 </Border>
@@ -51,20 +53,39 @@
             <ContentControl x:Name="ContentHost" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0">
                 <Button Style="{StaticResource WinBtn}" Click="OnMinimize">
-                    <h:Icon Glyph="winmin" Width="15" Height="15" Brush="{StaticResource TextDim}" />
+                    <h:Icon Glyph="winmin" Width="15" Height="15" Brush="{DynamicResource TextDim}" />
                 </Button>
                 <Button Style="{StaticResource WinBtn}" Click="OnMaximize">
-                    <h:Icon Glyph="winmax" Width="14" Height="14" Brush="{StaticResource TextDim}" />
+                    <h:Icon Glyph="winmax" Width="14" Height="14" Brush="{DynamicResource TextDim}" />
                 </Button>
                 <Button Style="{StaticResource WinClose}" Click="OnClose">
-                    <h:Icon Glyph="x" Width="15" Height="15" Brush="{StaticResource TextDim}" />
+                    <h:Icon x:Name="CloseGlyph" Glyph="x" Width="15" Height="15" Brush="{DynamicResource TextDim}" />
                 </Button>
             </StackPanel>
         </Grid>
       </Grid>
 
-      <Grid x:Name="DialogLayer" Visibility="Collapsed" Background="#99000000" MouseLeftButtonDown="OnScrimClick">
+      <!-- Job status bar (bottom-center; click for full log) -->
+      <Border x:Name="StatusBar" Visibility="Collapsed" VerticalAlignment="Bottom" HorizontalAlignment="Center"
+              Margin="0,0,0,24" Background="{DynamicResource BgCard2}" BorderBrush="{DynamicResource BorderStrong}"
+              BorderThickness="1" CornerRadius="9" Padding="14,9" Cursor="Hand" MouseLeftButtonUp="OnStatusBarClick"
+              MaxWidth="620">
+          <StackPanel Orientation="Horizontal">
+              <h:Icon x:Name="StatusBarIcon" Glyph="restart" Width="14" Height="14" Brush="{DynamicResource Accent}" VerticalAlignment="Center" />
+              <TextBlock x:Name="StatusBarTitle" Margin="9,0,0,0" FontWeight="Medium" VerticalAlignment="Center" />
+              <TextBlock x:Name="StatusBarLine" Margin="9,0,0,0" Style="{StaticResource Faint}"
+                         VerticalAlignment="Center" TextTrimming="CharacterEllipsis" MaxWidth="360" />
+          </StackPanel>
+      </Border>
+
+      <!-- Modal dialog scrim -->
+      <Grid x:Name="DialogLayer" Visibility="Collapsed" Background="{DynamicResource Scrim}" MouseLeftButtonDown="OnScrimClick">
           <ContentPresenter x:Name="DialogHost" HorizontalAlignment="Center" VerticalAlignment="Center" />
       </Grid>
+
+      <!-- Toast (top-most) -->
+      <Border x:Name="ToastHost" Style="{StaticResource Toast}" Visibility="Collapsed">
+          <TextBlock x:Name="ToastText" Foreground="{DynamicResource Text}" FontSize="13" />
+      </Border>
     </Grid>
 </Window>
