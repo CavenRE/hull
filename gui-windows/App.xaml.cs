@@ -26,7 +26,7 @@ public partial class App : System.Windows.Application
 
         _tray = new WinForms.NotifyIcon
         {
-            Icon = Drawing.SystemIcons.Application,
+            Icon = AppIcon(),
             Visible = true,
             Text = "Hull",
         };
@@ -59,4 +59,21 @@ public partial class App : System.Windows.Application
     }
 
     private void OnExit(object sender, ExitEventArgs e) => _tray?.Dispose();
+
+    // The app's own icon (embedded via ApplicationIcon) for the tray.
+    private static Drawing.Icon AppIcon()
+    {
+        try
+        {
+            var exe = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+            if (exe is not null)
+            {
+                var ico = Drawing.Icon.ExtractAssociatedIcon(exe);
+                if (ico is not null) return ico;
+            }
+        }
+        catch { /* fall through */ }
+        return Drawing.SystemIcons.Application;
+    }
 }
+

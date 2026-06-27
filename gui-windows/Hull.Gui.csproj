@@ -11,6 +11,7 @@
     <RootNamespace>Hull.Gui</RootNamespace>
     <!-- WinForms is referenced only for the tray NotifyIcon; the app is WPF. -->
     <ApplicationDefaultFont>Segoe UI</ApplicationDefaultFont>
+    <ApplicationIcon>..\gui\src-tauri\icons\icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

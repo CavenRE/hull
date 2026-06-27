@@ -143,8 +143,6 @@ public partial class SitesView : UserControl, IRefreshable
         // header
         var headerGrid = new Grid { Height = 34, Margin = new Thickness(0, 0, 0, 12) };
         var titleRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        var dot = new Ellipse { Width = 9, Height = 9, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0), Fill = (Brush)FindResource(p.running ? "Green" : "TextFaint") };
-        titleRow.Children.Add(dot);
         titleRow.Children.Add(new TextBlock { Text = p.name, FontSize = 20, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
         titleRow.Children.Add(Chip(p.kind, false, new Thickness(10, 0, 0, 0)));
         DockPanel.SetDock(headerGrid, Dock.Top);
@@ -295,6 +293,12 @@ public partial class SitesView : UserControl, IRefreshable
     private async Task Action(ProjectInfo p, string action)
     {
         if (_client is null) return;
+        if (action == "reset")
+        {
+            var r = MessageBox.Show($"Reset {p.name}? This deletes its data volumes (databases, caches). Project files are kept.",
+                "Hull , Reset", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+            if (r != MessageBoxResult.OK) return;
+        }
         try { await _client.ProjectActionAsync(p.name, action); await RefreshAsync(); }
         catch { /* ignore */ }
     }
