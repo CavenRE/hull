@@ -9,6 +9,7 @@
     </WindowChrome.WindowChrome>
 
     <Grid>
+      <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="212" />
             <ColumnDefinition Width="*" />
@@ -60,5 +61,10 @@
                 </Button>
             </StackPanel>
         </Grid>
+      </Grid>
+
+      <Grid x:Name="DialogLayer" Visibility="Collapsed" Background="#99000000" MouseLeftButtonDown="OnScrimClick">
+          <ContentPresenter x:Name="DialogHost" HorizontalAlignment="Center" VerticalAlignment="Center" />
+      </Grid>
     </Grid>
 </Window>

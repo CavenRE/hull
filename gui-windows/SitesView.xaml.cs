@@ -308,7 +308,12 @@ public partial class SitesView : UserControl, IRefreshable
         try { Process.Start(new ProcessStartInfo(target) { UseShellExecute = true }); } catch { /* ignore */ }
     }
 
-    private void OnNew(object sender, RoutedEventArgs e) { }
+    private void OnNew(object sender, RoutedEventArgs e)
+    {
+        if (Window.GetWindow(this) is MainWindow mw)
+            mw.ShowDialog(new NewProjectDialog(_client, async () => await RefreshAsync()));
+    }
+
     private void OnGroup(object sender, RoutedEventArgs e) { }
     private void OnAdopt(object sender, RoutedEventArgs e) { }
 

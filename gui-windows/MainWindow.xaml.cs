@@ -174,6 +174,25 @@ public partial class MainWindow : Window
         try { DragMove(); } catch { /* not in a drag-able state */ }
     }
 
+    // ---- modal dialogs -------------------------------------------------
+
+    public void ShowDialog(FrameworkElement content)
+    {
+        DialogHost.Content = content;
+        DialogLayer.Visibility = Visibility.Visible;
+    }
+
+    public void CloseDialog()
+    {
+        DialogLayer.Visibility = Visibility.Collapsed;
+        DialogHost.Content = null;
+    }
+
+    private void OnScrimClick(object sender, MouseButtonEventArgs e)
+    {
+        if (ReferenceEquals(e.OriginalSource, DialogLayer)) CloseDialog();
+    }
+
     private void OnMinimize(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
     private void OnMaximize(object sender, RoutedEventArgs e) => ToggleMax();
     private void OnClose(object sender, RoutedEventArgs e) => Close();

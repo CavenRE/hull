@@ -180,6 +180,30 @@ public sealed class HullClient
         try { await _http.PostAsync("/v1/shutdown", null, ct); } catch { /* daemon is exiting */ }
     }
 
+    public async Task CreateProjectAsync(object req, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync("/v1/projects", req, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task AddServiceAsync(object req, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync("/v1/services", req, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task DeleteServiceAsync(string name, CancellationToken ct = default)
+    {
+        var resp = await _http.DeleteAsync($"/v1/services/{Uri.EscapeDataString(name)}", ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task LinkServiceAsync(string name, string project, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync($"/v1/services/{Uri.EscapeDataString(name)}/link", new { project }, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
     public async Task<List<ServiceInfo>> ServicesAsync(CancellationToken ct = default) =>
         await _http.GetFromJsonAsync<List<ServiceInfo>>("/v1/services", JsonOpts, ct) ?? new();
 
