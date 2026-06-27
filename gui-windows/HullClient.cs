@@ -44,12 +44,15 @@ public record ProjectServiceInfo(string key, string engine, string? version, str
 public record ProjectInfo(
     string name, string dir, string kind, string? url,
     bool running, string? php, bool served, string? group, string? error = null,
-    ProjectServiceInfo[]? services = null)
+    ProjectServiceInfo[]? services = null, ClusterRouteInfo[]? routes = null)
 {
     public string State => running ? "running" : "stopped";
     public bool IsFolder => kind == "folder";
+    public bool IsCluster => kind == "cluster";
     public string GroupName => string.IsNullOrEmpty(group) ? "Ungrouped" : group!;
     public ProjectServiceInfo[] LinkedServices => services ?? Array.Empty<ProjectServiceInfo>();
+    public ClusterRouteInfo[] RouteList => routes ?? Array.Empty<ClusterRouteInfo>();
+    public string DisplayKind => kind switch { "plain" => "php", _ => kind };
 }
 
 public record ServiceInfo(
@@ -117,6 +120,12 @@ public record DependencyInfo(
 
 public record ReapplyStep(string name, string status, string detail, string? manual);
 public record ReapplyResult(ReapplyStep[]? steps);
+
+public record RootGroups(string[]? groups);
+public record GroupsStore(Dictionary<string, RootGroups>? roots, Dictionary<string, string>? members);
+
+/// <summary>One cluster route (subdomain → service:port), from ProjectInfo.routes.</summary>
+public record ClusterRouteInfo(string key, string subdomain, string service, int port, bool served);
 
 /// <summary>
 /// Thin client over the local hulld API. All logic lives in the daemon; this
@@ -200,6 +209,31 @@ public sealed class HullClient
     public async Task ImportAsync(string name, CancellationToken ct = default)
     {
         var resp = await _http.PostAsJsonAsync("/v1/imports", new { name }, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    public Task<GroupsStore?> GroupsAsync(CancellationToken ct = default) =>
+        _http.GetFromJsonAsync<GroupsStore>("/v1/groups", JsonOpts, ct);
+
+    public async Task PutGroupsAsync(GroupsStore store, CancellationToken ct = default)
+    {
+        var resp = await _http.PutAsJsonAsync("/v1/groups", store, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task OpenAsync(string name, string target, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync($"/v1/projects/{Uri.EscapeDataString(name)}/open", new { target }, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    public async Task<List<string>> VolumesAsync(string name, CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync<List<string>>($"/v1/projects/{Uri.EscapeDataString(name)}/volumes", JsonOpts, ct) ?? new();
+
+    public async Task PatchProjectAsync(string name, object body, CancellationToken ct = default)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Patch, $"/v1/projects/{Uri.EscapeDataString(name)}") { Content = JsonContent.Create(body) };
+        var resp = await _http.SendAsync(req, ct);
         resp.EnsureSuccessStatusCode();
     }
 

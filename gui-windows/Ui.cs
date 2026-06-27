@@ -92,7 +92,7 @@ public static class Ui
         var sp = new StackPanel { Orientation = Orientation.Horizontal };
         if (!string.IsNullOrEmpty(glyph))
         {
-            var fg = styleKey == "BtnPrimary" ? "TextOnAccent" : styleKey == "BtnDanger" ? "Red" : "Text";
+            var fg = styleKey.Contains("Primary") ? "TextOnAccent" : styleKey.Contains("Danger") ? "Red" : "Text";
             sp.Children.Add(Glyph(glyph, iconSize, fg));
             sp.Children.Add(new TextBlock { Text = text, Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
         }

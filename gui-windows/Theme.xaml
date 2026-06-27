@@ -121,6 +121,12 @@
         <Setter Property="BorderBrush" Value="Transparent" />
     </Style>
 
+    <Style x:Key="BtnSmDanger" TargetType="Button" BasedOn="{StaticResource BtnDanger}">
+        <Setter Property="Height" Value="26" />
+        <Setter Property="Padding" Value="9,0" />
+        <Setter Property="FontSize" Value="12" />
+    </Style>
+
     <Style x:Key="BtnGhost" TargetType="Button" BasedOn="{StaticResource Btn}">
         <Setter Property="Foreground" Value="{DynamicResource TextDim}" />
         <Setter Property="Background" Value="Transparent" />
