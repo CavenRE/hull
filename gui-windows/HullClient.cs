@@ -34,7 +34,42 @@ public record ServiceInfo(
 {
     public string State => running ? "running" : "stopped";
     public string Endpoint => host_port > 0 ? $"{host ?? "127.0.0.1"}:{host_port}" : "";
-    public string Linked => linked_projects is { Length: > 0 } ? string.Join(", ", linked_projects) : "";
+    public string Linked => linked_projects is { Length: > 0 } ? "Linked  " + string.Join("  ", linked_projects) : "";
+    public bool NotRunning => !running;
+    public bool HasUrl => !string.IsNullOrEmpty(url);
+    public bool HasPort => host_port > 0;
+    public bool HasLinked => linked_projects is { Length: > 0 };
+    public bool NoLinked => !HasLinked;
+    public string HostText => host ?? "127.0.0.1";
+    public string PortText => host_port > 0 ? host_port.ToString() : "";
+    public string UserText => string.IsNullOrEmpty(username) ? "(none)" : username!;
+    public string Badge => Friendly(engine) + (string.IsNullOrEmpty(version) || version == "latest" ? "" : " " + version);
+
+    public string Glyph => engine switch
+    {
+        "postgres" or "mysql" or "mariadb" => "database",
+        "redis" or "memcached" => "cache",
+        "mailpit" => "mail",
+        "meilisearch" or "typesense" => "search",
+        "minio" => "storage",
+        _ => "tool",
+    };
+
+    private static string Friendly(string e) => e switch
+    {
+        "postgres" => "PostgreSQL",
+        "mysql" => "MySQL",
+        "mariadb" => "MariaDB",
+        "redis" => "Redis",
+        "mailpit" => "Mailpit",
+        "memcached" => "Memcached",
+        "meilisearch" => "Meilisearch",
+        "typesense" => "Typesense",
+        "minio" => "MinIO",
+        "adminer" => "Adminer",
+        "redisinsight" => "RedisInsight",
+        _ => e,
+    };
 }
 
 public record Check(string name, string status, string detail);

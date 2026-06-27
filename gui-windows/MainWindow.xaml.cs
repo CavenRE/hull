@@ -40,6 +40,16 @@ public partial class MainWindow : Window
         try { svc = (await _client.ServicesAsync()).Count; } catch { }
         BuildNav(svc);
         SelectNav("dashboard");
+        // Optional deep-link for screenshots/tests: HULL_START_SCREEN=services|
+        // mail|logs|settings|sites.
+        var start = Environment.GetEnvironmentVariable("HULL_START_SCREEN");
+        if (!string.IsNullOrEmpty(start))
+        {
+            if (start.Equals("sites", StringComparison.OrdinalIgnoreCase) && _config?.roots.Length > 0)
+                SelectNav("root:" + _config.roots[0]);
+            else
+                SelectNav(start.ToLowerInvariant());
+        }
         StartEvents();
     }
 
