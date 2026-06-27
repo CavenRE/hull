@@ -120,6 +120,7 @@ public record DependencyInfo(
 
 public record ReapplyStep(string name, string status, string detail, string? manual);
 public record ReapplyResult(ReapplyStep[]? steps);
+public record RegistryImage(string name, string? description, bool official, int stars);
 
 public record RootGroups(string[]? groups);
 public record GroupsStore(Dictionary<string, RootGroups>? roots, Dictionary<string, string>? members);
@@ -353,6 +354,18 @@ public sealed class HullClient
 
     public async Task<List<DependencyInfo>> DependenciesAsync(CancellationToken ct = default) =>
         await _http.GetFromJsonAsync<List<DependencyInfo>>("/v1/dependencies", JsonOpts, ct) ?? new();
+
+    public async Task<List<RegistryImage>> SearchImagesAsync(string q, CancellationToken ct = default)
+    {
+        try { return await _http.GetFromJsonAsync<List<RegistryImage>>($"/v1/registry/search?q={Uri.EscapeDataString(q)}", JsonOpts, ct) ?? new(); }
+        catch { return new(); }
+    }
+
+    public async Task<List<string>> ImageTagsAsync(string repo, CancellationToken ct = default)
+    {
+        try { return await _http.GetFromJsonAsync<List<string>>($"/v1/registry/tags?repo={Uri.EscapeDataString(repo)}", JsonOpts, ct) ?? new(); }
+        catch { return new(); }
+    }
 
     public async Task<ReapplyResult?> ReapplyAsync(CancellationToken ct = default)
     {

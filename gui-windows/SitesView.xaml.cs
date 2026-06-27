@@ -24,7 +24,7 @@ public partial class SitesView : UserControl, IRefreshable
         InitializeComponent();
         _client = client;
         _root = rootPath;
-        Loaded += async (_, _) => await RefreshAsync();
+        Loaded += async (_, _) => { await RefreshAsync(); if (Environment.GetEnvironmentVariable("HULL_AUTO_DIALOG") == "new") OnNew(this, new RoutedEventArgs()); };
         Unloaded += (_, _) => _logCts?.Cancel();
     }
 
