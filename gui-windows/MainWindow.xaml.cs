@@ -166,7 +166,7 @@ public partial class MainWindow : Window
             "dashboard" => new DashboardView(_client),
             "services" => new ServicesView(_client),
             "settings" => new SettingsView(_client),
-            "mail" => new PlaceholderView("Mail", "Mailpit inbox , coming next."),
+            "mail" => new MailView(_client),
             "logs" => new LogsView(_client),
             _ => new DashboardView(_client),
         };
