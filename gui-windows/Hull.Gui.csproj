@@ -22,4 +22,9 @@
     <Using Remove="System.Drawing" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Bundled UI typeface: Play (the design's font-sans). -->
+    <Resource Include="fonts\*.ttf" />
+  </ItemGroup>
+
 </Project>

@@ -110,10 +110,33 @@ public partial class SitesView : UserControl, IRefreshable
         return b;
     }
 
-    private Border FolderRow(ProjectInfo p)
+    private FrameworkElement FolderRow(ProjectInfo p)
     {
-        var t = new TextBlock { Text = p.name, Foreground = (Brush)FindResource("TextFaint"), FontStyle = FontStyles.Italic, FontSize = 12 };
-        return new Border { Padding = new Thickness(9, 6, 9, 6), CornerRadius = new CornerRadius(6), BorderBrush = (Brush)FindResource("Border"), BorderThickness = new Thickness(1), Margin = new Thickness(0, 2, 0, 0), Cursor = Cursors.Hand, Child = t };
+        var rect = new Rectangle
+        {
+            RadiusX = 7, RadiusY = 7,
+            Stroke = (Brush)FindResource("BorderStrong"), StrokeThickness = 1,
+            StrokeDashArray = new DoubleCollection { 4, 3 }, Fill = Brushes.Transparent,
+        };
+        var name = new TextBlock { Text = p.name, Foreground = (Brush)FindResource("TextDim"), FontStyle = FontStyles.Italic, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+        var import = new TextBlock { Text = "Import", Foreground = (Brush)FindResource("Accent"), FontSize = 11, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
+        var inner = new Grid { Margin = new Thickness(11, 7, 11, 7) };
+        inner.Children.Add(name);
+        inner.Children.Add(import);
+        var host = new Grid { Margin = new Thickness(0, 2, 0, 0), Cursor = Cursors.Hand, Opacity = 0.72 };
+        host.Children.Add(rect);
+        host.Children.Add(inner);
+        host.MouseEnter += (_, _) => { host.Opacity = 1.0; import.Visibility = Visibility.Visible; };
+        host.MouseLeave += (_, _) => { host.Opacity = 0.72; import.Visibility = Visibility.Collapsed; };
+        host.MouseLeftButtonUp += (_, _) => _ = ImportFolder(p);
+        return host;
+    }
+
+    private async Task ImportFolder(ProjectInfo p)
+    {
+        if (_client is null) return;
+        try { await _client.ImportAsync(p.name); await RefreshAsync(); }
+        catch { /* ignore */ }
     }
 
     private void SelectSite(ProjectInfo p)
@@ -148,23 +171,26 @@ public partial class SitesView : UserControl, IRefreshable
         DockPanel.SetDock(headerGrid, Dock.Top);
         headerGrid.Children.Add(titleRow);
 
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 112, 0), VerticalAlignment = VerticalAlignment.Center };
-        actions.Children.Add(TextButton(p.running ? "Stop" : "Start", p.running ? "Btn" : "BtnPrimary", async () => await Action(p, p.running ? "stop" : "start")));
-        actions.Children.Add(TextButton("Rebuild", "Btn", async () => await Action(p, "rebuild"), new Thickness(8, 0, 0, 0)));
-        actions.Children.Add(TextButton("Reset", "BtnDanger", async () => await Action(p, "reset"), new Thickness(8, 0, 0, 0)));
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 140, 0), VerticalAlignment = VerticalAlignment.Center };
+        actions.Children.Add(p.running
+            ? IconButton("stop", "Stop", "Btn", () => _ = Action(p, "stop"))
+            : IconButton("play", "Start", "BtnPrimary", () => _ = Action(p, "start")));
+        actions.Children.Add(IconButton("cube", "Rebuild", "Btn", () => _ = Action(p, "rebuild"), new Thickness(8, 0, 0, 0)));
+        actions.Children.Add(IconButton("trash", "Reset", "BtnDanger", () => _ = Action(p, "reset"), new Thickness(8, 0, 0, 0)));
         headerGrid.Children.Add(actions);
         dock.Children.Add(headerGrid);
 
         // url row
         if (!string.IsNullOrEmpty(p.url))
         {
-            var urlRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
-            var pill = new Border { Style = (Style)FindResource("Pill"), Background = (Brush)FindResource("BgInset") };
-            var link = new TextBlock { Foreground = (Brush)FindResource("Accent"), FontFamily = new FontFamily("Consolas"), FontSize = 12 };
-            link.Text = p.url;
-            pill.Child = link;
+            var urlRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 16) };
+            var inner = new StackPanel { Orientation = Orientation.Horizontal };
+            inner.Children.Add(new Icon { Glyph = "lock", Width = 13, Height = 13, Brush = (Brush)FindResource("Accent"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) });
+            inner.Children.Add(new TextBlock { Text = p.url, Foreground = (Brush)FindResource("Accent"), FontFamily = new FontFamily("Consolas"), FontSize = 13, VerticalAlignment = VerticalAlignment.Center });
+            var pill = new Border { Background = (Brush)FindResource("AccentSoft"), CornerRadius = new CornerRadius(7), Padding = new Thickness(11, 7, 12, 7), Cursor = Cursors.Hand, Child = inner };
+            pill.MouseLeftButtonUp += (_, _) => OpenExternal(p.url!);
             urlRow.Children.Add(pill);
-            urlRow.Children.Add(TextButton("Open", "Btn", () => OpenExternal(p.url!), new Thickness(8, 0, 0, 0)));
+            urlRow.Children.Add(IconButton("external", "Open", "Btn", () => OpenExternal(p.url!), new Thickness(10, 0, 0, 0)));
             DockPanel.SetDock(urlRow, Dock.Top);
             dock.Children.Add(urlRow);
         }
@@ -227,8 +253,8 @@ public partial class SitesView : UserControl, IRefreshable
         var loc = new TextBlock { Text = p.dir, FontFamily = new FontFamily("Consolas"), FontSize = 12, Foreground = (Brush)FindResource("TextDim"), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
         Grid.SetColumn(loc, 0);
         var locBtns = new StackPanel { Orientation = Orientation.Horizontal };
-        locBtns.Children.Add(TextButton("Open folder", "Btn", () => OpenExternal(p.dir), default, 26, 12));
-        locBtns.Children.Add(TextButton("Open in editor", "Btn", () => { }, new Thickness(6, 0, 0, 0), 26, 12));
+        locBtns.Children.Add(IconButton("folder", "Open folder", "Btn", () => OpenExternal(p.dir), default, 28, 13));
+        locBtns.Children.Add(IconButton("editor", "Open in editor", "Btn", () => { }, new Thickness(6, 0, 0, 0), 28, 13));
         Grid.SetColumn(locBtns, 1);
         g.Children.Add(loc);
         g.Children.Add(locBtns);
@@ -271,17 +297,14 @@ public partial class SitesView : UserControl, IRefreshable
         return b;
     }
 
-    private Button TextButton(string text, string style, Action onClick, Thickness margin = default, double height = 30, double fontSize = 13)
+    private Button IconButton(string glyph, string text, string style, Action onClick, Thickness margin = default, double height = 30, double iconSize = 14)
     {
-        var btn = new Button { Style = (Style)FindResource(style), Content = new TextBlock { Text = text }, Margin = margin, Height = height, FontSize = fontSize };
+        var brush = (Brush)FindResource(style == "BtnPrimary" ? "TextOnAccent" : style == "BtnDanger" ? "Red" : "Text");
+        var sp = new StackPanel { Orientation = Orientation.Horizontal };
+        sp.Children.Add(new Icon { Glyph = glyph, Width = iconSize, Height = iconSize, Brush = brush, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0) });
+        sp.Children.Add(new TextBlock { Text = text, VerticalAlignment = VerticalAlignment.Center });
+        var btn = new Button { Style = (Style)FindResource(style), Content = sp, Margin = margin, Height = height };
         btn.Click += (_, _) => onClick();
-        return btn;
-    }
-
-    private Button TextButton(string text, string style, Func<Task> onClick, Thickness margin = default)
-    {
-        var btn = new Button { Style = (Style)FindResource(style), Content = new TextBlock { Text = text }, Margin = margin, Height = 30 };
-        btn.Click += async (_, _) => await onClick();
         return btn;
     }
 

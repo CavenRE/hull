@@ -186,6 +186,12 @@ public sealed class HullClient
         resp.EnsureSuccessStatusCode();
     }
 
+    public async Task ImportAsync(string name, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync("/v1/imports", new { name }, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
     public async Task AddServiceAsync(object req, CancellationToken ct = default)
     {
         var resp = await _http.PostAsJsonAsync("/v1/services", req, ct);

@@ -3,6 +3,9 @@
 
     <BooleanToVisibilityConverter x:Key="B2V" />
 
+    <!-- UI typeface: Play (bundled), the design's font-sans. -->
+    <FontFamily x:Key="FontUI">pack://application:,,,/fonts/#Play</FontFamily>
+
     <!-- ============ Palette (dark theme, from design/tokens.css) ============ -->
     <SolidColorBrush x:Key="BgApp"      Color="#242423" />
     <SolidColorBrush x:Key="BgPanel"    Color="#2A2B28" />
@@ -30,9 +33,11 @@
     <!-- ============ Default control look ============ -->
     <Style TargetType="{x:Type Window}">
         <Setter Property="Background" Value="{StaticResource BgApp}" />
-        <Setter Property="FontFamily" Value="Segoe UI" />
+        <Setter Property="FontFamily" Value="{StaticResource FontUI}" />
         <Setter Property="FontSize" Value="13" />
         <Setter Property="Foreground" Value="{StaticResource Text}" />
+        <Setter Property="TextOptions.TextFormattingMode" Value="Ideal" />
+        <Setter Property="TextOptions.TextRenderingMode" Value="ClearType" />
     </Style>
 
     <Style TargetType="{x:Type TextBlock}">
@@ -227,16 +232,16 @@
         <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
 
-    <!-- Window caption button (min/max/close) -->
+    <!-- Window caption button (min/max/close): 44x34, flush, square -->
     <Style x:Key="WinBtn" TargetType="Button">
         <Setter Property="Background" Value="Transparent" />
-        <Setter Property="Width" Value="30" />
-        <Setter Property="Height" Value="28" />
+        <Setter Property="Width" Value="44" />
+        <Setter Property="Height" Value="34" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="6">
+                    <Border x:Name="b" Background="{TemplateBinding Background}">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>
@@ -254,7 +259,7 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border x:Name="b" Background="Transparent" CornerRadius="6">
+                    <Border x:Name="b" Background="Transparent">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Border>
                     <ControlTemplate.Triggers>

@@ -12,9 +12,11 @@
         <Border Grid.Column="0" BorderBrush="{StaticResource Border}" BorderThickness="0,0,1,0">
             <DockPanel Margin="14,16,14,14">
                 <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
-                    <TextBox x:Name="Search" Style="{StaticResource Input}" Margin="0,0,38,0" TextChanged="OnSearch" />
+                    <TextBox x:Name="Search" Style="{StaticResource Input}" Padding="32,0,9,0" Margin="0,0,38,0" TextChanged="OnSearch" />
+                    <h:Icon Glyph="search" Width="14" Height="14" Brush="{StaticResource TextFaint}"
+                            HorizontalAlignment="Left" VerticalAlignment="Center" Margin="11,0,0,0" IsHitTestVisible="False" />
                     <TextBlock x:Name="SearchHint" Text="Search…" Foreground="{StaticResource TextFaint}" FontSize="13"
-                               Margin="11,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False" />
+                               Margin="34,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False" />
                     <Button Width="30" Height="30" Padding="0" HorizontalAlignment="Right" Style="{StaticResource Btn}" Click="OnNew">
                         <h:Icon Glyph="plus" Width="15" Height="15" Brush="{StaticResource Text}" />
                     </Button>
