@@ -253,6 +253,20 @@ public sealed class HullClient
     public Task<JobInfo?> PatchForJobAsync(string path, object body, CancellationToken ct = default) =>
         SendForJobAsync(HttpMethod.Patch, path, body, ct);
 
+    /// <summary>Streams container logs over SSE. query is e.g. "project=scratch&amp;tail=200".</summary>
+    public async Task StreamLogsAsync(string query, Action<string> onLine, CancellationToken ct)
+    {
+        var url = $"/v1/logs?{query}&token={Uri.EscapeDataString(Token)}";
+        using var stream = await _http.GetStreamAsync(url, ct);
+        using var reader = new StreamReader(stream);
+        while (!ct.IsCancellationRequested)
+        {
+            var line = await reader.ReadLineAsync(ct);
+            if (line is null) break;
+            if (line.StartsWith("data:")) onLine(line[5..].TrimStart());
+        }
+    }
+
     /// <summary>Streams a job's live log over SSE. onLine per data line; onDone(error,failed) when the job ends.</summary>
     public async Task StreamJobAsync(string id, Action<string> onLine, Action<string?, bool> onDone, CancellationToken ct)
     {

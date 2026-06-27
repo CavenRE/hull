@@ -1,0 +1,14 @@
+<UserControl x:Class="Hull.Gui.LogsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Margin="24,14,24,20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Text="Logs" Style="{StaticResource ScreenTitle}" Margin="0,0,0,14" />
+        <Border Grid.Row="1" x:Name="Toolbar" Margin="0,0,0,12" />
+        <Border Grid.Row="2" x:Name="PanelHost" />
+    </Grid>
+</UserControl>

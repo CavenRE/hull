@@ -167,7 +167,7 @@ public partial class MainWindow : Window
             "services" => new ServicesView(_client),
             "settings" => new SettingsView(_client),
             "mail" => new PlaceholderView("Mail", "Mailpit inbox , coming next."),
-            "logs" => new PlaceholderView("Logs", "Live container logs , coming next."),
+            "logs" => new LogsView(_client),
             _ => new DashboardView(_client),
         };
     }
