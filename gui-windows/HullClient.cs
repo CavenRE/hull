@@ -21,11 +21,35 @@ public record StatusInfo(
     [property: JsonPropertyName("hull_home")] string hullHome);
 
 /// <summary>One project as served by GET /v1/projects (see docs/api/openapi.yaml).</summary>
+public record ProjectServiceInfo(string key, string engine, string? version, string mode, string? instance)
+{
+    public string ModeText => mode == "shared" ? "shared instance" : "dedicated container";
+    public string Title => Friendly(engine) + (string.IsNullOrEmpty(version) ? "" : " " + version);
+    public string Glyph => engine switch
+    {
+        "postgres" or "mysql" or "mariadb" => "database",
+        "redis" or "memcached" => "cache",
+        "mailpit" => "mail",
+        "meilisearch" or "typesense" => "search",
+        "minio" => "storage",
+        _ => "tool",
+    };
+    private static string Friendly(string e) => e switch
+    {
+        "postgres" => "PostgreSQL", "mysql" => "MySQL", "mariadb" => "MariaDB", "redis" => "Redis",
+        "mailpit" => "Mailpit", "meilisearch" => "Meilisearch", "minio" => "MinIO", _ => e,
+    };
+}
+
 public record ProjectInfo(
     string name, string dir, string kind, string? url,
-    bool running, string? php, bool served, string? group, string? error = null)
+    bool running, string? php, bool served, string? group, string? error = null,
+    ProjectServiceInfo[]? services = null)
 {
     public string State => running ? "running" : "stopped";
+    public bool IsFolder => kind == "folder";
+    public string GroupName => string.IsNullOrEmpty(group) ? "Ungrouped" : group!;
+    public ProjectServiceInfo[] LinkedServices => services ?? Array.Empty<ProjectServiceInfo>();
 }
 
 public record ServiceInfo(

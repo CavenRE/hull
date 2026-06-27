@@ -1,59 +1,44 @@
 <UserControl x:Class="Hull.Gui.SitesView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <DockPanel Margin="22,20">
-        <Grid DockPanel.Dock="Top" Margin="0,0,0,16">
-            <TextBlock x:Name="Title" Text="Sites" Style="{StaticResource ScreenTitle}" VerticalAlignment="Center" />
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <TextBox x:Name="Search" Style="{StaticResource Input}" Width="210" TextChanged="OnSearch" />
-                <Button Content="Refresh" Style="{StaticResource Btn}" Margin="8,0,0,0" Click="OnRefresh" />
-            </StackPanel>
-        </Grid>
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:h="clr-namespace:Hull.Gui">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="296" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
 
-        <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <ItemsControl x:Name="List">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <Border Style="{StaticResource Card}" Padding="14,11" Margin="0,0,0,8">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
+        <!-- list pane -->
+        <Border Grid.Column="0" BorderBrush="{StaticResource Border}" BorderThickness="0,0,1,0">
+            <DockPanel Margin="14,16,14,14">
+                <Grid DockPanel.Dock="Top" Margin="0,0,0,10">
+                    <TextBox x:Name="Search" Style="{StaticResource Input}" Margin="0,0,38,0" TextChanged="OnSearch" />
+                    <TextBlock x:Name="SearchHint" Text="Search…" Foreground="{StaticResource TextFaint}" FontSize="13"
+                               Margin="11,0,0,0" VerticalAlignment="Center" IsHitTestVisible="False" />
+                    <Button Width="30" Height="30" Padding="0" HorizontalAlignment="Right" Style="{StaticResource Btn}" Click="OnNew">
+                        <h:Icon Glyph="plus" Width="15" Height="15" Brush="{StaticResource Text}" />
+                    </Button>
+                </Grid>
 
-                                <Ellipse Grid.Column="0" Width="8" Height="8" VerticalAlignment="Center" Margin="0,0,12,0">
-                                    <Ellipse.Style>
-                                        <Style TargetType="Ellipse">
-                                            <Setter Property="Fill" Value="{StaticResource TextFaint}" />
-                                            <Style.Triggers>
-                                                <DataTrigger Binding="{Binding running}" Value="True">
-                                                    <Setter Property="Fill" Value="{StaticResource Green}" />
-                                                </DataTrigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Ellipse.Style>
-                                </Ellipse>
+                <Grid DockPanel.Dock="Bottom" Margin="0,10,0,0">
+                    <Button HorizontalAlignment="Left" Style="{StaticResource Btn}" Height="28" FontSize="12" Click="OnGroup">
+                        <StackPanel Orientation="Horizontal">
+                            <h:Icon Glyph="plus" Width="12" Height="12" Brush="{StaticResource Text}" VerticalAlignment="Center" />
+                            <TextBlock Text="Group" Margin="6,0,0,0" />
+                        </StackPanel>
+                    </Button>
+                    <Button HorizontalAlignment="Right" Style="{StaticResource Btn}" Height="28" FontSize="12" Click="OnAdopt">
+                        <TextBlock Text="Adopt" />
+                    </Button>
+                </Grid>
 
-                                <StackPanel Grid.Column="1">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock Text="{Binding name}" FontSize="15" FontWeight="SemiBold" />
-                                        <TextBlock Text="{Binding kind}" Style="{StaticResource Faint}" Margin="10,2,0,0" />
-                                    </StackPanel>
-                                    <TextBlock Text="{Binding url}" Foreground="{StaticResource TextDim}"
-                                               FontSize="12" Margin="0,3,0,0" />
-                                </StackPanel>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="NavList" />
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
 
-                                <StackPanel Grid.Column="2" Orientation="Horizontal">
-                                    <Button Content="Start" Style="{StaticResource Btn}" Height="26" FontSize="12" Click="OnStart" />
-                                    <Button Content="Stop" Style="{StaticResource Btn}" Height="26" FontSize="12" Margin="6,0,0,0" Click="OnStop" />
-                                    <Button Content="Restart" Style="{StaticResource Btn}" Height="26" FontSize="12" Margin="6,0,0,0" Click="OnRestart" />
-                                </StackPanel>
-                            </Grid>
-                        </Border>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-        </ScrollViewer>
-    </DockPanel>
+        <!-- detail pane -->
+        <ContentControl x:Name="DetailHost" Grid.Column="1" />
+    </Grid>
 </UserControl>
