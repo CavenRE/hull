@@ -16,6 +16,7 @@ public partial class SitesView : UserControl, IRefreshable
     private ProjectInfo? _selected;
     private string _tab = "Overview";
     private readonly Dictionary<string, Border> _rows = new();
+    private readonly Dictionary<string, TextBlock> _rowNames = new();
     private LogPanel? _logPanel;
     private CancellationTokenSource? _logCts;
 
@@ -66,6 +67,7 @@ public partial class SitesView : UserControl, IRefreshable
         SearchHint.Visibility = string.IsNullOrEmpty(Search.Text) ? Visibility.Visible : Visibility.Collapsed;
         NavList.Children.Clear();
         _rows.Clear();
+        _rowNames.Clear();
 
         var managed = _all.Where(p => !p.IsFolder && (q == "" || p.name.ToLowerInvariant().Contains(q))).ToList();
         var order = GroupOrder().ToList();
@@ -89,7 +91,8 @@ public partial class SitesView : UserControl, IRefreshable
         var folders = _all.Where(p => p.IsFolder && (q == "" || p.name.ToLowerInvariant().Contains(q))).OrderBy(p => p.name).ToList();
         if (folders.Count > 0)
         {
-            NavList.Children.Add(GroupHeader("Folders to import", folders.Count));
+            // Plain label (no folder icon / count), matching the design.
+            NavList.Children.Add(new TextBlock { Text = "Folders to import", FontFamily = Ui.Mono, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = B("TextFaint"), Margin = new Thickness(6, 14, 4, 4) });
             foreach (var p in folders) NavList.Children.Add(FolderRow(p));
         }
     }
@@ -101,8 +104,8 @@ public partial class SitesView : UserControl, IRefreshable
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var ic = Ui.Glyph("folder", 12, "TextFaint"); ic.Margin = new Thickness(0, 0, 7, 0);
-        var t = new TextBlock { Text = label, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = B("TextFaint"), VerticalAlignment = VerticalAlignment.Center };
-        var c = new TextBlock { Text = count.ToString(), FontSize = 11, Foreground = B("TextFaint"), VerticalAlignment = VerticalAlignment.Center };
+        var t = new TextBlock { Text = label, FontFamily = Ui.Mono, FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = B("TextFaint"), VerticalAlignment = VerticalAlignment.Center };
+        var c = new TextBlock { Text = count.ToString(), FontFamily = Ui.Mono, FontSize = 11, Foreground = B("TextFaint"), VerticalAlignment = VerticalAlignment.Center };
         Grid.SetColumn(ic, 0); Grid.SetColumn(t, 1); Grid.SetColumn(c, 2);
         g.Children.Add(ic); g.Children.Add(t); g.Children.Add(c);
         return g;
@@ -131,6 +134,7 @@ public partial class SitesView : UserControl, IRefreshable
         b.MouseLeave += (_, _) => { if (_selected?.name != p.name) b.Background = Brushes.Transparent; };
         b.ContextMenu = RowMenu(p);
         _rows[p.name] = b;
+        _rowNames[p.name] = name;
         return b;
     }
 
@@ -175,6 +179,7 @@ public partial class SitesView : UserControl, IRefreshable
     {
         _selected = p;
         foreach (var kv in _rows) kv.Value.Background = kv.Key == p.name ? B("AccentSoft") : Brushes.Transparent;
+        foreach (var kv in _rowNames) kv.Value.Foreground = kv.Key == p.name ? B("Accent") : B("Text");
         _logCts?.Cancel();
         DetailHost.Content = BuildDetail(p);
     }
@@ -197,6 +202,7 @@ public partial class SitesView : UserControl, IRefreshable
         var headerGrid = new Grid { Margin = new Thickness(0, 0, 0, 12) };
         headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(132) }); // window-control gutter
         var titleRow = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, ClipToBounds = true };
         Grid.SetColumn(titleRow, 0);
         titleRow.Children.Add(new Ellipse { Width = 9, Height = 9, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0), Fill = B(p.error != null ? "Red" : p.running ? "Green" : "TextFaint") });
@@ -206,7 +212,7 @@ public partial class SitesView : UserControl, IRefreshable
         DockPanel.SetDock(headerGrid, Dock.Top);
         headerGrid.Children.Add(titleRow);
 
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(12, 0, 132, 0), VerticalAlignment = VerticalAlignment.Center };
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
         Grid.SetColumn(actions, 1);
         if (p.running)
         {
@@ -284,7 +290,9 @@ public partial class SitesView : UserControl, IRefreshable
         if (p.LinkedServices.Length > 0)
         {
             sp.Children.Add(Ui.SectionLabel("Linked services"));
-            foreach (var s in p.LinkedServices) sp.Children.Add(LinkedCard(s, p.running));
+            var lg = new System.Windows.Controls.Primitives.UniformGrid { Columns = 2 };
+            foreach (var s in p.LinkedServices) lg.Children.Add(LinkedCard(s, p.running));
+            sp.Children.Add(lg);
         }
         sp.Children.Add(Ui.SectionLabel("Location"));
         var card = new Border { Style = (Style)FindResource("Card") };
@@ -339,7 +347,7 @@ public partial class SitesView : UserControl, IRefreshable
 
     private Border LinkedCard(ProjectServiceInfo s, bool running)
     {
-        var card = new Border { Style = (Style)FindResource("Card"), Padding = new Thickness(14, 11, 14, 11), Margin = new Thickness(0, 0, 0, 8) };
+        var card = new Border { Style = (Style)FindResource("Card"), Padding = new Thickness(14, 11, 14, 11), Margin = new Thickness(0, 0, 8, 8) };
         var g = new Grid();
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -347,7 +355,8 @@ public partial class SitesView : UserControl, IRefreshable
         var ic = Ui.Glyph(s.Glyph, 18, "TextDim"); ic.Margin = new Thickness(0, 0, 12, 0);
         var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         texts.Children.Add(new TextBlock { Text = s.Title, FontWeight = FontWeights.Medium });
-        texts.Children.Add(new TextBlock { Text = s.key + " · " + s.ModeText, Style = (Style)FindResource("Faint"), Margin = new Thickness(0, 2, 0, 0) });
+        var subtitle = (string.IsNullOrEmpty(s.instance) ? s.key : s.instance) + " · " + s.mode;
+        texts.Children.Add(new TextBlock { Text = subtitle, Style = (Style)FindResource("Faint"), Margin = new Thickness(0, 2, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
         var dot = Ui.Dot(running ? "running" : "stopped");
         Grid.SetColumn(ic, 0); Grid.SetColumn(texts, 1); Grid.SetColumn(dot, 2);
         g.Children.Add(ic); g.Children.Add(texts); g.Children.Add(dot);

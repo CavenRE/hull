@@ -21,12 +21,17 @@ public partial class LogsView : UserControl, IRefreshable
 
     private List<ProjectInfo> _projects = new();
     private List<ServiceInfo> _services = new();
+    private string _optSig = "";
+    private string _streamSig = "";
 
     public async Task RefreshAsync()
     {
         _projects = Ui.Main?.Projects?.Where(p => p.kind != "folder").ToList() ?? new();
         try { _services = _client is null ? new() : await _client.ServicesAsync(); } catch { _services = new(); }
-        BuildToolbar();
+        // Rebuild the toolbar only when the available sources change, so an
+        // unrelated daemon event doesn't reset the search box / dropdown.
+        var optSig = string.Join("|", _projects.Select(p => p.name)) + "##" + string.Join("|", _services.Select(s => s.name));
+        if (Toolbar.Child is null || optSig != _optSig) { _optSig = optSig; BuildToolbar(); }
         StartStreams();
     }
 
@@ -78,9 +83,6 @@ public partial class LogsView : UserControl, IRefreshable
 
     private void StartStreams()
     {
-        _streams?.Cancel();
-        _streams = new CancellationTokenSource();
-        var ct = _streams.Token;
         if (_client is null) { _panel.ShowHint("Daemon not running."); return; }
 
         var sources = new List<(string kind, string name)>();
@@ -92,6 +94,15 @@ public partial class LogsView : UserControl, IRefreshable
         else if (_source.StartsWith("project:")) sources.Add(("project", _source["project:".Length..]));
         else if (_source.StartsWith("service:")) sources.Add(("service", _source["service:".Length..]));
 
+        // Skip teardown when the streamed source set is unchanged (an unrelated
+        // start/stop elsewhere must not wipe the scrollback we're reading).
+        var sig = _source + "::" + string.Join(",", sources.Select(s => s.kind + ":" + s.name));
+        if (sig == _streamSig && _streams is { IsCancellationRequested: false }) return;
+        _streamSig = sig;
+        _streams?.Cancel();
+        _streams = new CancellationTokenSource();
+        var ct = _streams.Token;
+
         if (sources.Count == 0)
         {
             _panel.ShowHint(_source == "all" ? "No running sites or services — start one to stream its logs." : "Start this source to stream its logs.");
@@ -101,7 +112,7 @@ public partial class LogsView : UserControl, IRefreshable
         bool prefix = sources.Count > 1;
         foreach (var (kind, name) in sources)
         {
-            var query = $"{kind}={Uri.EscapeDataString(name)}&tail=200";
+            var query = $"{kind}={Uri.EscapeDataString(name)}&tail=150";
             _ = Task.Run(async () =>
             {
                 try

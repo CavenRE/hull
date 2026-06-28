@@ -115,8 +115,12 @@ public partial class WizardView : UserControl
         Pane.Children.Add(banner);
         if (!ready && !checking)
         {
+            var btns = new StackPanel { Orientation = Orientation.Horizontal };
             var get = Ui.TextButton("Get Docker Desktop", "cube", "BtnPrimary", (_, _) => Ui.OpenExternal(_docker?.install_url ?? "https://www.docker.com/products/docker-desktop/"), 15);
-            get.HorizontalAlignment = HorizontalAlignment.Left; Pane.Children.Add(get);
+            var recheck = Ui.TextButton("Re-check", "restart", "Btn", async (_, _) => { _docker = null; Render(); await ProbeDocker(); }, 14);
+            recheck.Margin = new Thickness(8, 0, 0, 0);
+            btns.Children.Add(get); btns.Children.Add(recheck);
+            Pane.Children.Add(btns);
             Pane.Children.Add(new TextBlock { Text = "You can continue setup now and install Docker afterwards — sites just won't start until it's running.", Style = Ui.S("Help") });
         }
         FootNav("Continue");

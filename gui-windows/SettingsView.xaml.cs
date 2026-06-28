@@ -210,7 +210,11 @@ public partial class SettingsView : UserControl, IRefreshable
         var parts = lb.Split('.');
         if (parts.Length == 4) int.TryParse(parts[3], out octet);
         var row = new StackPanel { Orientation = Orientation.Horizontal };
-        void Ro(string t) => row.Children.Add(new TextBlock { Text = t, FontFamily = Ui.Mono, Foreground = Ui.B("TextFaint"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 0, 0) });
+        void Ro(string t)
+        {
+            var tb = new TextBlock { Text = t, FontFamily = Ui.Mono, Foreground = Ui.B("TextDim"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            row.Children.Add(new Border { Width = 46, Height = 30, Background = Ui.B("BgInset"), BorderBrush = Ui.B("CtrlBorder"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(7), Child = tb });
+        }
         void Sep() => row.Children.Add(new TextBlock { Text = ".", Foreground = Ui.B("TextFaint"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 4, 0) });
         Ro("127"); Sep(); Ro("0"); Sep(); Ro("0"); Sep();
         var box = new Border { Background = Ui.B("BgInset"), BorderBrush = Ui.B("CtrlBorder"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(7), Padding = new Thickness(10, 0, 4, 0), Height = 30 };

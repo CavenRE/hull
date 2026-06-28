@@ -121,7 +121,7 @@ public record DependencyInfo(
 
 public record ReapplyStep(string name, string status, string detail, string? manual);
 public record ReapplyResult(ReapplyStep[]? steps);
-public record RegistryImage(string name, string? description, bool official, int stars);
+public record RegistryImage(string name, string? description, bool official, int stars, string? pulls = null);
 
 public record JobSummary(string id, string kind, string status, string? created, string[]? lines)
 {

@@ -117,6 +117,19 @@ public partial class DashboardView : UserControl, IRefreshable
         await RefreshAsync();
     }
 
+    private async void OnStartAllServices(object sender, RoutedEventArgs e) => await ForEachService("start", s => !s.running);
+    private async void OnStopAllServices(object sender, RoutedEventArgs e) => await ForEachService("stop", s => s.running);
+
+    private async Task ForEachService(string action, Func<ServiceInfo, bool> when)
+    {
+        if (_client is null) return;
+        var targets = _services.Where(when).ToList();
+        if (targets.Count == 0) { Ui.Toast(action == "start" ? "Nothing to start" : "Nothing to stop"); return; }
+        Ui.Toast($"{(action == "start" ? "Starting" : "Stopping")} {targets.Count} service(s)…");
+        foreach (var s in targets) { try { await _client.ServiceActionAsync(s.name, action); } catch { } }
+        await RefreshAsync();
+    }
+
     private async void OnStartSite(object sender, RoutedEventArgs e)
     {
         if (_client is null || (sender as FrameworkElement)?.DataContext is not ProjectInfo p) return;

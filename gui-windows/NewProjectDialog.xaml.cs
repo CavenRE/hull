@@ -15,9 +15,12 @@ public partial class NewProjectDialog : UserControl
     private TextBox _name = null!;
     private TextBlock _preview = null!;
     private ComboBox _type = null!;
-    private ComboBox _php = null!;
+    private TextBox _php = null!;
     private CheckBox _serve = null!;
     private TextBlock _domain = null!;
+    private Grid _typeGrid = null!;
+    private StackPanel _typeCol = null!;
+    private TextBlock _containersLabel = null!;
     private StackPanel _phpCol = null!, _serveRow = null!, _servicesSection = null!, _containersSection = null!, _clusterOpts = null!;
     private StackPanel _serviceRows = null!, _cardsHost = null!;
     private TextBox _customPath = null!;
@@ -85,21 +88,21 @@ public partial class NewProjectDialog : UserControl
         Body.Children.Add(_preview);
 
         // Type + PHP
-        var grid = new Grid { Margin = new Thickness(0, 0, 0, 14) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var typeCol = new StackPanel { Margin = new Thickness(0, 0, 8, 0) };
-        typeCol.Children.Add(Ui.FieldLabel("Type"));
+        _typeGrid = new Grid { Margin = new Thickness(0, 0, 0, 14) };
+        _typeGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _typeGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _typeCol = new StackPanel { Margin = new Thickness(0, 0, 8, 0) };
+        _typeCol.Children.Add(Ui.FieldLabel("Type"));
         _type = Ui.Select(new[] { ("Laravel", "Laravel"), ("WordPress", "WordPress"), ("Plain PHP", "Plain PHP"), ("App", "App"), ("Cluster", "Cluster") }, "Laravel");
         _type.SelectionChanged += (_, _) => SyncType();
-        typeCol.Children.Add(_type);
+        _typeCol.Children.Add(_type);
         _phpCol = new StackPanel { Margin = new Thickness(8, 0, 0, 0) };
         _phpCol.Children.Add(Ui.FieldLabel("PHP version"));
         _php = Ui.VersionBox(new[] { "8.4", "8.3", "8.2", "8.1" }, "8.4", double.NaN);
         _phpCol.Children.Add(_php);
-        Grid.SetColumn(typeCol, 0); Grid.SetColumn(_phpCol, 1);
-        grid.Children.Add(typeCol); grid.Children.Add(_phpCol);
-        Body.Children.Add(grid);
+        Grid.SetColumn(_typeCol, 0); Grid.SetColumn(_phpCol, 1);
+        _typeGrid.Children.Add(_typeCol); _typeGrid.Children.Add(_phpCol);
+        Body.Children.Add(_typeGrid);
 
         // Serve toggle + domain preview
         _serveRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
@@ -112,7 +115,8 @@ public partial class NewProjectDialog : UserControl
 
         // Containers section (App/Cluster)
         _containersSection = new StackPanel { Margin = new Thickness(0, 0, 0, 6), Visibility = Visibility.Collapsed };
-        _containersSection.Children.Add(Ui.FieldLabel("Containers"));
+        _containersLabel = Ui.FieldLabel("Containers");
+        _containersSection.Children.Add(_containersLabel);
         _containersSection.Children.Add(new TextBlock { Text = "Each container is a Docker Hub image — search, pick, repeat.", Style = Ui.S("Help"), Margin = new Thickness(0, 0, 0, 8) });
         _cardsHost = new StackPanel();
         _containersSection.Children.Add(_cardsHost);
@@ -154,9 +158,24 @@ public partial class NewProjectDialog : UserControl
     {
         var type = Ui.SelectedVal(_type);
         bool isApp = type == "App", isCluster = type == "Cluster", isContainers = isApp || isCluster;
-        _phpCol.Visibility = isContainers ? Visibility.Hidden : Visibility.Visible;
+        // PHP column collapses (width 0) so Type spans the full width for App/Cluster.
+        if (isContainers)
+        {
+            _phpCol.Visibility = Visibility.Collapsed;
+            _typeGrid.ColumnDefinitions[1].Width = new GridLength(0);
+            Grid.SetColumnSpan(_typeCol, 2);
+            _typeCol.Margin = new Thickness(0);
+        }
+        else
+        {
+            _phpCol.Visibility = Visibility.Visible;
+            _typeGrid.ColumnDefinitions[1].Width = new GridLength(1, GridUnitType.Star);
+            Grid.SetColumnSpan(_typeCol, 1);
+            _typeCol.Margin = new Thickness(0, 0, 8, 0);
+        }
         _serveRow.Visibility = isCluster ? Visibility.Collapsed : Visibility.Visible;
         _containersSection.Visibility = isContainers ? Visibility.Visible : Visibility.Collapsed;
+        _containersLabel.Text = isApp ? "App containers  ·  search Docker Hub" : "Containers";
         _clusterOpts.Visibility = isCluster ? Visibility.Visible : Visibility.Collapsed;
         _servicesSection.Visibility = isContainers ? Visibility.Collapsed : Visibility.Visible;
         if (isContainers && _cardsHost.Children.Count == 0) _cardsHost.Children.Add(ContainerCard());
@@ -188,11 +207,11 @@ public partial class NewProjectDialog : UserControl
         foreach (var (k, m) in Catalog.Engines) if (k != "sqlite") engines.Add((k, m.Label));
         var eng = Ui.Select(engines, "postgres"); eng.Margin = new Thickness(0, 0, 8, 0);
         var ver = Ui.VersionBox(VersionsFor("postgres"), null, 122); ver.Margin = new Thickness(0, 0, 8, 0);
-        eng.SelectionChanged += (_, _) => { ver.Items.Clear(); foreach (var v in VersionsFor(Ui.SelectedVal(eng))) ver.Items.Add(v); if (ver.Items.Count > 0) ver.SelectedIndex = 0; };
+        eng.SelectionChanged += (_, _) => { ver.Text = VersionsFor(Ui.SelectedVal(eng)).FirstOrDefault() ?? ""; };
         var rm = Ui.IconButton("x", (_, _) => _serviceRows.Children.Remove(row), 15, "TextFaint", "Remove");
         Grid.SetColumn(eng, 0); Grid.SetColumn(ver, 1); Grid.SetColumn(rm, 2);
         row.Children.Add(eng); row.Children.Add(ver); row.Children.Add(rm);
-        row.Tag = (eng, ver);
+        row.Tag = eng;
         return row;
     }
 
@@ -252,10 +271,18 @@ public partial class NewProjectDialog : UserControl
                 var mid = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
                 mid.Children.Add(new TextBlock { Text = name, FontWeight = FontWeights.Medium, FontSize = 12.5 });
                 if (!string.IsNullOrEmpty(im.description)) mid.Children.Add(new TextBlock { Text = im.description, Style = Ui.S("Faint"), TextTrimming = TextTrimming.CharacterEllipsis });
-                var badge = im.official ? new Border { Style = Ui.S("Chip"), VerticalAlignment = VerticalAlignment.Center, Child = new TextBlock { Text = "OFFICIAL", FontSize = 9.5, Foreground = Ui.B("Accent") } } : null;
+                var meta = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                if (im.official) meta.Children.Add(new Border { Style = Ui.S("Chip"), VerticalAlignment = VerticalAlignment.Center, Child = new TextBlock { Text = "OFFICIAL", FontSize = 9.5, Foreground = Ui.B("Accent") } });
+                if (!string.IsNullOrEmpty(im.pulls))
+                {
+                    var pulls = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0) };
+                    pulls.Children.Add(Ui.Glyph("download", 12, "TextFaint"));
+                    pulls.Children.Add(new TextBlock { Text = " " + im.pulls, FontSize = 11, Foreground = Ui.B("TextFaint"), VerticalAlignment = VerticalAlignment.Center });
+                    meta.Children.Add(pulls);
+                }
                 Grid.SetColumn(ic, 0); Grid.SetColumn(mid, 1);
                 rg.Children.Add(ic); rg.Children.Add(mid);
-                if (badge != null) { Grid.SetColumn(badge, 2); rg.Children.Add(badge); }
+                Grid.SetColumn(meta, 2); rg.Children.Add(meta);
                 var rb = new Border { CornerRadius = new CornerRadius(7), Padding = new Thickness(9, 6, 9, 6), Cursor = Cursors.Hand, Child = rg };
                 rb.MouseEnter += (_, _) => rb.Background = Ui.B("BgCard2");
                 rb.MouseLeave += (_, _) => rb.Background = Brushes.Transparent;
@@ -278,7 +305,7 @@ public partial class NewProjectDialog : UserControl
             var term = search.Text.Trim();
             var fallback = Catalog.DockerImages
                 .Where(d => term.Length == 0 || d.Name.Contains(term, StringComparison.OrdinalIgnoreCase))
-                .Select(d => new RegistryImage(d.Name, d.Desc, d.Official, 0)).ToList();
+                .Select(d => new RegistryImage(d.Name, d.Desc, d.Official, 0, d.Pulls)).ToList();
             RenderResults(fallback);
             if (_client is not null && term.Length > 0)
                 _ = _client.SearchImagesAsync(term).ContinueWith(t =>
@@ -327,9 +354,9 @@ public partial class NewProjectDialog : UserControl
         var template = type switch { "WordPress" => "wordpress", "Plain PHP" => "plain", _ => "laravel" };
         string db = ""; bool redis = false; var extras = new List<string>();
         foreach (var child in _serviceRows.Children)
-            if (child is Grid g && g.Tag is ValueTuple<ComboBox, ComboBox> t)
+            if (child is Grid g && g.Tag is ComboBox engBox)
             {
-                var en = Ui.SelectedVal(t.Item1);
+                var en = Ui.SelectedVal(engBox);
                 if (en == "sqlite") continue;
                 if (en is "postgres" or "mysql" or "mariadb" && db.Length == 0) db = en;
                 else if (en == "redis") redis = true;
@@ -338,7 +365,7 @@ public partial class NewProjectDialog : UserControl
         if (db.Length == 0 && template == "wordpress") db = "mariadb";
         var req = new Dictionary<string, object> { ["name"] = name, ["template"] = template, ["serve"] = _serve.IsChecked == true, ["redis"] = redis };
         if (db.Length > 0) req["db"] = db;
-        var php = (_php.SelectedItem ?? _php.Text)?.ToString() ?? "";
+        var php = _php.Text.Trim();
         if (php.Length > 0) req["php"] = php;
         Close();
         await Ui.RunJob(() => _client.PostForJobAsync("/v1/projects", req), $"Creating {name}…" + (extras.Count > 0 ? $" (then link: {string.Join(", ", extras)})" : ""));

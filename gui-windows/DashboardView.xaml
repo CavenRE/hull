@@ -63,7 +63,7 @@
                     </Grid.ColumnDefinitions>
 
                     <StackPanel Grid.Column="0" Margin="0,0,8,0">
-                        <TextBlock Text="Recent sites" Style="{StaticResource SectionLabel}" />
+                        <TextBlock Text="RECENT SITES" Style="{StaticResource SectionLabel}" />
                         <Border Style="{StaticResource Card}" Padding="6,4">
                             <ItemsControl x:Name="RecentList">
                                 <ItemsControl.ItemTemplate>
@@ -107,7 +107,23 @@
                     </StackPanel>
 
                     <StackPanel Grid.Column="1" Margin="8,0,0,0">
-                        <TextBlock Text="Active services" Style="{StaticResource SectionLabel}" />
+                        <Grid>
+                            <TextBlock Text="ACTIVE SERVICES" Style="{StaticResource SectionLabel}" />
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,0,6">
+                                <Button Style="{StaticResource BtnSm}" Click="OnStopAllServices">
+                                    <StackPanel Orientation="Horizontal">
+                                        <h:Icon Glyph="stop" Width="12" Height="12" Brush="{DynamicResource Text}" VerticalAlignment="Center" />
+                                        <TextBlock Text="Stop all" Margin="6,0,0,0" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource BtnSm}" Margin="6,0,0,0" Click="OnStartAllServices">
+                                    <StackPanel Orientation="Horizontal">
+                                        <h:Icon Glyph="play" Width="12" Height="12" Brush="{DynamicResource Text}" VerticalAlignment="Center" />
+                                        <TextBlock Text="Start all" Margin="6,0,0,0" />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
                         <Border Style="{StaticResource Card}" Padding="6,4">
                             <Grid>
                                 <TextBlock x:Name="NoServices" Text="No shared services yet." Style="{StaticResource Faint}"
@@ -144,11 +160,11 @@
                 </Grid>
 
                 <!-- system health -->
-                <TextBlock Text="System health" Style="{StaticResource SectionLabel}" />
+                <TextBlock Text="SYSTEM HEALTH" Style="{StaticResource SectionLabel}" />
                 <UniformGrid x:Name="HealthGrid" Columns="3" />
 
                 <!-- recent activity -->
-                <TextBlock Text="Recent activity" Style="{StaticResource SectionLabel}" />
+                <TextBlock Text="RECENT ACTIVITY" Style="{StaticResource SectionLabel}" />
                 <Border Style="{StaticResource Card}" Padding="6,4">
                     <Grid>
                         <TextBlock x:Name="NoActivity" Text="No recent activity." Style="{StaticResource Faint}" Margin="8,8" Visibility="Collapsed" />

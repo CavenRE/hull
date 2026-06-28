@@ -144,7 +144,7 @@ public static class Ui
             panel.Children.Add(b);
         }
         Paint();
-        return new Border { Background = B("BgInset"), BorderBrush = B("CtrlBorder"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(3), Child = panel, HorizontalAlignment = HorizontalAlignment.Left };
+        return new Border { Background = B("BgApp"), BorderBrush = B("CtrlBorder"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(3), Child = panel, HorizontalAlignment = HorizontalAlignment.Left };
     }
 
     /// <summary>Tab bar with an accent underline on the active tab.</summary>
@@ -224,13 +224,14 @@ public static class Ui
         return new Border { Background = B("BgInset"), BorderBrush = B("Border"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 10, 12, 10), Child = grid };
     }
 
-    /// <summary>Engine version picker (themed ComboBox; populated by caller).</summary>
-    public static ComboBox VersionBox(IEnumerable<string> versions, string? selected = null, double width = 130)
+    /// <summary>Engine version field — a chevron-less mono text input (free entry),
+    /// matching the design's version pill. Seed with the default; callers read .Text.</summary>
+    public static TextBox VersionBox(IEnumerable<string> versions, string? selected = null, double width = 130)
     {
-        var cb = new ComboBox { Style = S("Select"), ItemContainerStyle = S("SelectItem"), Width = width, IsEditable = false };
-        foreach (var v in versions) cb.Items.Add(v);
-        cb.SelectedItem = selected is not null && cb.Items.Contains(selected) ? selected : (cb.Items.Count > 0 ? cb.Items[0] : null);
-        return cb;
+        var list = versions?.ToList() ?? new List<string>();
+        var tb = new TextBox { Style = S("MonoInput"), Text = selected ?? (list.Count > 0 ? list[0] : "") };
+        if (!double.IsNaN(width)) tb.Width = width;
+        return tb;
     }
 
     public static ComboBox Select(IEnumerable<(string val, string text)> options, string? selectedVal = null, double width = double.NaN)

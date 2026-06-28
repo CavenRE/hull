@@ -115,11 +115,14 @@
                                             <Border Height="1" Background="{DynamicResource Border}" />
                                             <Grid Margin="11,7">
                                                 <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="80" /><ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="80" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
                                                 <TextBlock Grid.Column="0" Text="password" Style="{StaticResource Faint}" />
                                                 <TextBlock Grid.Column="1" Text="(no password)" Foreground="{DynamicResource TextFaint}"
                                                            FontStyle="Italic" FontSize="12" />
+                                                <Button Grid.Column="2" Style="{StaticResource IconBtn}" Padding="4" IsEnabled="False" Opacity="0">
+                                                    <h:Icon Glyph="copy" Width="13" Height="13" Brush="{DynamicResource TextFaint}" />
+                                                </Button>
                                             </Grid>
                                         </StackPanel>
                                     </Border>

@@ -30,7 +30,10 @@
                         </StackPanel>
                     </Button>
                     <Button HorizontalAlignment="Right" Style="{StaticResource Btn}" Height="28" FontSize="12" Click="OnAdopt">
-                        <TextBlock Text="Adopt" />
+                        <StackPanel Orientation="Horizontal">
+                            <h:Icon Glyph="cube" Width="12" Height="12" Brush="{DynamicResource Text}" VerticalAlignment="Center" />
+                            <TextBlock Text="Adopt" Margin="6,0,0,0" />
+                        </StackPanel>
                     </Button>
                 </Grid>
 

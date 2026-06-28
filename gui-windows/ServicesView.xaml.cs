@@ -61,8 +61,9 @@ public partial class ServicesView : UserControl, IRefreshable
     private void OnAdd(object sender, RoutedEventArgs e)
     {
         string? selectedEngine = null;
-        var versionBoxes = new Dictionary<string, ComboBox>();
+        var versionBoxes = new Dictionary<string, TextBox>();
         var rows = new Dictionary<string, Border>();
+        Button? addBtnRef = null;
 
         var list = new StackPanel();
         foreach (var g in Catalog.Groups)
@@ -88,6 +89,7 @@ public partial class ServicesView : UserControl, IRefreshable
                 card.MouseLeftButtonUp += (_, _) =>
                 {
                     selectedEngine = engine;
+                    if (addBtnRef is not null) addBtnRef.IsEnabled = true;
                     foreach (var (eng, c) in rows)
                     {
                         var on = eng == engine;
@@ -103,11 +105,13 @@ public partial class ServicesView : UserControl, IRefreshable
         var add = Ui.TextButton("Add instance", "", "BtnPrimary", async (_, _) =>
         {
             if (selectedEngine is null) { Ui.Toast("Pick an engine"); return; }
-            var version = Ui.SelectedVal(versionBoxes[selectedEngine]);
+            var version = versionBoxes[selectedEngine].Text.Trim();
             Ui.CloseDialog();
             if (_client is not null)
                 await Ui.RunJob(() => _client.PostForJobAsync("/v1/services", new { engine = selectedEngine, version }), $"Adding {Catalog.Label(selectedEngine)}…");
         });
+        add.IsEnabled = false; // enabled once an engine is selected
+        addBtnRef = add;
         Ui.ShowDialog(Ui.Dialog("Add instance", scroll, Ui.CancelButton(), add));
     }
 
@@ -135,7 +139,7 @@ public partial class ServicesView : UserControl, IRefreshable
     {
         var driver = s.engine switch { "postgres" => "postgresql", "mysql" => "mysql", "mariadb" => "mysql", _ => s.engine };
         var user = string.IsNullOrEmpty(s.username) ? "root" : s.username;
-        return $"{scheme}://{driver}@{s.HostText}:{s.host_port}";
+        return $"{scheme}://{driver}://{user}@{s.HostText}:{s.host_port}";
     }
     private static string CliCommand(ServiceInfo s) => s.engine switch
     {
