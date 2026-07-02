@@ -36,6 +36,9 @@ database container per project. Versions run side by side.`,
 			if err != nil {
 				return err
 			}
+			if flagJSON {
+				return printJSON(instances)
+			}
 			if len(instances) == 0 {
 				fmt.Println("No shared instances. Add one with: hull services add postgres@16")
 				return nil

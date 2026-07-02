@@ -18,9 +18,10 @@ in your project folders changes, and unmanaged folders can be grouped too.`,
 	}
 
 	grp.AddCommand(&cobra.Command{
-		Use:   "ls",
-		Short: "List groups and members",
-		Args:  cobra.NoArgs,
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List groups and members",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
@@ -29,6 +30,9 @@ in your project folders changes, and unmanaged folders can be grouped too.`,
 			store, err := a.groupsView(cmd.Context())
 			if err != nil {
 				return err
+			}
+			if flagJSON {
+				return printJSON(store)
 			}
 			for root, rg := range store.Roots {
 				fmt.Printf("%s\n", root)
