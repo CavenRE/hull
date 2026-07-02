@@ -132,11 +132,15 @@ func (a *app) findProject(name string) (*state.Project, error) {
 
 // configView returns the current config as the API shape, from the daemon
 // when one is running (so it reflects live state) or from local config.yaml.
+// A daemon read error is surfaced, not silently masked by stale local config
+// (matches groupsView); the local path is used only when no daemon answers.
 func (a *app) configView(ctx context.Context) (api.ConfigInfo, error) {
 	if client, ok := a.client(); ok {
-		if ci, err := client.Config(ctx); err == nil {
-			return *ci, nil
+		ci, err := client.Config(ctx)
+		if err != nil {
+			return api.ConfigInfo{}, err
 		}
+		return *ci, nil
 	}
 	var ci api.ConfigInfo
 	ci.TLD = a.Config.TLD

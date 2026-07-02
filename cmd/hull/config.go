@@ -72,8 +72,7 @@ apply live, otherwise they're written straight to config.yaml.`,
 		},
 	})
 
-	setCmd := &cobra.Command{Use: "set", Short: "Set a configuration value"}
-	setCmd.AddCommand(&cobra.Command{
+	cfg.AddCommand(&cobra.Command{
 		Use:   "tld <value>",
 		Short: "Set the local top-level domain (e.g. test)",
 		Args:  cobra.ExactArgs(1),
@@ -81,7 +80,6 @@ apply live, otherwise they're written straight to config.yaml.`,
 			return mutateConfig(cmd, func(ci *configInfoT) { ci.TLD = strings.TrimPrefix(args[0], ".") })
 		},
 	})
-	cfg.AddCommand(setCmd)
 
 	defaultsCmd := &cobra.Command{
 		Use:   "defaults <php|editor|db-tool> <value>",
@@ -89,6 +87,11 @@ apply live, otherwise they're written straight to config.yaml.`,
 		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key, val := args[0], args[1]
+			switch key {
+			case "php", "editor", "db-tool", "db_tool":
+			default:
+				return fmt.Errorf("unknown default %q (want: php, editor, db-tool)", key)
+			}
 			return mutateConfig(cmd, func(ci *configInfoT) {
 				switch key {
 				case "php":
