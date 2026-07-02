@@ -13,6 +13,7 @@ import (
 	"github.com/CavenRE/hull/internal/engine"
 	"github.com/CavenRE/hull/internal/groups"
 	"github.com/CavenRE/hull/internal/jobs"
+	"github.com/CavenRE/hull/internal/ledger"
 	"github.com/CavenRE/hull/internal/registry"
 	"github.com/CavenRE/hull/internal/services"
 	"github.com/CavenRE/hull/internal/state"
@@ -84,6 +85,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/projects/{name}/volumes", s.handleProjectVolumes)
 	mux.HandleFunc("POST /v1/projects/{name}/{action}", s.handleProjectAction)
 	mux.HandleFunc("POST /v1/imports", s.handleImport)
+	mux.HandleFunc("GET /v1/clusters", s.handleClusters)
 	mux.HandleFunc("POST /v1/clusters", s.handleAdoptCluster)
 	mux.HandleFunc("POST /v1/clusters/create", s.handleCreateCluster)
 	s.registerServiceRoutes(mux)
@@ -247,6 +249,58 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, infos)
+}
+
+// ClusterList returns adopted/managed clusters (type: cluster), reconciled
+// with the started ledger so adopted clusters whose directories live outside
+// the configured roots are still listed. Exported so the CLI's in-process
+// fallback renders the same data as the daemon (core-first).
+func ClusterList(ctx context.Context, cfg *config.Config, running func(context.Context) ([]string, error)) ([]ClusterInfo, error) {
+	projects, err := state.Scan(cfg.Roots)
+	if err != nil {
+		return nil, err
+	}
+	runningSet := map[string]bool{}
+	if running != nil {
+		if names, err := running(ctx); err == nil {
+			for _, n := range names {
+				runningSet[n] = true
+			}
+		}
+	}
+	seen := map[string]bool{}
+	out := []ClusterInfo{}
+	for i := range projects {
+		m := projects[i].Manifest
+		if m == nil || m.Type != "cluster" {
+			continue
+		}
+		ci := ClusterInfo{Name: m.Name, Dir: projects[i].Dir, ComposeRoot: m.ComposeRoot, Running: runningSet[m.Name]}
+		for _, k := range m.RouteKeys() {
+			rt := m.Routes[k]
+			ci.Routes = append(ci.Routes, ClusterRouteInfo{Key: k, Subdomain: rt.Subdomain, Service: rt.Service, Port: rt.Port, Served: rt.Served()})
+		}
+		out = append(out, ci)
+		seen[m.Name] = true
+	}
+	// Reconcile out-of-root adopted clusters recorded in the started ledger.
+	for _, e := range ledger.List(cfg.HullHome) {
+		if e.Kind != "cluster" || seen[e.Name] {
+			continue
+		}
+		out = append(out, ClusterInfo{Name: e.Name, Dir: e.Dir, ComposeRoot: e.ComposeRoot, Running: runningSet[e.Name]})
+		seen[e.Name] = true
+	}
+	return out, nil
+}
+
+func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
+	list, err := ClusterList(r.Context(), s.Config, s.RunningProjects)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
 }
 
 func (s *Server) handleProjectAction(w http.ResponseWriter, r *http.Request) {

@@ -30,6 +30,16 @@ type ProjectInfo struct {
 	Routes []ClusterRouteInfo `json:"routes,omitempty"`
 }
 
+// ClusterInfo answers GET /v1/clusters , adopted/managed cluster projects,
+// reconciled with the started ledger so out-of-root clusters are included.
+type ClusterInfo struct {
+	Name        string             `json:"name"`
+	Dir         string             `json:"dir"`
+	ComposeRoot string             `json:"compose_root,omitempty"`
+	Running     bool               `json:"running"`
+	Routes      []ClusterRouteInfo `json:"routes,omitempty"`
+}
+
 // ClusterRouteInfo is one subdomain→service route of a cluster.
 type ClusterRouteInfo struct {
 	Key       string `json:"key"`

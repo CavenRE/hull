@@ -187,6 +187,20 @@ func (c *Client) SetProjectGroup(ctx context.Context, name, group string) error 
 	return c.do(ctx, http.MethodPost, "/v1/projects/"+name+"/group", map[string]string{"group": group}, nil)
 }
 
+// Clusters lists adopted/managed clusters (reconciled with the ledger).
+func (c *Client) Clusters(ctx context.Context) ([]ClusterInfo, error) {
+	var infos []ClusterInfo
+	if err := c.do(ctx, http.MethodGet, "/v1/clusters", nil, &infos); err != nil {
+		return nil, err
+	}
+	return infos, nil
+}
+
+// CreateCluster starts a job creating a new multi-container cluster.
+func (c *Client) CreateCluster(ctx context.Context, req CreateClusterRequest) (jobs.Info, error) {
+	return c.jobFrom(ctx, http.MethodPost, "/v1/clusters/create", req)
+}
+
 // AdoptCluster adopts an existing compose project as a Hull cluster.
 func (c *Client) AdoptCluster(ctx context.Context, req AdoptClusterRequest) (string, error) {
 	var out struct {

@@ -241,6 +241,17 @@ paths:
               schema: { $ref: "#/components/schemas/JobRef" }
 
   /v1/clusters:
+    get:
+      tags: [clusters]
+      summary: List adopted/managed clusters (reconciled with the started ledger)
+      responses:
+        "200":
+          description: Clusters
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ClusterInfo" }
     post:
       tags: [clusters]
       summary: Adopt an existing compose project as a Hull cluster
@@ -575,6 +586,15 @@ components:
         service: { type: string }
         port: { type: integer }
         served: { type: boolean }
+    ClusterInfo:
+      type: object
+      required: [name, dir, running]
+      properties:
+        name: { type: string }
+        dir: { type: string }
+        compose_root: { type: string }
+        running: { type: boolean }
+        routes: { type: array, items: { $ref: "#/components/schemas/ClusterRouteInfo" } }
     DetectInfo:
       type: object
       required: [kind, template, php_kind]
