@@ -1,12 +1,16 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/CavenRE/hull/internal/groups"
@@ -294,4 +298,44 @@ func (c *Client) Unlink(ctx context.Context, name string, req UnlinkRequest) err
 // Import starts a job adopting an unmanaged folder already inside a root.
 func (c *Client) Import(ctx context.Context, req ImportRequest) (jobs.Info, error) {
 	return c.jobFrom(ctx, http.MethodPost, "/v1/imports", req)
+}
+
+// Logs streams a project's or service's container logs (SSE) to onLine until
+// ctx is cancelled or the stream ends. Exactly one of project/service is set.
+func (c *Client) Logs(ctx context.Context, project, service string, tail int, onLine func(string)) error {
+	q := url.Values{}
+	if project != "" {
+		q.Set("project", project)
+	}
+	if service != "" {
+		q.Set("service", service)
+	}
+	if tail > 0 {
+		q.Set("tail", strconv.Itoa(tail))
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/v1/logs?"+q.Encode(), nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 400 {
+		var e ErrorBody
+		if json.NewDecoder(resp.Body).Decode(&e) == nil && e.Error != "" {
+			return fmt.Errorf("daemon: %s", e.Error)
+		}
+		return fmt.Errorf("daemon: HTTP %d", resp.StatusCode)
+	}
+	sc := bufio.NewScanner(resp.Body)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		if line := sc.Text(); strings.HasPrefix(line, "data: ") {
+			onLine(strings.TrimPrefix(line, "data: "))
+		}
+	}
+	return sc.Err()
 }

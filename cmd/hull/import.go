@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CavenRE/hull/internal/api"
 	"github.com/CavenRE/hull/internal/bundle"
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/engine"
@@ -47,6 +48,37 @@ restored into the provisioned database.`,
 			if err != nil {
 				return err
 			}
+
+			// Daemon-first for the common name-based import so the running
+			// daemon adopts and starts the project (and reconciles routes). The
+			// daemon endpoint takes no overrides and always starts, so bundle
+			// imports, flag overrides, and --no-start stay in-process. The SQL
+			// dump restore still runs CLI-side against the started containers.
+			hasOverrides := template != "" || db != "" || php != "" || redis
+			if client, ok := a.client(); ok && !noStart && !hasOverrides && !strings.HasSuffix(args[0], ".zip") {
+				job, err := client.Import(cmd.Context(), api.ImportRequest{Name: args[0]})
+				if err != nil {
+					return err
+				}
+				if err := streamJob(cmd.Context(), client, job); err != nil {
+					return err
+				}
+				p, err := a.findProject(args[0])
+				if err != nil {
+					return err
+				}
+				if p.Manifest == nil {
+					return fmt.Errorf("import finished but %s is not managed by Hull", args[0])
+				}
+				if !skipDumps {
+					if err := offerDumpImport(cmd.Context(), p.Manifest, p.Dir); err != nil {
+						return err
+					}
+				}
+				fmt.Printf("✔ %s is up at https://%s.%s\n", p.Manifest.Name, p.Manifest.Domain, a.Config.TLD)
+				return nil
+			}
+
 			if !noStart {
 				if err := dockerx.EngineCheck(cmd.Context()); err != nil {
 					return err

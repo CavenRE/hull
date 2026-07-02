@@ -8,6 +8,7 @@ import (
 	"github.com/CavenRE/hull/internal/api"
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/services"
+	"github.com/CavenRE/hull/internal/templates"
 )
 
 func init() {
@@ -29,19 +30,70 @@ file on the next start; its volume is not deleted.`,
 			if err != nil {
 				return err
 			}
-			if err := dockerx.EngineCheck(cmd.Context()); err != nil {
-				return err
-			}
 			p, err := a.findProject(args[0])
 			if err != nil {
 				return err
 			}
-			instance, err := a.Engine.Link(cmd.Context(), p, args[1], services.NewManager(a.Config))
+			def, version, err := services.Resolve(args[1])
 			if err != nil {
 				return err
 			}
+			instance := templates.InstanceName(def.Name, version)
+
+			viaDaemon := false
+			if err := a.withDaemon(
+				func(c *api.Client) error {
+					viaDaemon = true
+					// The daemon's link endpoint requires the instance to
+					// already exist; the in-process Link auto-provisions it, so
+					// mirror that by adding it first when missing.
+					existing, err := c.Services(cmd.Context())
+					if err != nil {
+						return err
+					}
+					found := false
+					for _, in := range existing {
+						if in.Name == instance || (in.Engine == def.Name && in.Version == version) {
+							instance = in.Name
+							found = true
+							break
+						}
+					}
+					if !found {
+						job, err := c.AddService(cmd.Context(), api.AddServiceRequest{Engine: def.Name, Version: version})
+						if err != nil {
+							return err
+						}
+						if err := streamJob(cmd.Context(), c, job); err != nil {
+							return err
+						}
+					}
+					job, err := c.LinkService(cmd.Context(), instance, api.LinkRequest{Project: p.Name})
+					if err != nil {
+						return err
+					}
+					return streamJob(cmd.Context(), c, job)
+				},
+				func() error {
+					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+						return err
+					}
+					name, err := a.Engine.Link(cmd.Context(), p, args[1], services.NewManager(a.Config))
+					if err != nil {
+						return err
+					}
+					instance = name
+					return nil
+				},
+			); err != nil {
+				return err
+			}
 			fmt.Printf("✔ %s linked to shared instance %s.\n", p.Name, instance)
-			fmt.Println("  Restart the project to apply: hull up", p.Name)
+			// The daemon path restarts the project as part of the link job; the
+			// in-process path does not, so only it needs the restart hint.
+			if !viaDaemon {
+				fmt.Println("  Restart the project to apply: hull up", p.Name)
+			}
 			return nil
 		},
 	})

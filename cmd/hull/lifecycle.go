@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/spf13/cobra"
 
+	"github.com/CavenRE/hull/internal/api"
 	"github.com/CavenRE/hull/internal/dockerx"
+	"github.com/CavenRE/hull/internal/services"
 	"github.com/CavenRE/hull/internal/state"
 )
 
@@ -129,22 +132,56 @@ func init() {
 }
 
 func init() {
-	rootCmd.AddCommand(&cobra.Command{
+	var service string
+	logs := &cobra.Command{
 		Use:   "logs [name]",
-		Short: "Tail a project's container logs",
+		Short: "Tail a project's (or a shared service instance's) container logs",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
 				return err
 			}
+			if service != "" {
+				if len(args) > 0 {
+					return fmt.Errorf("pass either a project name or --service, not both")
+				}
+				return a.withDaemon(
+					func(c *api.Client) error {
+						return c.Logs(cmd.Context(), "", service, 200, func(l string) { fmt.Println(l) })
+					},
+					func() error { return serviceLogs(cmd.Context(), a, service) },
+				)
+			}
 			p, err := oneTarget(a, args)
 			if err != nil {
 				return err
 			}
-			return a.Engine.Logs(cmd.Context(), p, true)
+			return a.withDaemon(
+				func(c *api.Client) error {
+					return c.Logs(cmd.Context(), p.Name, "", 200, func(l string) { fmt.Println(l) })
+				},
+				func() error { return a.Engine.Logs(cmd.Context(), p, true) },
+			)
 		},
-	})
+	}
+	logs.Flags().StringVar(&service, "service", "", "tail a shared service instance instead of a project")
+	rootCmd.AddCommand(logs)
+}
+
+// serviceLogs tails a shared instance's container logs in-process (the
+// headless fallback for `hull logs --service`).
+func serviceLogs(ctx context.Context, a *app, name string) error {
+	instances, err := services.NewManager(a.Config).List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, in := range instances {
+		if in.Name == name {
+			return dockerx.Exec(ctx, in.Dir, "docker", "compose", "logs", "--follow", "--no-color")
+		}
+	}
+	return fmt.Errorf("no shared instance %q", name)
 }
 
 // candidateLister produces the option list for the interactive picker.

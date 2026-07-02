@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CavenRE/hull/internal/api"
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/engine"
 	"github.com/CavenRE/hull/internal/services"
@@ -45,12 +46,6 @@ install), wordpress gets MariaDB, plain gets no database. Add a database with
 				return err
 			}
 			name, template := args[0], args[1]
-
-			if !noStart {
-				if err := dockerx.EngineCheck(cmd.Context()); err != nil {
-					return err
-				}
-			}
 
 			if interactive {
 				db, withRedis, err = pickInfra()
@@ -98,22 +93,44 @@ install), wordpress gets MariaDB, plain gets no database. Add a database with
 			if cmd.Flags().Changed("serve") {
 				servePtr = &serve
 			}
-			dir, err := a.Engine.NewProject(cmd.Context(), engine.NewOptions{
-				Name:          name,
-				Template:      template,
-				DB:            db,
-				DBVersion:     dbVersion,
-				Redis:         withRedis,
-				PHP:           php,
-				Version:       fwVersion,
-				ExtraServices: extra,
-				Serve:         servePtr,
-				SkipStart:     noStart,
-			})
-			if err != nil {
-				return err
+
+			// The daemon's create endpoint does not (yet) carry extra services
+			// or the interactive picker, so those cases run in-process.
+			if client, ok := a.client(); ok && !interactive && len(extra) == 0 {
+				job, err := client.CreateProject(cmd.Context(), api.CreateProjectRequest{
+					Name: name, Template: template, DB: db, DBVersion: dbVersion,
+					Redis: withRedis, PHP: php, Version: fwVersion, Serve: servePtr, SkipStart: noStart,
+				})
+				if err != nil {
+					return err
+				}
+				if err := streamJob(cmd.Context(), client, job); err != nil {
+					return err
+				}
+				fmt.Printf("✔ Project %q created.\n", name)
+			} else {
+				if !noStart {
+					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+						return err
+					}
+				}
+				dir, err := a.Engine.NewProject(cmd.Context(), engine.NewOptions{
+					Name:          name,
+					Template:      template,
+					DB:            db,
+					DBVersion:     dbVersion,
+					Redis:         withRedis,
+					PHP:           php,
+					Version:       fwVersion,
+					ExtraServices: extra,
+					Serve:         servePtr,
+					SkipStart:     noStart,
+				})
+				if err != nil {
+					return err
+				}
+				fmt.Printf("✔ Project created at %s\n", dir)
 			}
-			fmt.Printf("✔ Project created at %s\n", dir)
 			if !noStart {
 				fmt.Printf("✔ %s is up at https://%s.%s\n", name, name, a.Config.TLD)
 			}
