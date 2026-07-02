@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/CavenRE/hull/internal/config"
 	"github.com/CavenRE/hull/internal/dockerx"
@@ -49,6 +50,39 @@ type Server struct {
 	LogStream func(ctx context.Context, dir string, tail int, onLine func(string)) error
 	// Registry queries Docker Hub for live image versions and search.
 	Registry *registry.Client
+	// projectLocks serializes mutating operations on the same project so two
+	// concurrent jobs (e.g. a GUI restart and a CLI reset) cannot interleave.
+	projectLocks *keyedMutex
+}
+
+// keyedMutex hands out a mutex per key (project name), so operations on
+// different projects stay concurrent while same-project ones serialize.
+type keyedMutex struct {
+	mu sync.Mutex
+	m  map[string]*sync.Mutex
+}
+
+func newKeyedMutex() *keyedMutex { return &keyedMutex{m: map[string]*sync.Mutex{}} }
+
+func (k *keyedMutex) lock(key string) func() {
+	k.mu.Lock()
+	mu, ok := k.m[key]
+	if !ok {
+		mu = &sync.Mutex{}
+		k.m[key] = mu
+	}
+	k.mu.Unlock()
+	mu.Lock()
+	return mu.Unlock
+}
+
+// lockProject acquires the per-project lock and returns its release func. It is
+// nil-safe: a Server built without NewServer (some tests) does no locking.
+func (s *Server) lockProject(name string) func() {
+	if s.projectLocks == nil {
+		return func() {}
+	}
+	return s.projectLocks.lock(name)
 }
 
 // NewServer wires a server around a config.
@@ -72,7 +106,8 @@ func NewServer(cfg *config.Config, token string) *Server {
 			m.Run = captureRunner(log)
 			return m
 		},
-		Registry: registry.New(),
+		Registry:     registry.New(),
+		projectLocks: newKeyedMutex(),
 	}
 }
 
@@ -316,6 +351,7 @@ func (s *Server) handleProjectAction(w http.ResponseWriter, r *http.Request) {
 	case "rebuild", "reset":
 		noCache := r.URL.Query().Get("no_cache") != ""
 		job := s.Jobs.Start(action+":"+p.Name, func(log func(string)) error {
+			defer s.lockProject(p.Name)()
 			eng := s.NewJobEngine(log)
 			var jerr error
 			if action == "rebuild" {
@@ -334,6 +370,7 @@ func (s *Server) handleProjectAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	unlock := s.lockProject(p.Name)
 	switch action {
 	case "start":
 		err = s.Engine.Up(r.Context(), p)
@@ -344,9 +381,11 @@ func (s *Server) handleProjectAction(w http.ResponseWriter, r *http.Request) {
 	case "repair":
 		err = s.Engine.Repair(r.Context(), p)
 	default:
+		unlock()
 		writeError(w, http.StatusNotFound, fmt.Errorf("unknown action %q", action))
 		return
 	}
+	unlock()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -384,6 +423,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	job := s.Jobs.Start("create:"+req.Name, func(log func(string)) error {
+		defer s.lockProject(req.Name)()
 		jobEngine := s.NewJobEngine(log)
 		// Jobs outlive the request that started them , background context.
 		dir, err := jobEngine.NewProject(context.Background(), engine.NewOptions{
@@ -483,6 +523,7 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	job := s.Jobs.Start("import:"+p.Name, func(log func(string)) error {
+		defer s.lockProject(p.Name)()
 		jobEngine := s.NewJobEngine(log)
 		if err := jobEngine.ImportExisting(context.Background(), p, log); err != nil {
 			return err

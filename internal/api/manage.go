@@ -197,6 +197,7 @@ func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	job := s.Jobs.Start("destroy:"+p.Name, func(log func(string)) error {
+		defer s.lockProject(p.Name)()
 		log("destroying " + p.Name + " (containers, volumes, files)...")
 		eng := s.NewJobEngine(log)
 		if err := eng.Destroy(context.Background(), p); err != nil {

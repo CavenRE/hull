@@ -158,6 +158,7 @@ func (s *Server) handleServiceLink(w http.ResponseWriter, r *http.Request, insta
 	}
 
 	job := s.Jobs.Start("link:"+req.Project, func(log func(string)) error {
+		defer s.lockProject(req.Project)()
 		log(fmt.Sprintf("linking %s to %s...", req.Project, instance))
 		eng := s.NewJobEngine(log)
 		if _, err := eng.Link(context.Background(), p, spec, s.JobServices(log)); err != nil {
