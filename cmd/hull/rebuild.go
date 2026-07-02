@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CavenRE/hull/internal/api"
 	"github.com/CavenRE/hull/internal/dockerx"
 )
 
@@ -19,15 +20,26 @@ func init() {
 			if err != nil {
 				return err
 			}
-			if err := dockerx.EngineCheck(cmd.Context()); err != nil {
-				return err
-			}
 			p, err := oneTarget(a, args)
 			if err != nil {
 				return err
 			}
 			fmt.Printf("Rebuilding %s%s...\n", p.Name, map[bool]string{true: " (no cache)"}[noCache])
-			return a.Engine.Rebuild(cmd.Context(), p, noCache)
+			return a.withDaemon(
+				func(c *api.Client) error {
+					job, err := c.RebuildProject(cmd.Context(), p.Name, noCache)
+					if err != nil {
+						return err
+					}
+					return streamJob(cmd.Context(), c, job)
+				},
+				func() error {
+					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+						return err
+					}
+					return a.Engine.Rebuild(cmd.Context(), p, noCache)
+				},
+			)
 		},
 	}
 	rebuild.Flags().BoolVar(&noCache, "no-cache", false, "build images from scratch (ignore layer cache)")
@@ -47,15 +59,12 @@ again from scratch. Host bind-mounts are NOT touched , only named volumes.`,
 			if err != nil {
 				return err
 			}
-			if err := dockerx.EngineCheck(cmd.Context()); err != nil {
-				return err
-			}
 			p, err := oneTarget(a, args)
 			if err != nil {
 				return err
 			}
 			if !force {
-				vols, verr := a.Engine.Volumes(cmd.Context(), p)
+				vols, verr := a.projectVolumes(cmd.Context(), p)
 				if verr != nil {
 					fmt.Printf("Warning: could not list volumes for %s (%v) , reset will still run `down -v`.\n", p.Name, verr)
 				} else if len(vols) > 0 {
@@ -76,7 +85,21 @@ again from scratch. Host bind-mounts are NOT touched , only named volumes.`,
 				}
 			}
 			fmt.Printf("Resetting %s...\n", p.Name)
-			return a.Engine.Reset(cmd.Context(), p)
+			return a.withDaemon(
+				func(c *api.Client) error {
+					job, err := c.ResetProject(cmd.Context(), p.Name)
+					if err != nil {
+						return err
+					}
+					return streamJob(cmd.Context(), c, job)
+				},
+				func() error {
+					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+						return err
+					}
+					return a.Engine.Reset(cmd.Context(), p)
+				},
+			)
 		},
 	}
 	reset.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt")

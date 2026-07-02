@@ -7,8 +7,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CavenRE/hull/internal/api"
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/services"
+	"github.com/CavenRE/hull/internal/templates"
 )
 
 func init() {
@@ -59,18 +61,29 @@ database container per project. Versions run side by side.`,
 			if err != nil {
 				return err
 			}
-			if err := dockerx.EngineCheck(cmd.Context()); err != nil {
-				return err
-			}
 			def, version, err := services.Resolve(args[0])
 			if err != nil {
 				return err
 			}
-			name, err := services.NewManager(a.Config).Add(cmd.Context(), def.Name, version)
-			if err != nil {
+			if err := a.withDaemon(
+				func(c *api.Client) error {
+					job, err := c.AddService(cmd.Context(), api.AddServiceRequest{Engine: def.Name, Version: version})
+					if err != nil {
+						return err
+					}
+					return streamJob(cmd.Context(), c, job)
+				},
+				func() error {
+					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+						return err
+					}
+					_, err := services.NewManager(a.Config).Add(cmd.Context(), def.Name, version)
+					return err
+				},
+			); err != nil {
 				return err
 			}
-			fmt.Printf("✔ Shared instance %s is up. Link a project with: hull link <project> %s\n", name, args[0])
+			fmt.Printf("✔ Shared instance %s is up. Link a project with: hull link <project> %s\n", templates.InstanceName(def.Name, version), args[0])
 			return nil
 		},
 	})
@@ -84,7 +97,10 @@ database container per project. Versions run side by side.`,
 			if err != nil {
 				return err
 			}
-			return services.NewManager(a.Config).Start(cmd.Context(), args[0])
+			return a.withDaemon(
+				func(c *api.Client) error { return c.ServiceAction(cmd.Context(), args[0], "start") },
+				func() error { return services.NewManager(a.Config).Start(cmd.Context(), args[0]) },
+			)
 		},
 	})
 
@@ -97,7 +113,10 @@ database container per project. Versions run side by side.`,
 			if err != nil {
 				return err
 			}
-			return services.NewManager(a.Config).Stop(cmd.Context(), args[0])
+			return a.withDaemon(
+				func(c *api.Client) error { return c.ServiceAction(cmd.Context(), args[0], "stop") },
+				func() error { return services.NewManager(a.Config).Stop(cmd.Context(), args[0]) },
+			)
 		},
 	})
 
@@ -121,7 +140,10 @@ database container per project. Versions run side by side.`,
 					return nil
 				}
 			}
-			return services.NewManager(a.Config).Remove(cmd.Context(), args[0])
+			return a.withDaemon(
+				func(c *api.Client) error { return c.RemoveService(cmd.Context(), args[0]) },
+				func() error { return services.NewManager(a.Config).Remove(cmd.Context(), args[0]) },
+			)
 		},
 	}
 	rm.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt")

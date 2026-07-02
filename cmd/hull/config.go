@@ -57,6 +57,9 @@ apply live, otherwise they're written straight to config.yaml.`,
 			if err != nil {
 				return err
 			}
+			if flagJSON {
+				return printJSON(ci)
+			}
 			w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
 			_, _ = fmt.Fprintf(w, "tld\t%s\n", ci.TLD)
 			_, _ = fmt.Fprintf(w, "defaults.php\t%s\n", dash(ci.Defaults.PHP))
@@ -115,6 +118,9 @@ apply live, otherwise they're written straight to config.yaml.`,
 			if err != nil {
 				return err
 			}
+			if flagJSON {
+				return printJSON(ci.Roots)
+			}
 			for _, r := range ci.Roots {
 				fmt.Println(r)
 			}
@@ -155,7 +161,7 @@ apply live, otherwise they're written straight to config.yaml.`,
 
 func dash(s string) string {
 	if s == "" {
-		return ","
+		return "-"
 	}
 	return s
 }

@@ -219,3 +219,79 @@ func (c *Client) StopAll(ctx context.Context) (int, error) {
 func (c *Client) Shutdown(ctx context.Context) error {
 	return c.do(ctx, http.MethodPost, "/v1/shutdown", nil, nil)
 }
+
+// jobFrom decodes a JobRef from a job-returning (202) endpoint.
+func (c *Client) jobFrom(ctx context.Context, method, path string, body any) (jobs.Info, error) {
+	var ref JobRef
+	if err := c.do(ctx, method, path, body, &ref); err != nil {
+		return jobs.Info{}, err
+	}
+	return ref.Job, nil
+}
+
+// DeleteProject starts a destroy job (containers, volumes, files).
+func (c *Client) DeleteProject(ctx context.Context, name string) (jobs.Info, error) {
+	return c.jobFrom(ctx, http.MethodDelete, "/v1/projects/"+name, nil)
+}
+
+// RebuildProject starts a rebuild job.
+func (c *Client) RebuildProject(ctx context.Context, name string, noCache bool) (jobs.Info, error) {
+	path := "/v1/projects/" + name + "/rebuild"
+	if noCache {
+		path += "?no_cache=1"
+	}
+	return c.jobFrom(ctx, http.MethodPost, path, nil)
+}
+
+// ResetProject starts a reset job (removes named volumes).
+func (c *Client) ResetProject(ctx context.Context, name string) (jobs.Info, error) {
+	return c.jobFrom(ctx, http.MethodPost, "/v1/projects/"+name+"/reset", nil)
+}
+
+// Volumes lists a project's named volumes (the Reset blast radius).
+func (c *Client) Volumes(ctx context.Context, name string) ([]string, error) {
+	var vols []string
+	if err := c.do(ctx, http.MethodGet, "/v1/projects/"+name+"/volumes", nil, &vols); err != nil {
+		return nil, err
+	}
+	return vols, nil
+}
+
+// Services lists shared service instances.
+func (c *Client) Services(ctx context.Context) ([]ServiceInfo, error) {
+	var infos []ServiceInfo
+	if err := c.do(ctx, http.MethodGet, "/v1/services", nil, &infos); err != nil {
+		return nil, err
+	}
+	return infos, nil
+}
+
+// AddService starts a provisioning job for a shared instance.
+func (c *Client) AddService(ctx context.Context, req AddServiceRequest) (jobs.Info, error) {
+	return c.jobFrom(ctx, http.MethodPost, "/v1/services", req)
+}
+
+// ServiceAction starts or stops a shared instance.
+func (c *Client) ServiceAction(ctx context.Context, name, action string) error {
+	return c.do(ctx, http.MethodPost, "/v1/services/"+name+"/"+action, nil, nil)
+}
+
+// RemoveService destroys a shared instance and every database in it.
+func (c *Client) RemoveService(ctx context.Context, name string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/services/"+name, nil, nil)
+}
+
+// LinkService starts a job linking a project to a shared instance.
+func (c *Client) LinkService(ctx context.Context, instance string, req LinkRequest) (jobs.Info, error) {
+	return c.jobFrom(ctx, http.MethodPost, "/v1/services/"+instance+"/link", req)
+}
+
+// Unlink removes a service from a project's manifest.
+func (c *Client) Unlink(ctx context.Context, name string, req UnlinkRequest) error {
+	return c.do(ctx, http.MethodPost, "/v1/projects/"+name+"/unlink", req, nil)
+}
+
+// Import starts a job adopting an unmanaged folder already inside a root.
+func (c *Client) Import(ctx context.Context, req ImportRequest) (jobs.Info, error) {
+	return c.jobFrom(ctx, http.MethodPost, "/v1/imports", req)
+}

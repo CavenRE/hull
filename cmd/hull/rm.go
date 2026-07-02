@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CavenRE/hull/internal/api"
 	"github.com/CavenRE/hull/internal/dockerx"
 )
 
@@ -34,10 +35,21 @@ func init() {
 					return nil
 				}
 			}
-			if err := dockerx.EngineCheck(cmd.Context()); err != nil {
-				return err
-			}
-			if err := a.Engine.Destroy(cmd.Context(), p); err != nil {
+			if err := a.withDaemon(
+				func(c *api.Client) error {
+					job, err := c.DeleteProject(cmd.Context(), p.Name)
+					if err != nil {
+						return err
+					}
+					return streamJob(cmd.Context(), c, job)
+				},
+				func() error {
+					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+						return err
+					}
+					return a.Engine.Destroy(cmd.Context(), p)
+				},
+			); err != nil {
 				return err
 			}
 			fmt.Printf("✔ Environment %q removed.\n", p.Name)

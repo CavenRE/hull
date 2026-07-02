@@ -29,6 +29,9 @@ func init() {
 			} else {
 				deps = api.DetectDependencies(cmd.Context(), a.Config.TLD)
 			}
+			if flagJSON {
+				return printJSON(deps)
+			}
 			w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
 			_, _ = fmt.Fprintln(w, "NAME\tSTATUS\tVERSION")
 			for _, d := range deps {

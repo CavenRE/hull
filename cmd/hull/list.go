@@ -31,6 +31,9 @@ func init() {
 			if err != nil {
 				return err
 			}
+			if flagJSON {
+				return printJSON(infos)
+			}
 			if len(infos) == 0 {
 				fmt.Printf("No projects found in %v.\nCreate one with: hull new <name> <template>\n", a.Config.Roots)
 				return nil

@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CavenRE/hull/internal/api"
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/services"
 )
@@ -61,7 +62,10 @@ func init() {
 			if err != nil {
 				return err
 			}
-			if err := a.Engine.Unlink(cmd.Context(), p, args[1]); err != nil {
+			if err := a.withDaemon(
+				func(c *api.Client) error { return c.Unlink(cmd.Context(), p.Name, api.UnlinkRequest{Key: args[1]}) },
+				func() error { return a.Engine.Unlink(cmd.Context(), p, args[1]) },
+			); err != nil {
 				return err
 			}
 			fmt.Printf("✔ %s unlinked from %q. Restart with: hull up %s\n", p.Name, args[1], p.Name)

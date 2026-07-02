@@ -43,8 +43,12 @@ func pickOne(title string, options []string) (string, error) {
 	return selected, nil
 }
 
-// confirm asks a yes/no question, defaulting to no.
+// confirm asks a yes/no question, defaulting to no. --yes/-y short-circuits
+// to yes so destructive commands are scriptable.
 func confirm(title string) (bool, error) {
+	if flagYes {
+		return true, nil
+	}
 	ok := false
 	form := huh.NewForm(huh.NewGroup(
 		huh.NewConfirm().Title(title).Value(&ok),
