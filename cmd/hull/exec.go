@@ -32,7 +32,8 @@ func init() {
 }
 
 func init() {
-	rootCmd.AddCommand(&cobra.Command{
+	var service string
+	cmd := &cobra.Command{
 		Use:   "artisan <command...>",
 		Short: "Run Laravel artisan in the current project",
 		Args:  cobra.MinimumNArgs(1),
@@ -45,13 +46,16 @@ func init() {
 			if !ok {
 				return fmt.Errorf("run inside a project directory")
 			}
-			return a.Engine.ExecIn(cmd.Context(), p, "app", append([]string{"php", "artisan"}, args...)...)
+			return a.Engine.ExecIn(cmd.Context(), p, service, append([]string{"php", "artisan"}, args...)...)
 		},
-	})
+	}
+	cmd.Flags().StringVar(&service, "service", "app", "compose service to run artisan in (e.g. a queue worker)")
+	rootCmd.AddCommand(cmd)
 }
 
 func init() {
-	rootCmd.AddCommand(&cobra.Command{
+	var image string
+	cmd := &cobra.Command{
 		Use:   "npm <command...>",
 		Short: "Run npm in an ephemeral Node container",
 		Args:  cobra.MinimumNArgs(1),
@@ -67,9 +71,11 @@ func init() {
 			dockerArgs = append(dockerArgs,
 				"-v", wd+":/usr/src/app",
 				"-w", "/usr/src/app",
-				"node:20-alpine", "npm")
+				image, "npm")
 			dockerArgs = append(dockerArgs, args...)
 			return dockerx.Exec(cmd.Context(), "", "docker", dockerArgs...)
 		},
-	})
+	}
+	cmd.Flags().StringVar(&image, "image", "node:20-alpine", "Node image to run npm in")
+	rootCmd.AddCommand(cmd)
 }

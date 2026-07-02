@@ -24,8 +24,9 @@ database container per project. Versions run side by side.`,
 	}
 
 	svc.AddCommand(&cobra.Command{
-		Use:   "list",
-		Short: "List shared instances",
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List shared instances",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
@@ -99,7 +100,12 @@ database container per project. Versions run side by side.`,
 			}
 			return a.withDaemon(
 				func(c *api.Client) error { return c.ServiceAction(cmd.Context(), args[0], "start") },
-				func() error { return services.NewManager(a.Config).Start(cmd.Context(), args[0]) },
+				func() error {
+					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+						return err
+					}
+					return services.NewManager(a.Config).Start(cmd.Context(), args[0])
+				},
 			)
 		},
 	})
@@ -115,7 +121,12 @@ database container per project. Versions run side by side.`,
 			}
 			return a.withDaemon(
 				func(c *api.Client) error { return c.ServiceAction(cmd.Context(), args[0], "stop") },
-				func() error { return services.NewManager(a.Config).Stop(cmd.Context(), args[0]) },
+				func() error {
+					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+						return err
+					}
+					return services.NewManager(a.Config).Stop(cmd.Context(), args[0])
+				},
 			)
 		},
 	})
@@ -142,7 +153,12 @@ database container per project. Versions run side by side.`,
 			}
 			return a.withDaemon(
 				func(c *api.Client) error { return c.RemoveService(cmd.Context(), args[0]) },
-				func() error { return services.NewManager(a.Config).Remove(cmd.Context(), args[0]) },
+				func() error {
+					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+						return err
+					}
+					return services.NewManager(a.Config).Remove(cmd.Context(), args[0])
+				},
 			)
 		},
 	}

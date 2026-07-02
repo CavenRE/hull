@@ -54,7 +54,7 @@ func init() {
 	down := &cobra.Command{
 		Use:   "down [name...]",
 		Short: "Stop environments",
-		Long:  "Stop the current project, named projects, all running projects\n(--all), or pick interactively when run outside a project.",
+		Long:  "Stop the current project, named projects, every registered project\n(--all), or pick interactively when run outside a project.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
@@ -82,7 +82,7 @@ func init() {
 			return nil
 		},
 	}
-	down.Flags().BoolVar(&all, "all", false, "stop every running project")
+	down.Flags().BoolVar(&all, "all", false, "stop every registered project (not just running ones)")
 	rootCmd.AddCommand(down)
 }
 
@@ -102,6 +102,9 @@ func init() {
 			}
 			if client, viaDaemon := a.client(); viaDaemon {
 				return client.ProjectAction(cmd.Context(), p.Name, "restart")
+			}
+			if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+				return err
 			}
 			return a.Engine.Restart(cmd.Context(), p)
 		},
@@ -125,6 +128,9 @@ func init() {
 			}
 			if client, viaDaemon := a.client(); viaDaemon {
 				return client.ProjectAction(cmd.Context(), p.Name, "repair")
+			}
+			if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+				return err
 			}
 			return a.Engine.Repair(cmd.Context(), p)
 		},
@@ -161,7 +167,12 @@ func init() {
 				func(c *api.Client) error {
 					return c.Logs(cmd.Context(), p.Name, "", 200, func(l string) { fmt.Println(l) })
 				},
-				func() error { return a.Engine.Logs(cmd.Context(), p, true) },
+				func() error {
+					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+						return err
+					}
+					return a.Engine.Logs(cmd.Context(), p, true)
+				},
 			)
 		},
 	}
@@ -172,6 +183,9 @@ func init() {
 // serviceLogs tails a shared instance's container logs in-process (the
 // headless fallback for `hull logs --service`).
 func serviceLogs(ctx context.Context, a *app, name string) error {
+	if err := dockerx.EngineCheck(ctx); err != nil {
+		return err
+	}
 	instances, err := services.NewManager(a.Config).List(ctx)
 	if err != nil {
 		return err

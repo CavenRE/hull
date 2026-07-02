@@ -65,6 +65,6 @@ flags you pass are changed. Applies through a running daemon when one is up.`,
 	}
 	cmd.Flags().StringVar(&php, "php", "", "PHP version (e.g. 8.3)")
 	cmd.Flags().StringVar(&domain, "domain", "", "local domain label")
-	cmd.Flags().BoolVar(&serve, "serve", true, "whether the project gets a routed domain")
+	cmd.Flags().BoolVar(&serve, "serve", true, "give the project a routed domain; omit to leave unchanged, --serve=false to stop serving")
 	rootCmd.AddCommand(cmd)
 }

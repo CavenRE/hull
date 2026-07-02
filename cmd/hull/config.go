@@ -109,9 +109,10 @@ apply live, otherwise they're written straight to config.yaml.`,
 
 	roots := &cobra.Command{Use: "roots", Short: "Manage project root folders"}
 	roots.AddCommand(&cobra.Command{
-		Use:   "list",
-		Short: "List configured roots",
-		Args:  cobra.NoArgs,
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List configured roots",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
@@ -138,6 +139,9 @@ apply live, otherwise they're written straight to config.yaml.`,
 			abs, err := filepath.Abs(args[0])
 			if err != nil {
 				return err
+			}
+			if info, statErr := os.Stat(abs); statErr != nil || !info.IsDir() {
+				return fmt.Errorf("%s is not an existing directory", abs)
 			}
 			return mutateConfig(cmd, func(ci *configInfoT) {
 				if !slices.ContainsFunc(ci.Roots, func(r string) bool { return sameRoot(r, abs) }) {

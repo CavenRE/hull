@@ -14,10 +14,10 @@ import (
 
 func init() {
 	var (
-		out        string
-		includeEnv bool
-		keepVendor bool
-		skipDB     bool
+		out           string
+		includeEnv    bool
+		includeVendor bool
+		skipDB        bool
 	)
 	cmd := &cobra.Command{
 		Use:   "export <name>",
@@ -77,7 +77,7 @@ Import the result anywhere with: hull import <name>-bundle.zip`,
 				ProjectYAML: string(manifestData),
 				HullVersion: version.String(),
 				IncludeEnv:  includeEnv,
-				KeepVendor:  keepVendor,
+				KeepVendor:  includeVendor,
 				DumpKeys:    dumpKeys,
 				DumpDB: func(key string, w io.Writer) error {
 					dump, err := bundle.DumpCommand(m, key, p.Dir)
@@ -102,7 +102,7 @@ Import the result anywhere with: hull import <name>-bundle.zip`,
 	}
 	cmd.Flags().StringVarP(&out, "output", "o", "", "output path (default <name>-bundle.zip)")
 	cmd.Flags().BoolVar(&includeEnv, "include-env", false, "keep secret values in the bundled .env")
-	cmd.Flags().BoolVar(&keepVendor, "include-vendor", false, "include vendor/ and node_modules/")
+	cmd.Flags().BoolVar(&includeVendor, "include-vendor", false, "include vendor/ and node_modules/")
 	cmd.Flags().BoolVar(&skipDB, "skip-db", false, "skip database dumps")
 	rootCmd.AddCommand(cmd)
 }

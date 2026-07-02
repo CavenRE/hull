@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 
 	"github.com/spf13/cobra"
 
@@ -54,6 +55,9 @@ type app struct {
 }
 
 // loadApp loads global config (honoring --home) and constructs the engine.
+// The engine is built eagerly even for commands that route to the daemon and
+// never touch it, so engine.New must stay cheap and side-effect-free (no
+// docker dial, no filesystem scan) , anything heavier belongs behind a call.
 func loadApp() (*app, error) {
 	cfg, err := config.Load(flagHome)
 	if err != nil {
@@ -184,7 +188,12 @@ func (a *app) saveGroups(ctx context.Context, s *groups.Store) error {
 
 func main() {
 	rootCmd.SetVersionTemplate("hull {{.Version}}\n")
-	if err := rootCmd.Execute(); err != nil {
+	// Ctrl-C cancels the command context so a long or wedged call (e.g. a
+	// streaming log tail, or a request to an unresponsive daemon) unwinds
+	// cleanly instead of leaving the terminal stuck.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "hull:", err)
 		os.Exit(1)
 	}

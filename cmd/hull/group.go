@@ -108,8 +108,11 @@ in your project folders changes, and unmanaged folders can be grouped too.`,
 			if err != nil {
 				return err
 			}
+			if len(args) == 2 && clear {
+				return fmt.Errorf("pass either a group name or --clear, not both")
+			}
 			group := ""
-			if len(args) == 2 && !clear {
+			if len(args) == 2 {
 				group = args[1]
 			}
 			// Prefer the daemon's per-project endpoint (resolves the dir for us).
