@@ -234,6 +234,142 @@ compose file you own is written (type: cluster).`,
 	create.Flags().BoolVar(&createNoStart, "no-start", false, "create without booting containers")
 	cluster.AddCommand(create)
 
+	route := &cobra.Command{Use: "route", Short: "Assign and manage a cluster's URL routes"}
+
+	var (
+		routeService string
+		routePort    int
+		routeAliases []string
+		routeServe   bool
+	)
+	routeAdd := &cobra.Command{
+		Use:   "add <cluster> <subdomain>",
+		Short: "Assign a URL (subdomain) to one of the cluster's services",
+		Args:  cobra.ExactArgs(2),
+		Example: `  hull cluster route add tapkit api --service management_api --port 8081
+  hull cluster route add tapkit t --service edge_router --port 8080 --alias tap`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := loadApp()
+			if err != nil {
+				return err
+			}
+			clusterName, sub := args[0], args[1]
+			var serve *bool
+			if cmd.Flags().Changed("serve") {
+				serve = &routeServe
+			}
+			if err := a.withDaemon(
+				func(c *api.Client) error {
+					return c.SetClusterRoute(cmd.Context(), clusterName, sub, api.SetRouteRequest{
+						Service: routeService, Port: routePort, Aliases: routeAliases, Serve: serve,
+					})
+				},
+				func() error {
+					p, err := a.findProject(clusterName)
+					if err != nil {
+						return err
+					}
+					return a.Engine.SetClusterRoute(p, sub, engine.ClusterRouteSpec{
+						Service: routeService, Port: routePort, Aliases: routeAliases, Serve: serve,
+					})
+				},
+			); err != nil {
+				return err
+			}
+			fmt.Printf("✔ route %s -> %s:%d assigned to %s. See: hull cluster urls %s\n", sub, routeService, routePort, clusterName, clusterName)
+			return nil
+		},
+	}
+	routeAdd.Flags().StringVar(&routeService, "service", "", "target compose service name (required)")
+	routeAdd.Flags().IntVar(&routePort, "port", 0, "target container port (required)")
+	routeAdd.Flags().StringArrayVar(&routeAliases, "alias", nil, "extra subdomain label for the same service (repeatable)")
+	routeAdd.Flags().BoolVar(&routeServe, "serve", true, "whether Hull routes this URL (--serve=false lists it unserved)")
+	_ = routeAdd.MarkFlagRequired("service")
+	_ = routeAdd.MarkFlagRequired("port")
+	route.AddCommand(routeAdd)
+
+	route.AddCommand(&cobra.Command{
+		Use:   "rm <cluster> <subdomain>",
+		Short: "Remove a cluster route",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := loadApp()
+			if err != nil {
+				return err
+			}
+			clusterName, sub := args[0], args[1]
+			if err := a.withDaemon(
+				func(c *api.Client) error { return c.RemoveClusterRoute(cmd.Context(), clusterName, sub) },
+				func() error {
+					p, err := a.findProject(clusterName)
+					if err != nil {
+						return err
+					}
+					return a.Engine.RemoveClusterRoute(p, sub)
+				},
+			); err != nil {
+				return err
+			}
+			fmt.Printf("✔ route %s removed from %s.\n", sub, clusterName)
+			return nil
+		},
+	})
+
+	route.AddCommand(&cobra.Command{
+		Use:     "list <cluster>",
+		Aliases: []string{"ls"},
+		Short:   "List a cluster's route definitions",
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := loadApp()
+			if err != nil {
+				return err
+			}
+			var clusters []api.ClusterInfo
+			if client, ok := a.client(); ok {
+				clusters, err = client.Clusters(cmd.Context())
+			} else {
+				clusters, err = api.ClusterList(cmd.Context(), a.Config, dockerx.RunningComposeProjects)
+			}
+			if err != nil {
+				return err
+			}
+			var c *api.ClusterInfo
+			for i := range clusters {
+				if clusters[i].Name == args[0] {
+					c = &clusters[i]
+					break
+				}
+			}
+			if c == nil {
+				return fmt.Errorf("no cluster %q (see: hull cluster list)", args[0])
+			}
+			if flagJSON {
+				return printJSON(c.Routes)
+			}
+			if len(c.Routes) == 0 {
+				fmt.Printf("%s has no routes yet. Add one with: hull cluster route add %s <subdomain> --service <svc> --port <n>\n", args[0], args[0])
+				return nil
+			}
+			w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
+			_, _ = fmt.Fprintln(w, "SUBDOMAIN\tSERVICE\tPORT\tALIASES\tSERVED")
+			for _, rt := range c.Routes {
+				served := "yes"
+				if !rt.Served {
+					served = "no"
+				}
+				aliases := "-"
+				if len(rt.Aliases) > 0 {
+					aliases = strings.Join(rt.Aliases, ",")
+				}
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%s\t%s\n", rt.Subdomain, rt.Service, rt.Port, aliases, served)
+			}
+			return w.Flush()
+		},
+	})
+
+	cluster.AddCommand(route)
+
 	rootCmd.AddCommand(cluster)
 }
 

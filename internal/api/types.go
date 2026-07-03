@@ -119,6 +119,15 @@ type UnlinkRequest struct {
 	Key string `json:"key"`
 }
 
+// SetRouteRequest answers PUT /v1/clusters/{name}/routes/{key}: assign a URL
+// (subdomain) to one of the cluster's services.
+type SetRouteRequest struct {
+	Service string   `json:"service"`
+	Port    int      `json:"port"`
+	Aliases []string `json:"aliases,omitempty"`
+	Serve   *bool    `json:"serve,omitempty"`
+}
+
 // SetupStepResult answers the setup endpoints.
 type SetupStepResult struct {
 	Done bool `json:"done"`

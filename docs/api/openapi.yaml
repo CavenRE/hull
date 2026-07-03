@@ -269,6 +269,29 @@ paths:
                 type: object
                 properties: { name: { type: string } }
 
+  /v1/clusters/{name}/routes/{key}:
+    put:
+      tags: [clusters]
+      summary: Assign a URL (subdomain) to one of the cluster's services
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+        - { name: key, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetRouteRequest" }
+      responses:
+        "204": { description: Route assigned }
+    delete:
+      tags: [clusters]
+      summary: Remove a cluster route by its subdomain key
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+        - { name: key, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Route removed }
+
   /v1/clusters/create:
     post:
       tags: [clusters]
@@ -588,6 +611,14 @@ components:
         served: { type: boolean }
         aliases: { type: array, items: { type: string } }
         hosts: { type: array, items: { type: string } }
+    SetRouteRequest:
+      type: object
+      required: [service, port]
+      properties:
+        service: { type: string }
+        port: { type: integer }
+        aliases: { type: array, items: { type: string } }
+        serve: { type: boolean }
     ClusterInfo:
       type: object
       required: [name, dir, running]

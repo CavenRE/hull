@@ -123,6 +123,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/clusters", s.handleClusters)
 	mux.HandleFunc("POST /v1/clusters", s.handleAdoptCluster)
 	mux.HandleFunc("POST /v1/clusters/create", s.handleCreateCluster)
+	mux.HandleFunc("PUT /v1/clusters/{name}/routes/{key}", s.handleClusterRouteSet)
+	mux.HandleFunc("DELETE /v1/clusters/{name}/routes/{key}", s.handleClusterRouteDelete)
 	s.registerServiceRoutes(mux)
 	s.registerManageRoutes(mux)
 	s.registerSetupRoutes(mux)
@@ -345,6 +347,49 @@ func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+func (s *Server) handleClusterRouteSet(w http.ResponseWriter, r *http.Request) {
+	name, key := r.PathValue("name"), r.PathValue("key")
+	var req SetRouteRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	p, err := state.Find(s.Config.Roots, name)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	defer s.lockProject(name)()
+	if err := s.Engine.SetClusterRoute(p, key, engine.ClusterRouteSpec{
+		Service: req.Service, Port: req.Port, Aliases: req.Aliases, Serve: req.Serve,
+	}); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if s.SyncRoutes != nil {
+		go s.SyncRoutes()
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleClusterRouteDelete(w http.ResponseWriter, r *http.Request) {
+	name, key := r.PathValue("name"), r.PathValue("key")
+	p, err := state.Find(s.Config.Roots, name)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	defer s.lockProject(name)()
+	if err := s.Engine.RemoveClusterRoute(p, key); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if s.SyncRoutes != nil {
+		go s.SyncRoutes()
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleProjectAction(w http.ResponseWriter, r *http.Request) {

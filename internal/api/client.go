@@ -201,6 +201,16 @@ func (c *Client) CreateCluster(ctx context.Context, req CreateClusterRequest) (j
 	return c.jobFrom(ctx, http.MethodPost, "/v1/clusters/create", req)
 }
 
+// SetClusterRoute assigns a URL (subdomain key) to a cluster service.
+func (c *Client) SetClusterRoute(ctx context.Context, name, key string, req SetRouteRequest) error {
+	return c.do(ctx, http.MethodPut, "/v1/clusters/"+name+"/routes/"+key, req, nil)
+}
+
+// RemoveClusterRoute deletes a cluster route by its subdomain key.
+func (c *Client) RemoveClusterRoute(ctx context.Context, name, key string) error {
+	return c.do(ctx, http.MethodDelete, "/v1/clusters/"+name+"/routes/"+key, nil, nil)
+}
+
 // AdoptCluster adopts an existing compose project as a Hull cluster.
 func (c *Client) AdoptCluster(ctx context.Context, req AdoptClusterRequest) (string, error) {
 	var out struct {

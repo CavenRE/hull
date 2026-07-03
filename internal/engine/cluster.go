@@ -286,6 +286,73 @@ func (e *Engine) AdoptCluster(opts ClusterOptions) (*manifest.Manifest, error) {
 	return m, nil
 }
 
+// ClusterRouteSpec describes a route to set on a cluster (subdomain -> service:port).
+type ClusterRouteSpec struct {
+	Service string
+	Port    int
+	Aliases []string
+	Serve   *bool
+}
+
+// SetClusterRoute adds or updates a route (keyed by subdomain) in a cluster's
+// hull.yaml, then re-validates and writes it.
+func (e *Engine) SetClusterRoute(p *state.Project, key string, spec ClusterRouteSpec) error {
+	m, err := clusterManifest(p)
+	if err != nil {
+		return err
+	}
+	if m.Routes == nil {
+		m.Routes = map[string]*manifest.ClusterRoute{}
+	}
+	m.Routes[key] = &manifest.ClusterRoute{
+		Service:   spec.Service,
+		Port:      spec.Port,
+		Subdomain: key,
+		Aliases:   spec.Aliases,
+		Serve:     spec.Serve,
+	}
+	return writeClusterManifest(p.Dir, m)
+}
+
+// RemoveClusterRoute deletes a route from a cluster's hull.yaml.
+func (e *Engine) RemoveClusterRoute(p *state.Project, key string) error {
+	m, err := clusterManifest(p)
+	if err != nil {
+		return err
+	}
+	if _, ok := m.Routes[key]; !ok {
+		return fmt.Errorf("cluster %s has no route %q", m.Name, key)
+	}
+	delete(m.Routes, key)
+	return writeClusterManifest(p.Dir, m)
+}
+
+// clusterManifest returns the project's manifest, erroring if it is not a cluster.
+func clusterManifest(p *state.Project) (*manifest.Manifest, error) {
+	if p == nil {
+		return nil, fmt.Errorf("no project")
+	}
+	if p.Manifest == nil {
+		return nil, fmt.Errorf("%s is not managed by Hull", p.Name)
+	}
+	if p.Manifest.Type != manifest.TypeCluster {
+		return nil, fmt.Errorf("%s is not a cluster (routes apply to type: cluster)", p.Name)
+	}
+	return p.Manifest, nil
+}
+
+// writeClusterManifest marshals, re-validates, and writes a cluster manifest.
+func writeClusterManifest(dir string, m *manifest.Manifest) error {
+	data, err := yaml.Marshal(m)
+	if err != nil {
+		return err
+	}
+	if _, err := manifest.Parse(data); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, manifest.Filename), data, 0o644)
+}
+
 func hasComposeFile(dir string, extra []string) bool {
 	for _, f := range extra {
 		if _, err := os.Stat(filepath.Join(dir, f)); err == nil {
