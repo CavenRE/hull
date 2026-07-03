@@ -67,14 +67,30 @@ type Manifest struct {
 	ComposeFiles []string                 `yaml:"compose_files,omitempty"` // extra -f files (base auto-detected if empty)
 	Profiles     []string                 `yaml:"profiles,omitempty"`      // active compose profiles
 	Routes       map[string]*ClusterRoute `yaml:"routes,omitempty"`        // served subdomains → service:port
+	// BaseDomain is the domain cluster routes nest under (e.g. "tapkit.local").
+	// Empty means routes use Hull's TLD (<subdomain>.<tld>). A verbatim base is
+	// kept as-is, for a cluster whose apps hardcode their own domain.
+	BaseDomain string `yaml:"base_domain,omitempty"`
+	// Ingress selects how Hull serves the cluster's URLs: "" (none: observe and
+	// list only), "delegate" (Hull fronts loopback + TLS, forwards to the
+	// cluster's own gateway), or "hull" (Hull owns every vhost).
+	Ingress string `yaml:"ingress,omitempty"`
 }
+
+// Cluster ingress modes for Manifest.Ingress.
+const (
+	IngressNone     = ""         // observe and list only; the cluster serves itself
+	IngressDelegate = "delegate" // Hull fronts loopback + TLS, forwards to the cluster gateway
+	IngressHull     = "hull"     // Hull owns every vhost, proxying to services by name
+)
 
 // ClusterRoute maps a subdomain to one of the cluster's compose services.
 type ClusterRoute struct {
-	Service   string `yaml:"service"`             // compose service name
-	Port      int    `yaml:"port"`                // container port to proxy
-	Subdomain string `yaml:"subdomain,omitempty"` // defaults to the route key
-	Serve     *bool  `yaml:"serve,omitempty"`     // nil = served
+	Service   string   `yaml:"service"`             // compose service name
+	Port      int      `yaml:"port"`                // container port to proxy
+	Subdomain string   `yaml:"subdomain,omitempty"` // defaults to the route key
+	Aliases   []string `yaml:"aliases,omitempty"`   // extra subdomain labels for the same service
+	Serve     *bool    `yaml:"serve,omitempty"`     // nil = served
 }
 
 // Served reports whether this route gets a routed domain (default true).
@@ -86,6 +102,33 @@ func (r *ClusterRoute) Served() bool {
 		return *r.Serve
 	}
 	return true
+}
+
+// Hosts returns a route's fully-qualified hostnames (its subdomain plus any
+// aliases) under the given domain suffix, e.g. "api.tapkit.local".
+func (r *ClusterRoute) Hosts(suffix string) []string {
+	if r == nil {
+		return nil
+	}
+	hosts := make([]string, 0, 1+len(r.Aliases))
+	if r.Subdomain != "" {
+		hosts = append(hosts, r.Subdomain+"."+suffix)
+	}
+	for _, a := range r.Aliases {
+		if a != "" {
+			hosts = append(hosts, a+"."+suffix)
+		}
+	}
+	return hosts
+}
+
+// ClusterSuffix is the domain that cluster routes nest under: BaseDomain when
+// set, otherwise the given TLD.
+func (m *Manifest) ClusterSuffix(tld string) string {
+	if m.BaseDomain != "" {
+		return m.BaseDomain
+	}
+	return tld
 }
 
 // Container is one container of a type:app project. Exactly one source must
@@ -324,6 +367,10 @@ func (m *Manifest) Validate() error {
 		fail("invalid name %q: lowercase letters, digits, and hyphens only, starting with a letter", m.Name)
 	}
 
+	if m.Type != TypeCluster && (m.BaseDomain != "" || m.Ingress != "") {
+		fail("'base_domain' and 'ingress' are only valid for type: cluster")
+	}
+
 	switch m.Type {
 	case TypeSite:
 		m.validateSite(fail)
@@ -462,6 +509,14 @@ func (m *Manifest) validateCluster(fail func(string, ...any)) {
 	if len(m.Services) > 0 {
 		fail("'services' is not valid for type: cluster (use the wrapped compose project's services)")
 	}
+	if m.BaseDomain != "" && !domainRE.MatchString(m.BaseDomain) {
+		fail("invalid base_domain %q", m.BaseDomain)
+	}
+	switch m.Ingress {
+	case IngressNone, IngressDelegate, IngressHull:
+	default:
+		fail("invalid ingress %q (use %q or %q)", m.Ingress, IngressDelegate, IngressHull)
+	}
 	for key, rt := range m.Routes {
 		if !keyRE.MatchString(key) {
 			fail("invalid route key %q", key)
@@ -476,6 +531,11 @@ func (m *Manifest) validateCluster(fail func(string, ...any)) {
 		}
 		if rt.Subdomain != "" && !nameRE.MatchString(rt.Subdomain) {
 			fail("route %q: invalid subdomain %q", key, rt.Subdomain)
+		}
+		for _, a := range rt.Aliases {
+			if !nameRE.MatchString(a) {
+				fail("route %q: invalid alias %q", key, a)
+			}
 		}
 	}
 }

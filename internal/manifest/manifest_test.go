@@ -141,11 +141,74 @@ func TestValidationErrors(t *testing.T) {
 		{"routed raw without port", "schema: 1\nname: x\ntype: app\ncontainers:\n  web:\n    image: nginx\n    domain: x\n", "'port' is required"},
 		{"container service collision", "schema: 1\nname: x\ntype: app\ncontainers:\n  db:\n    image: nginx\nservices:\n  db:\n    engine: redis\n", "collides with a container key"},
 		{"bad env key", "schema: 1\nname: x\ntemplate: plain\nenv:\n  9BAD: x\n", "invalid env key"},
+		{"base_domain on site", "schema: 1\nname: x\ntemplate: plain\nbase_domain: y.local\n", "only valid for type: cluster"},
+		{"bad ingress", "schema: 1\nname: x\ntype: cluster\ningress: bogus\n", "invalid ingress"},
+		{"bad base_domain", "schema: 1\nname: x\ntype: cluster\nbase_domain: under_score\n", "invalid base_domain"},
+		{"bad route alias", "schema: 1\nname: x\ntype: cluster\nroutes:\n  api:\n    service: s\n    port: 80\n    aliases: [Bad]\n", "invalid alias"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			parseErr(t, tc.src, tc.want)
 		})
+	}
+}
+
+func TestClusterRoutesAndURLs(t *testing.T) {
+	m := parse(t, `
+schema: 1
+name: tapkit
+type: cluster
+compose_root: core
+base_domain: tapkit.local
+ingress: delegate
+routes:
+  api:
+    service: management_api
+    port: 8081
+  t:
+    service: edge_router
+    port: 8080
+    aliases: [tap]
+`)
+	if m.ComposeRoot != "core" {
+		t.Errorf("compose_root = %q, want core", m.ComposeRoot)
+	}
+	if m.Ingress != IngressDelegate {
+		t.Errorf("ingress = %q, want delegate", m.Ingress)
+	}
+	// base_domain wins over the TLD.
+	if got := m.ClusterSuffix("test"); got != "tapkit.local" {
+		t.Errorf("ClusterSuffix = %q, want tapkit.local", got)
+	}
+	// Subdomain defaults to the route key.
+	if m.Routes["api"].Subdomain != "api" {
+		t.Errorf("api subdomain = %q, want api", m.Routes["api"].Subdomain)
+	}
+	suffix := m.ClusterSuffix("test")
+	if got := m.Routes["api"].Hosts(suffix); len(got) != 1 || got[0] != "api.tapkit.local" {
+		t.Errorf("api hosts = %v, want [api.tapkit.local]", got)
+	}
+	// Aliases add hostnames for the same service.
+	if got := m.Routes["t"].Hosts(suffix); len(got) != 2 || got[0] != "t.tapkit.local" || got[1] != "tap.tapkit.local" {
+		t.Errorf("t hosts = %v, want [t.tapkit.local tap.tapkit.local]", got)
+	}
+}
+
+func TestClusterSuffixFallsBackToTLD(t *testing.T) {
+	m := parse(t, `
+schema: 1
+name: c
+type: cluster
+routes:
+  api:
+    service: web
+    port: 80
+`)
+	if got := m.ClusterSuffix("test"); got != "test" {
+		t.Errorf("ClusterSuffix = %q, want test (no base_domain)", got)
+	}
+	if got := m.Routes["api"].Hosts("test"); len(got) != 1 || got[0] != "api.test" {
+		t.Errorf("hosts = %v, want [api.test]", got)
 	}
 }
 
