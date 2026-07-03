@@ -586,6 +586,8 @@ components:
         service: { type: string }
         port: { type: integer }
         served: { type: boolean }
+        aliases: { type: array, items: { type: string } }
+        hosts: { type: array, items: { type: string } }
     ClusterInfo:
       type: object
       required: [name, dir, running]
@@ -594,6 +596,8 @@ components:
         dir: { type: string }
         compose_root: { type: string }
         running: { type: boolean }
+        base_domain: { type: string }
+        ingress: { type: string, enum: ["", delegate, hull] }
         routes: { type: array, items: { $ref: "#/components/schemas/ClusterRouteInfo" } }
     DetectInfo:
       type: object

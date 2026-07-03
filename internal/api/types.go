@@ -37,7 +37,11 @@ type ClusterInfo struct {
 	Dir         string             `json:"dir"`
 	ComposeRoot string             `json:"compose_root,omitempty"`
 	Running     bool               `json:"running"`
-	Routes      []ClusterRouteInfo `json:"routes,omitempty"`
+	// BaseDomain is the domain routes nest under ("" = Hull's TLD).
+	BaseDomain string `json:"base_domain,omitempty"`
+	// Ingress is how Hull serves the URLs: "" (none), "delegate", or "hull".
+	Ingress string             `json:"ingress,omitempty"`
+	Routes  []ClusterRouteInfo `json:"routes,omitempty"`
 }
 
 // ClusterRouteInfo is one subdomain→service route of a cluster.
@@ -47,6 +51,11 @@ type ClusterRouteInfo struct {
 	Service   string `json:"service"`
 	Port      int    `json:"port"`
 	Served    bool   `json:"served"`
+	// Aliases are extra subdomain labels for the same service.
+	Aliases []string `json:"aliases,omitempty"`
+	// Hosts are the fully-qualified hostnames this route resolves to
+	// (subdomain + aliases under the cluster's domain), e.g. api.tapkit.local.
+	Hosts []string `json:"hosts,omitempty"`
 }
 
 // DetectInfo answers GET /v1/detect , file-based project detection.

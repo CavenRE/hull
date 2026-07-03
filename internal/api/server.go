@@ -251,10 +251,12 @@ func ProjectList(ctx context.Context, cfg *config.Config, running func(context.C
 			}
 		}
 		if m := p.Manifest; m != nil && m.Type == "cluster" {
+			suffix := m.ClusterSuffix(cfg.TLD)
 			for _, k := range m.RouteKeys() {
 				rt := m.Routes[k]
 				info.Routes = append(info.Routes, ClusterRouteInfo{
-					Key: k, Subdomain: rt.Subdomain, Service: rt.Service, Port: rt.Port, Served: rt.Served(),
+					Key: k, Subdomain: rt.Subdomain, Service: rt.Service, Port: rt.Port,
+					Served: rt.Served(), Aliases: rt.Aliases, Hosts: rt.Hosts(suffix),
 				})
 			}
 		}
@@ -310,10 +312,17 @@ func ClusterList(ctx context.Context, cfg *config.Config, running func(context.C
 		if m == nil || m.Type != "cluster" {
 			continue
 		}
-		ci := ClusterInfo{Name: m.Name, Dir: projects[i].Dir, ComposeRoot: m.ComposeRoot, Running: runningSet[m.Name]}
+		suffix := m.ClusterSuffix(cfg.TLD)
+		ci := ClusterInfo{
+			Name: m.Name, Dir: projects[i].Dir, ComposeRoot: m.ComposeRoot,
+			Running: runningSet[m.Name], BaseDomain: m.BaseDomain, Ingress: m.Ingress,
+		}
 		for _, k := range m.RouteKeys() {
 			rt := m.Routes[k]
-			ci.Routes = append(ci.Routes, ClusterRouteInfo{Key: k, Subdomain: rt.Subdomain, Service: rt.Service, Port: rt.Port, Served: rt.Served()})
+			ci.Routes = append(ci.Routes, ClusterRouteInfo{
+				Key: k, Subdomain: rt.Subdomain, Service: rt.Service, Port: rt.Port,
+				Served: rt.Served(), Aliases: rt.Aliases, Hosts: rt.Hosts(suffix),
+			})
 		}
 		out = append(out, ci)
 		seen[m.Name] = true

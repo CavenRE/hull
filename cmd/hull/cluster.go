@@ -104,6 +104,63 @@ hull up/down/restart/rebuild/reset <name> all operate on the whole cluster.`,
 		},
 	})
 
+	cluster.AddCommand(&cobra.Command{
+		Use:   "urls <name>",
+		Short: "List every URL a cluster serves (or would serve)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := loadApp()
+			if err != nil {
+				return err
+			}
+			var clusters []api.ClusterInfo
+			if client, ok := a.client(); ok {
+				clusters, err = client.Clusters(cmd.Context())
+			} else {
+				clusters, err = api.ClusterList(cmd.Context(), a.Config, dockerx.RunningComposeProjects)
+			}
+			if err != nil {
+				return err
+			}
+			var c *api.ClusterInfo
+			for i := range clusters {
+				if clusters[i].Name == args[0] {
+					c = &clusters[i]
+					break
+				}
+			}
+			if c == nil {
+				return fmt.Errorf("no cluster %q (see: hull cluster list)", args[0])
+			}
+			if flagJSON {
+				return printJSON(c.Routes)
+			}
+			if len(c.Routes) == 0 {
+				fmt.Printf("%s has no routes yet. Add one with: hull cluster route add %s <subdomain> --service <svc> --port <n>\n", args[0], args[0])
+				return nil
+			}
+			w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
+			_, _ = fmt.Fprintln(w, "URL\tSERVICE\tPORT\tSERVED")
+			for _, rt := range c.Routes {
+				served := "yes"
+				if !rt.Served {
+					served = "no"
+				}
+				for _, host := range rt.Hosts {
+					_, _ = fmt.Fprintf(w, "https://%s\t%s\t%d\t%s\n", host, rt.Service, rt.Port, served)
+				}
+			}
+			_ = w.Flush()
+			switch c.Ingress {
+			case "delegate", "hull":
+				fmt.Printf("\ningress: %s\n", c.Ingress)
+			default:
+				fmt.Println("\ningress: none , Hull lists these; the cluster's own proxy serves them until ingress is enabled")
+			}
+			return nil
+		},
+	})
+
 	var (
 		createRoot        string
 		createComposeRoot string
