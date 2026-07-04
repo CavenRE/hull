@@ -82,6 +82,14 @@ func Render(m *manifest.Manifest, ctx Context) (*File, error) {
 				return nil, err
 			}
 			f.Services[key] = svc
+			// Define each private network a container joins, as an internal
+			// bridge (no external:). Membership is what isolates a sensitive
+			// backend to only the services that share its network.
+			for _, n := range m.Containers[key].Networks {
+				if _, ok := f.Networks[n]; !ok {
+					f.Networks[n] = &Network{}
+				}
+			}
 		}
 	default:
 		return nil, fmt.Errorf("unsupported project type %q", m.Type)
@@ -199,7 +207,7 @@ func containerService(m *manifest.Manifest, key string, c *manifest.Container, c
 			},
 			ExtraHosts:  []string{"host.docker.internal:host-gateway"},
 			Environment: mergeEnv(def.ExtraEnv, m.Env, c.Env),
-			Networks:    []string{"default"},
+			Networks:    append([]string{"default"}, c.Networks...),
 		}
 		applyIDRemap(svc, ctx, def)
 		if c.Domain != "" && c.Served() {
@@ -219,7 +227,7 @@ func containerService(m *manifest.Manifest, key string, c *manifest.Container, c
 		Build:       c.Build,
 		Command:     c.Command,
 		Environment: mergeEnv(nil, m.Env, c.Env),
-		Networks:    []string{"default"},
+		Networks:    append([]string{"default"}, c.Networks...),
 	}
 	if c.Domain != "" && c.Served() {
 		svc.Ports = []string{loopbackPublish(c.Port)}

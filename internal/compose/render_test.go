@@ -252,3 +252,54 @@ func TestSharedServicesNotRendered(t *testing.T) {
 		t.Errorf("expected no volumes for shared services, got %v", f.Volumes)
 	}
 }
+
+// TestContainerNetworkIsolation locks in the build-your-own isolation model
+// (CLU-21): a container reaches another only on a shared network, so a PII
+// backend on its own segment is unreachable by services not on it.
+func TestContainerNetworkIsolation(t *testing.T) {
+	m, err := manifest.Parse([]byte(`schema: 1
+name: stack
+type: app
+containers:
+  vault:
+    image: myvault
+    networks: [pii_secure]
+  db_pii:
+    image: postgres:15
+    networks: [pii_secure]
+  worker:
+    image: myworker
+    networks: [app_internal]
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := Render(m, testCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"pii_secure", "app_internal"} {
+		if _, ok := f.Networks[n]; !ok {
+			t.Errorf("network %q not defined in render", n)
+		}
+	}
+	has := func(svc, net string) bool {
+		for _, n := range f.Services[svc].Networks {
+			if n == net {
+				return true
+			}
+		}
+		return false
+	}
+	if !has("vault", "pii_secure") || !has("db_pii", "pii_secure") {
+		t.Error("vault and db_pii should share pii_secure")
+	}
+	if has("worker", "pii_secure") {
+		t.Error("worker must NOT reach pii_secure (isolation broken)")
+	}
+	for _, s := range []string{"vault", "db_pii", "worker"} {
+		if !has(s, "default") {
+			t.Errorf("%s missing default network", s)
+		}
+	}
+}

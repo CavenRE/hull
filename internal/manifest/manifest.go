@@ -144,6 +144,11 @@ type Container struct {
 	Port     int               `yaml:"port,omitempty"` // upstream port; required for routed raw containers
 	Command  string            `yaml:"command,omitempty"`
 	Env      map[string]string `yaml:"env,omitempty"`
+	// Networks are private network segments this container joins (in addition
+	// to the default). A container reaches another only on a shared network, so
+	// this is how a sensitive backend (e.g. a PII database) is isolated to just
+	// the services that should reach it. Rendered as internal bridge networks.
+	Networks []string `yaml:"networks,omitempty"`
 	// Serve controls whether this container gets a routed domain. nil =
 	// heuristic default (a domain/port implies served).
 	Serve *bool `yaml:"serve,omitempty"`
@@ -500,6 +505,11 @@ func (m *Manifest) validateApp(fail func(string, ...any)) {
 		for envKey := range c.Env {
 			if !envKeyRE.MatchString(envKey) {
 				fail("container %q: invalid env key %q", key, envKey)
+			}
+		}
+		for _, n := range c.Networks {
+			if !keyRE.MatchString(n) {
+				fail("container %q: invalid network name %q", key, n)
 			}
 		}
 	}
