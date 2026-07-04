@@ -300,7 +300,10 @@ compose file you own is written (type: cluster).`,
 	setCmd.Flags().StringVar(&setIngress, "ingress", "", "how Hull serves the URLs: none | delegate | hull")
 	cluster.AddCommand(setCmd)
 
-	var ingressWrite bool
+	var (
+		ingressWrite   bool
+		ingressReplace string
+	)
 	ingressCmd := &cobra.Command{
 		Use:   "ingress <name>",
 		Short: "Preview or write the ingress-container overlay (delegate mode)",
@@ -324,7 +327,7 @@ validates the generated artifacts.`,
 			if err != nil {
 				return err
 			}
-			art, err := a.Engine.ClusterIngress(p)
+			art, err := a.Engine.ClusterIngress(p, ingressReplace)
 			if err != nil {
 				return err
 			}
@@ -345,6 +348,7 @@ validates the generated artifacts.`,
 		},
 	}
 	ingressCmd.Flags().BoolVar(&ingressWrite, "write", false, "write the overlay + Caddyfile into the compose root")
+	ingressCmd.Flags().StringVar(&ingressReplace, "replace", "", "scale this existing proxy service to 0 so Hull's ingress takes over (reversible)")
 	cluster.AddCommand(ingressCmd)
 
 	route := &cobra.Command{Use: "route", Short: "Assign and manage a cluster's URL routes"}

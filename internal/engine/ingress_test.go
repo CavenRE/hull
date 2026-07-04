@@ -50,9 +50,18 @@ services:
 	e := New(&config.Config{TLD: "test", Router: config.RouterConfig{Loopback: "127.0.0.1"}})
 	p := &state.Project{Name: "tapkit", Dir: dir, Manifest: m}
 
-	art, err := e.ClusterIngress(p)
+	art, err := e.ClusterIngress(p, "")
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	// Promote: replacing a proxy scales it to 0 in the overlay.
+	promoted, err := e.ClusterIngress(p, "management_api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(promoted.Overlay), "management_api:") || !strings.Contains(string(promoted.Overlay), "replicas: 0") {
+		t.Errorf("promote overlay missing replicas:0 for the replaced proxy:\n%s", promoted.Overlay)
 	}
 
 	// Networks discovered from the compose.
