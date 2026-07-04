@@ -56,6 +56,6 @@ func init() {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt (alias of --yes)")
 	rootCmd.AddCommand(cmd)
 }

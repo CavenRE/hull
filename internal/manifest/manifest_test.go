@@ -145,6 +145,8 @@ func TestValidationErrors(t *testing.T) {
 		{"bad ingress", "schema: 1\nname: x\ntype: cluster\ningress: bogus\n", "invalid ingress"},
 		{"bad base_domain", "schema: 1\nname: x\ntype: cluster\nbase_domain: under_score\n", "invalid base_domain"},
 		{"bad route alias", "schema: 1\nname: x\ntype: cluster\nroutes:\n  api:\n    service: s\n    port: 80\n    aliases: [Bad]\n", "invalid alias"},
+		{"dup subdomain", "schema: 1\nname: x\ntype: cluster\nroutes:\n  a:\n    service: s\n    port: 80\n    subdomain: web\n  web:\n    service: t\n    port: 81\n", "both use subdomain"},
+		{"alias collides with route", "schema: 1\nname: x\ntype: cluster\nroutes:\n  a:\n    service: s\n    port: 80\n    aliases: [web]\n  web:\n    service: t\n    port: 81\n", "both use subdomain"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

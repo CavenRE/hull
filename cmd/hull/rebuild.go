@@ -102,6 +102,6 @@ again from scratch. Host bind-mounts are NOT touched , only named volumes.`,
 			)
 		},
 	}
-	reset.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt")
+	reset.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt (alias of --yes)")
 	rootCmd.AddCommand(reset)
 }

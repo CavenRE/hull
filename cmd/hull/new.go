@@ -9,6 +9,7 @@ import (
 	"github.com/CavenRE/hull/internal/api"
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/engine"
+	"github.com/CavenRE/hull/internal/manifest"
 	"github.com/CavenRE/hull/internal/services"
 	"github.com/CavenRE/hull/internal/templates"
 )
@@ -132,7 +133,12 @@ install), wordpress gets MariaDB, plain gets no database. Add a database with
 				fmt.Printf("✔ Project created at %s\n", dir)
 			}
 			if !noStart {
-				fmt.Printf("✔ %s is up at https://%s.%s\n", name, name, a.Config.TLD)
+				// The routed domain is the slugged name (e.g. "My App" -> my-app).
+				domain := manifest.Slug(name)
+				if domain == "" {
+					domain = name
+				}
+				fmt.Printf("✔ %s is up at https://%s.%s\n", name, domain, a.Config.TLD)
 			}
 			return nil
 		},

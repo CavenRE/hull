@@ -44,7 +44,7 @@ func init() {
 	pf := rootCmd.PersistentFlags()
 	pf.StringVar(&flagHome, "home", "", "Hull home directory (default $HULL_HOME or ~/.hull)")
 	pf.BoolVar(&flagNoDaemon, "no-daemon", false, "ignore any running daemon; run the command in-process")
-	pf.BoolVar(&flagJSON, "json", false, "emit machine-readable JSON (read commands only)")
+	pf.BoolVar(&flagJSON, "json", false, "emit machine-readable JSON (list, deps, config get, services/group/cluster listers)")
 	pf.BoolVarP(&flagYes, "yes", "y", false, "assume yes; do not prompt for confirmation")
 }
 

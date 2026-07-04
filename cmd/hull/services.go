@@ -165,7 +165,7 @@ database container per project. Versions run side by side.`,
 			)
 		},
 	}
-	rm.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt")
+	rm.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt (alias of --yes)")
 	svc.AddCommand(rm)
 
 	rootCmd.AddCommand(svc)

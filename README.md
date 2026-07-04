@@ -231,7 +231,7 @@ Run `hull <command> --help` for full flags on any command.
 |---|---|
 | `hull set <project>` | Change `--php`, `--domain`, or `--serve` on a managed project. |
 | `hull config get` | Print the current global configuration. |
-| `hull config set` / `roots` / `defaults` | Set config values, manage project root folders, set default tools/versions. |
+| `hull config tld` / `roots` / `defaults` | Set the local TLD, manage project root folders, set default tools/versions. |
 | `hull group add` / `ls` / `mv` / `order` | Organize projects into virtual groups (stored Hull-side; folders untouched). |
 
 ### Shared services

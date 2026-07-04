@@ -544,6 +544,29 @@ func (m *Manifest) validateCluster(fail func(string, ...any)) {
 			}
 		}
 	}
+	// Two routes must not resolve to the same hostname label (subdomain or
+	// alias), which would make the URL ambiguous. Deterministic order.
+	owner := map[string]string{}
+	for _, key := range m.RouteKeys() {
+		rt := m.Routes[key]
+		if rt == nil {
+			continue
+		}
+		sub := rt.Subdomain
+		if sub == "" {
+			sub = key
+		}
+		for _, label := range append([]string{sub}, rt.Aliases...) {
+			if label == "" {
+				continue
+			}
+			if prev, dup := owner[label]; dup && prev != key {
+				fail("routes %q and %q both use subdomain %q", prev, key, label)
+			} else {
+				owner[label] = key
+			}
+		}
+	}
 }
 
 // RouteKeys returns cluster route keys in sorted order.
