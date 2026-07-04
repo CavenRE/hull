@@ -307,7 +307,7 @@ router:
   enabled: true
   http_port: 80
   https_port: 443
-  loopback: 127.0.0.1         # 127.0.0.1–.8: bind a different loopback to
+  loopback: 127.0.0.1         # 127.0.0.1 to .8: bind a different loopback to
                               # coexist with another local proxy
 dns:
   enabled: true               # set false to use an external resolver for *.tld

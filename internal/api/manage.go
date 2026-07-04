@@ -86,7 +86,7 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Loopback != "" && req.Loopback != s.Config.Router.Loopback {
 		if !config.ValidLoopback(req.Loopback) {
-			writeError(w, http.StatusBadRequest, fmt.Errorf("loopback must be 127.0.0.1–127.0.0.8"))
+			writeError(w, http.StatusBadRequest, fmt.Errorf("loopback must be 127.0.0.1 to 127.0.0.8"))
 			return
 		}
 		// The router/DNS bind address is read once at daemon start, so a
