@@ -70,6 +70,16 @@ func (e *Engine) NewCluster(ctx context.Context, opts NewClusterOptions) (string
 	if len(opts.Containers) == 0 {
 		return "", fmt.Errorf("a cluster needs at least one container")
 	}
+	// Defense in depth (the CLI validates too, but a direct API call may not):
+	// every container needs a source, and a served raw container needs a port.
+	for _, c := range opts.Containers {
+		if imageRefFor(c) == "" {
+			return "", fmt.Errorf("container %q needs a template or image", c.Name)
+		}
+		if c.Serve && c.Template == "" && c.Port == 0 {
+			return "", fmt.Errorf("container %q: serve needs a port for a raw image", c.Name)
+		}
+	}
 	root := opts.Root
 	if root == "" {
 		if len(e.Config.Roots) == 0 {

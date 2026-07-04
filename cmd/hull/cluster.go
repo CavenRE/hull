@@ -179,8 +179,10 @@ container as comma-separated key=value fields:
   template=<t>   laravel | wordpress | plain (a Hull-scaffolded app), or
   image=<repo>   a raw image (mutually exclusive with template)
   version=<v>    image tag / framework version
-  port=<n>       upstream/published port
-  serve          route a subdomain to this container (bare flag)
+  port=<n>       upstream/published port (required to serve a raw image)
+  serve          route a subdomain to this container (opt-in; bare, or
+                 serve=true|false). Omitted means not served, so only the
+                 containers you name get a URL.
 
 --managed makes Hull render and own the compose file (type: app); otherwise a
 compose file you own is written (type: cluster).`,
@@ -419,8 +421,16 @@ func parseContainerSpecs(specs []string) ([]api.ClusterContainerSpec, error) {
 		if c.Name == "" {
 			return nil, fmt.Errorf("container %q: name= is required", raw)
 		}
+		if c.Template == "" && c.Image == "" {
+			return nil, fmt.Errorf("container %q: needs template= or image=", raw)
+		}
 		if c.Template != "" && c.Image != "" {
 			return nil, fmt.Errorf("container %q: set template= or image=, not both", raw)
+		}
+		// A served raw-image container needs a port to route to (template
+		// containers carry their own default port).
+		if c.Serve && c.Image != "" && c.Port == 0 {
+			return nil, fmt.Errorf("container %q: serve needs a port= for a raw image container", raw)
 		}
 		out = append(out, c)
 	}
