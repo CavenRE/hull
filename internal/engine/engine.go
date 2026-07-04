@@ -491,17 +491,19 @@ func (e *Engine) StopAll(ctx context.Context) (int, error) {
 		}
 	}
 
-	// 4. Running shared service instances.
+	// 4. Shared service instances. Stop EVERY instance unconditionally: a
+	//    `compose down` on an already-stopped instance is a harmless no-op, so
+	//    we never gate on a running-detection (a docker-ps label read) that
+	//    could misreport and leave a live service running after `hull stop`.
 	m := services.NewManager(e.Config)
 	m.Run = e.Run
 	if instances, err := m.List(ctx); err == nil {
 		for _, in := range instances {
-			if !in.Running {
-				continue
-			}
 			if err := m.Stop(ctx, in.Name); err != nil {
 				errs = append(errs, fmt.Errorf("service %s: %w", in.Name, err))
-			} else {
+			} else if in.Running {
+				// Count only what was actually up, so the "Stopped N" total is
+				// honest even though we down-ed every instance.
 				stopped++
 			}
 		}

@@ -69,6 +69,41 @@ func TestStopAllStopsOutOfRootCluster(t *testing.T) {
 	}
 }
 
+// TestStopAllStopsServicesUnconditionally is the fix for "stop leaves all
+// services running": a shared instance must be brought down by stop-all even
+// when the docker-ps running-detection does not report it as running (a flaky
+// detection must never leak a live service).
+func TestStopAllStopsServicesUnconditionally(t *testing.T) {
+	home := t.TempDir()
+	// A shared instance dir that exists but is NOT in the running set.
+	instDir := filepath.Join(home, "services", "redis-alpine")
+	if err := os.MkdirAll(instDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(instDir, "compose.yaml"),
+		[]byte("name: hull-redis-alpine\nservices:\n  redis:\n    image: redis\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{TLD: "test", Roots: []string{t.TempDir()}, HullHome: home}
+	e := New(cfg)
+	var calls []string
+	e.Run = func(ctx context.Context, dir, name string, args ...string) error {
+		calls = append(calls, dir+" "+strings.Join(args, " "))
+		return nil
+	}
+	e.EnsureNet = func(ctx context.Context, name string) error { return nil }
+	e.RunningHull = func(ctx context.Context) ([]string, error) { return nil, nil }
+
+	if _, err := e.StopAll(context.Background()); err != nil {
+		t.Fatalf("StopAll errored: %v", err)
+	}
+	joined := strings.Join(calls, "\n")
+	if !strings.Contains(joined, instDir) || !strings.Contains(joined, "compose down") {
+		t.Errorf("stop-all must down the shared instance even when not detected running; calls:\n%s", joined)
+	}
+}
+
 // pflag returns the value following "-p" in a compose arg list (the project
 // name), or "" when absent.
 func pflag(args []string) string {

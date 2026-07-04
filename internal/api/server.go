@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -655,7 +656,13 @@ func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 // just runs it and reconciles routes. Synchronous so the caller knows when
 // the machine is clear.
 func (s *Server) handleStopAll(w http.ResponseWriter, r *http.Request) {
-	stopped, _ := s.Engine.StopAll(r.Context())
+	stopped, err := s.Engine.StopAll(r.Context())
+	if err != nil {
+		// A partial failure (one project/service refused to stop) must not be
+		// invisible: log it (lands in hulld.log). The client still gets the
+		// count so `hull stop` proceeds to shut the daemon down.
+		log.Printf("stop-all: %v", err)
+	}
 	if s.SyncRoutes != nil {
 		s.SyncRoutes()
 	}
