@@ -75,3 +75,100 @@ containers:
 		}
 	}
 }
+
+func TestComputeRoutesCluster(t *testing.T) {
+	root := t.TempDir()
+	write := func(name, content string) {
+		dir := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Join(dir, "core"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "hull.yaml"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// ingress: hull, base_domain, an alias, and an internal-only route.
+	write("served", `schema: 1
+name: served
+type: cluster
+compose_root: core
+base_domain: tapkit.local
+ingress: hull
+routes:
+  api:
+    service: management_api
+    port: 8081
+  t:
+    service: edge_router
+    port: 8080
+    aliases: [tap]
+  dash:
+    service: dashboard
+    port: 8080
+`)
+	// ingress: none -> the host router serves nothing for it.
+	write("selfserved", `schema: 1
+name: selfserved
+type: cluster
+compose_root: core
+base_domain: x.local
+routes:
+  web:
+    service: web
+    port: 80
+`)
+
+	projects, err := state.Scan([]string{root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	running := map[string]bool{"served": true, "selfserved": true}
+	ports := func(ctx context.Context, dir, service string, containerPort int) (int, error) {
+		switch service {
+		case "management_api":
+			return 60001, nil
+		case "edge_router":
+			return 60002, nil
+		// dashboard is internal-only: no published port.
+		}
+		return 0, fmt.Errorf("no mapping for %s", service)
+	}
+
+	routes := ComputeRoutes(context.Background(), projects, "test", running, ports)
+	got := map[string]string{}
+	for _, r := range routes {
+		got[r.Domain] = r.Upstream
+	}
+	want := map[string]string{
+		"api.tapkit.local": "127.0.0.1:60001",
+		"t.tapkit.local":   "127.0.0.1:60002",
+		"tap.tapkit.local": "127.0.0.1:60002", // alias resolves to the same upstream
+	}
+	if len(got) != len(want) {
+		t.Fatalf("cluster routes = %v, want %v", got, want)
+	}
+	for d, u := range want {
+		if got[d] != u {
+			t.Errorf("%s -> %s, want %s", d, got[d], u)
+		}
+	}
+	// dashboard is internal-only (no port), so no route.
+	if _, ok := got["dash.tapkit.local"]; ok {
+		t.Error("internal-only dashboard should not get a live route")
+	}
+
+	// AllDomains: hull-mode hosts (incl the down dashboard + alias); the
+	// ingress: none cluster contributes nothing.
+	domains := map[string]bool{}
+	for _, d := range AllDomains(projects, "test") {
+		domains[d] = true
+	}
+	for _, d := range []string{"api.tapkit.local", "t.tapkit.local", "tap.tapkit.local", "dash.tapkit.local"} {
+		if !domains[d] {
+			t.Errorf("AllDomains missing %s", d)
+		}
+	}
+	if domains["web.x.local"] {
+		t.Error("ingress: none cluster must not contribute host domains")
+	}
+}

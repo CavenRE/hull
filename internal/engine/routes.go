@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/CavenRE/hull/internal/dockerx"
+	"github.com/CavenRE/hull/internal/manifest"
 	"github.com/CavenRE/hull/internal/router"
 	"github.com/CavenRE/hull/internal/state"
 	"github.com/CavenRE/hull/internal/templates"
@@ -30,16 +31,26 @@ func ComputeRoutes(ctx context.Context, projects []state.Project, tld string, ru
 		m := p.Manifest
 		switch m.Type {
 		case "cluster":
+			// The host router only owns a cluster's vhosts in ingress: hull
+			// mode. none = the cluster serves itself; delegate = the in-cluster
+			// ingress container serves it (a separate loopback).
+			if m.Ingress != manifest.IngressHull {
+				continue
+			}
+			suffix := m.ClusterSuffix(tld)
 			for _, key := range m.RouteKeys() {
 				rt := m.Routes[key]
 				if !rt.Served() {
 					continue
 				}
-				if hostPort, err := ports(ctx, filepath.Join(p.Dir, m.ComposeRoot), rt.Service, rt.Port); err == nil {
-					routes = append(routes, router.Route{
-						Domain:   rt.Subdomain + "." + tld,
-						Upstream: loopback(hostPort),
-					})
+				hostPort, err := ports(ctx, filepath.Join(p.Dir, m.ComposeRoot), rt.Service, rt.Port)
+				if err != nil {
+					// Internal-only service (no published port): skip here, it
+					// falls through to a readable 502 down-route.
+					continue
+				}
+				for _, host := range rt.Hosts(suffix) {
+					routes = append(routes, router.Route{Domain: host, Upstream: loopback(hostPort)})
 				}
 			}
 		case "app":
@@ -95,9 +106,16 @@ func AllDomains(projects []state.Project, tld string) []string {
 			continue
 		}
 		if m.Type == "cluster" {
+			// Only ingress: hull clusters share the host router's domain set
+			// (hosts entries + a vhost each). delegate is served by its own
+			// container on a separate loopback; none is served by the cluster.
+			if m.Ingress != manifest.IngressHull {
+				continue
+			}
+			suffix := m.ClusterSuffix(tld)
 			for _, key := range m.RouteKeys() {
 				if rt := m.Routes[key]; rt.Served() {
-					domains = append(domains, rt.Subdomain+"."+tld)
+					domains = append(domains, rt.Hosts(suffix)...)
 				}
 			}
 			continue
