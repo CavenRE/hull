@@ -128,6 +128,13 @@ type SetRouteRequest struct {
 	Serve   *bool    `json:"serve,omitempty"`
 }
 
+// SetClusterConfigRequest answers PUT /v1/clusters/{name}: update base_domain
+// and/or ingress. A nil field is left unchanged; an empty string clears it.
+type SetClusterConfigRequest struct {
+	BaseDomain *string `json:"base_domain,omitempty"`
+	Ingress    *string `json:"ingress,omitempty"`
+}
+
 // SetupStepResult answers the setup endpoints.
 type SetupStepResult struct {
 	Done bool `json:"done"`

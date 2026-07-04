@@ -335,6 +335,47 @@ func (e *Engine) SetClusterRoute(p *state.Project, key string, spec ClusterRoute
 	})
 }
 
+// ClusterConfigSpec updates a cluster's ingress/domain settings. A nil field
+// is left unchanged; an empty string clears it.
+type ClusterConfigSpec struct {
+	BaseDomain *string
+	Ingress    *string
+}
+
+// SetClusterConfig updates base_domain and/or ingress in a cluster's hull.yaml,
+// preserving comments and order elsewhere.
+func (e *Engine) SetClusterConfig(p *state.Project, spec ClusterConfigSpec) error {
+	if _, err := clusterManifest(p); err != nil {
+		return err
+	}
+	if spec.Ingress != nil {
+		switch *spec.Ingress {
+		case manifest.IngressNone, manifest.IngressDelegate, manifest.IngressHull:
+		default:
+			return fmt.Errorf("invalid ingress %q (use none, delegate, or hull)", *spec.Ingress)
+		}
+	}
+	return editClusterManifest(p.Dir, func(root *yaml.Node) error {
+		if spec.BaseDomain != nil {
+			setScalarOrDelete(root, "base_domain", *spec.BaseDomain)
+		}
+		if spec.Ingress != nil {
+			setScalarOrDelete(root, "ingress", *spec.Ingress)
+		}
+		return nil
+	})
+}
+
+// setScalarOrDelete upserts a string scalar under key, or deletes key when
+// val is empty (so a cleared field disappears rather than reading as "").
+func setScalarOrDelete(m *yaml.Node, key, val string) {
+	if val == "" {
+		deleteMapEntry(m, key)
+		return
+	}
+	upsertMapEntry(m, key, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: val})
+}
+
 // RemoveClusterRoute deletes a route from a cluster's hull.yaml.
 func (e *Engine) RemoveClusterRoute(p *state.Project, key string) error {
 	m, err := clusterManifest(p)

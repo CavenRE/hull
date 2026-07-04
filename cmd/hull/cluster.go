@@ -237,6 +237,63 @@ compose file you own is written (type: cluster).`,
 	create.Flags().BoolVar(&createNoStart, "no-start", false, "create without booting containers")
 	cluster.AddCommand(create)
 
+	var (
+		setBaseDomain string
+		setIngress    string
+	)
+	setCmd := &cobra.Command{
+		Use:   "set <name>",
+		Short: "Set a cluster's base domain and ingress mode",
+		Long: `Configure how Hull addresses a cluster's URLs.
+
+  --base-domain   the domain routes nest under (e.g. tapkit.local). Empty
+                  resets to Hull's TLD (<subdomain>.<tld>).
+  --ingress       how Hull serves the URLs: none (list only; the cluster's
+                  own proxy serves them), delegate, or hull.`,
+		Example: `  hull cluster set tapkit --base-domain tapkit.local --ingress delegate`,
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := loadApp()
+			if err != nil {
+				return err
+			}
+			name := args[0]
+			var bd, ing *string
+			if cmd.Flags().Changed("base-domain") {
+				bd = &setBaseDomain
+			}
+			if cmd.Flags().Changed("ingress") {
+				v := setIngress
+				if v == "none" {
+					v = ""
+				}
+				ing = &v
+			}
+			if bd == nil && ing == nil {
+				return fmt.Errorf("nothing to change , pass --base-domain or --ingress")
+			}
+			if err := a.withDaemon(
+				func(c *api.Client) error {
+					return c.SetClusterConfig(cmd.Context(), name, api.SetClusterConfigRequest{BaseDomain: bd, Ingress: ing})
+				},
+				func() error {
+					p, err := a.findProject(name)
+					if err != nil {
+						return err
+					}
+					return a.Engine.SetClusterConfig(p, engine.ClusterConfigSpec{BaseDomain: bd, Ingress: ing})
+				},
+			); err != nil {
+				return err
+			}
+			fmt.Printf("✔ %s updated. See: hull cluster urls %s\n", name, name)
+			return nil
+		},
+	}
+	setCmd.Flags().StringVar(&setBaseDomain, "base-domain", "", "domain routes nest under (empty resets to the TLD)")
+	setCmd.Flags().StringVar(&setIngress, "ingress", "", "how Hull serves the URLs: none | delegate | hull")
+	cluster.AddCommand(setCmd)
+
 	route := &cobra.Command{Use: "route", Short: "Assign and manage a cluster's URL routes"}
 
 	var (

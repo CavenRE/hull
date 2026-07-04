@@ -269,6 +269,20 @@ paths:
                 type: object
                 properties: { name: { type: string } }
 
+  /v1/clusters/{name}:
+    put:
+      tags: [clusters]
+      summary: Set a cluster's base_domain and/or ingress mode
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SetClusterConfigRequest" }
+      responses:
+        "204": { description: Updated }
+
   /v1/clusters/{name}/routes/{key}:
     put:
       tags: [clusters]
@@ -619,6 +633,11 @@ components:
         port: { type: integer }
         aliases: { type: array, items: { type: string } }
         serve: { type: boolean }
+    SetClusterConfigRequest:
+      type: object
+      properties:
+        base_domain: { type: string }
+        ingress: { type: string, enum: ["", none, delegate, hull] }
     ClusterInfo:
       type: object
       required: [name, dir, running]
