@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/CavenRE/hull/internal/ledger"
 )
 
 func writeFile(t *testing.T, path, content string) {
@@ -102,5 +104,29 @@ func TestFindAndCurrent(t *testing.T) {
 	}
 	if _, ok := Current([]string{root}, t.TempDir()); ok {
 		t.Error("Current outside any project should be false")
+	}
+}
+
+func TestFindClusterFromLedger(t *testing.T) {
+	home := t.TempDir()
+	roots := []string{t.TempDir()} // deliberately does NOT contain the cluster dir
+	clusterDir := filepath.Join(t.TempDir(), "outside")
+	writeFile(t, filepath.Join(clusterDir, "hull.yaml"), "schema: 1\nname: orphan\ntype: cluster\ncompose_root: .\n")
+
+	// Not reachable via a roots scan.
+	if _, err := Find(roots, "orphan"); err == nil {
+		t.Fatal("Find should not see an out-of-root cluster")
+	}
+	// Not in the ledger yet.
+	if _, ok := FindCluster(home, "orphan"); ok {
+		t.Fatal("FindCluster should miss before the ledger records it")
+	}
+
+	if err := ledger.Add(home, ledger.Entry{Name: "orphan", Dir: clusterDir, Kind: "cluster"}); err != nil {
+		t.Fatal(err)
+	}
+	p, ok := FindCluster(home, "orphan")
+	if !ok || p.Dir != clusterDir || p.Manifest == nil || p.Manifest.Type != "cluster" {
+		t.Fatalf("FindCluster = %+v, ok=%v", p, ok)
 	}
 }

@@ -129,9 +129,18 @@ func (a *app) currentProject() (*state.Project, bool) {
 	return state.Current(a.Config.Roots, wd)
 }
 
-// findProject resolves a project by name with a friendly error.
+// findProject resolves a project by name with a friendly error, falling back to
+// a ledger-known cluster whose directory is outside the configured roots (so an
+// adopted cluster stays operable after its root was removed).
 func (a *app) findProject(name string) (*state.Project, error) {
-	return state.Find(a.Config.Roots, name)
+	p, err := state.Find(a.Config.Roots, name)
+	if err == nil {
+		return p, nil
+	}
+	if lp, ok := state.FindCluster(a.Config.HullHome, name); ok {
+		return lp, nil
+	}
+	return nil, err
 }
 
 // configView returns the current config as the API shape, from the daemon

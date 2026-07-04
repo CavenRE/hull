@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/CavenRE/hull/internal/ledger"
 	"github.com/CavenRE/hull/internal/manifest"
 )
 
@@ -97,6 +98,25 @@ func Find(roots []string, name string) (*Project, error) {
 		}
 	}
 	return nil, fmt.Errorf("project %q not found in %s", name, strings.Join(roots, ", "))
+}
+
+// FindCluster resolves an adopted cluster recorded in the started ledger by
+// name, even when its directory lives outside the configured roots. This keeps
+// a cluster that appears in `hull cluster list` (which is ledger-reconciled)
+// operable by name after its root was removed. ok=false when there is no such
+// ledger cluster or its manifest no longer loads.
+func FindCluster(hullHome, name string) (*Project, bool) {
+	for _, e := range ledger.List(hullHome) {
+		if e.Kind != "cluster" || e.Name != name {
+			continue
+		}
+		m, err := manifest.Load(e.Dir)
+		if err != nil {
+			return nil, false
+		}
+		return &Project{Name: e.Name, Dir: e.Dir, Manifest: m}, true
+	}
+	return nil, false
 }
 
 // Current returns the project containing dir (or dir itself), if dir lies

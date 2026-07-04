@@ -192,7 +192,7 @@ func (s *Server) handleProjectPatch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request) {
-	p, err := state.Find(s.Config.Roots, r.PathValue("name"))
+	p, err := s.findProject(r.PathValue("name"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return

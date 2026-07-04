@@ -76,6 +76,20 @@ func (k *keyedMutex) lock(key string) func() {
 	return mu.Unlock
 }
 
+// findProject resolves a project by name, falling back to a ledger-known
+// cluster whose directory is outside the configured roots, so both the CLI and
+// the daemon resolve out-of-root clusters the same way.
+func (s *Server) findProject(name string) (*state.Project, error) {
+	p, err := state.Find(s.Config.Roots, name)
+	if err == nil {
+		return p, nil
+	}
+	if lp, ok := state.FindCluster(s.Config.HullHome, name); ok {
+		return lp, nil
+	}
+	return nil, err
+}
+
 // lockProject acquires the per-project lock and returns its release func. It is
 // nil-safe: a Server built without NewServer (some tests) does no locking.
 func (s *Server) lockProject(name string) func() {
@@ -357,7 +371,7 @@ func (s *Server) handleClusterConfigSet(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	p, err := state.Find(s.Config.Roots, name)
+	p, err := s.findProject(name)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
@@ -380,7 +394,7 @@ func (s *Server) handleClusterRouteSet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	p, err := state.Find(s.Config.Roots, name)
+	p, err := s.findProject(name)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
@@ -400,7 +414,7 @@ func (s *Server) handleClusterRouteSet(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleClusterRouteDelete(w http.ResponseWriter, r *http.Request) {
 	name, key := r.PathValue("name"), r.PathValue("key")
-	p, err := state.Find(s.Config.Roots, name)
+	p, err := s.findProject(name)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
@@ -418,7 +432,7 @@ func (s *Server) handleClusterRouteDelete(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleProjectAction(w http.ResponseWriter, r *http.Request) {
 	name, action := r.PathValue("name"), r.PathValue("action")
-	p, err := state.Find(s.Config.Roots, name)
+	p, err := s.findProject(name)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
@@ -476,7 +490,7 @@ func (s *Server) handleProjectAction(w http.ResponseWriter, r *http.Request) {
 
 // handleProjectVolumes lists a project's named volumes (Reset blast radius).
 func (s *Server) handleProjectVolumes(w http.ResponseWriter, r *http.Request) {
-	p, err := state.Find(s.Config.Roots, r.PathValue("name"))
+	p, err := s.findProject(r.PathValue("name"))
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
