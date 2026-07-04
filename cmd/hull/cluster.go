@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -298,6 +299,53 @@ compose file you own is written (type: cluster).`,
 	setCmd.Flags().StringVar(&setBaseDomain, "base-domain", "", "domain routes nest under (empty resets to the TLD)")
 	setCmd.Flags().StringVar(&setIngress, "ingress", "", "how Hull serves the URLs: none | delegate | hull")
 	cluster.AddCommand(setCmd)
+
+	var ingressWrite bool
+	ingressCmd := &cobra.Command{
+		Use:   "ingress <name>",
+		Short: "Preview or write the ingress-container overlay (delegate mode)",
+		Long: `Generate the delegate-mode ingress artifacts for a cluster: a compose
+overlay adding a reverse-proxy container on the cluster's networks (so it
+reaches internal-only services by name), plus its Caddy config. With --write,
+they land in the compose root so you can run:
+
+  docker compose -f <base-compose> -f compose.hull.yaml up -d
+
+Note: live serving is not yet auto-wired into 'hull up', and the container's TLS
+uses its own internal CA (trust integration is pending). This previews and
+validates the generated artifacts.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := loadApp()
+			if err != nil {
+				return err
+			}
+			p, err := a.findProject(args[0])
+			if err != nil {
+				return err
+			}
+			art, err := a.Engine.ClusterIngress(p)
+			if err != nil {
+				return err
+			}
+			if ingressWrite {
+				if err := a.Engine.WriteClusterIngress(p, art); err != nil {
+					return err
+				}
+				fmt.Printf("✔ wrote compose.hull.yaml + compose.hull.caddy under %s\n", filepath.Join(p.Dir, p.Manifest.ComposeRoot))
+				fmt.Printf("  ingress will bind %s:443; point %v at it.\n", art.BindIP, art.Hosts)
+				return nil
+			}
+			fmt.Printf("# ingress binds %s:80/443 on networks %v, alias per host %v\n\n", art.BindIP, art.Networks, art.Hosts)
+			fmt.Println("# ---- compose.hull.yaml ----")
+			fmt.Print(string(art.Overlay))
+			fmt.Println("# ---- compose.hull.caddy ----")
+			fmt.Print(art.Caddyfile)
+			return nil
+		},
+	}
+	ingressCmd.Flags().BoolVar(&ingressWrite, "write", false, "write the overlay + Caddyfile into the compose root")
+	cluster.AddCommand(ingressCmd)
 
 	route := &cobra.Command{Use: "route", Short: "Assign and manage a cluster's URL routes"}
 
