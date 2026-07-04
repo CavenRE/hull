@@ -121,6 +121,7 @@ public partial class MainWindow : Window
         }
         AddSeparator();
         AddNav("services", "services", "Services", serviceCount > 0 ? serviceCount : null);
+        AddNav("clusters", "cube", "Clusters", null);
         AddNav("mail", "mail", "Mail", null);
         AddNav("logs", "logs", "Logs", null);
         AddNav("settings", "settings", "Settings", null);
@@ -187,6 +188,7 @@ public partial class MainWindow : Window
         {
             "dashboard" => new DashboardView(_client),
             "services" => new ServicesView(_client),
+            "clusters" => new ClustersView(_client),
             "settings" => new SettingsView(_client),
             "mail" => new MailView(_client),
             "logs" => new LogsView(_client),

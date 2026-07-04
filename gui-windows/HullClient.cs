@@ -134,8 +134,36 @@ public record JobSummary(string id, string kind, string status, string? created,
 public record RootGroups(string[]? groups);
 public record GroupsStore(Dictionary<string, RootGroups>? roots, Dictionary<string, string>? members);
 
-/// <summary>One cluster route (subdomain → service:port), from ProjectInfo.routes.</summary>
-public record ClusterRouteInfo(string key, string subdomain, string service, int port, bool served);
+/// <summary>One cluster route (subdomain → service:port), from ProjectInfo.routes / GET /v1/clusters.</summary>
+public record ClusterRouteInfo(string key, string subdomain, string service, int port, bool served,
+    string[]? aliases = null, string[]? hosts = null)
+{
+    public string[] HostList => hosts ?? Array.Empty<string>();
+    public string PrimaryUrl => HostList.Length > 0 ? "https://" + HostList[0] : "";
+    public string AllUrls => string.Join("  ", HostList.Select(h => "https://" + h));
+    public string AliasText => aliases is { Length: > 0 } ? string.Join(", ", aliases) : "";
+    public string ServedText => served ? "served" : "not served";
+}
+
+/// <summary>One cluster from GET /v1/clusters.</summary>
+public record ClusterInfo(
+    string name, string dir, string? compose_root, bool running,
+    string? base_domain, string? ingress, ClusterRouteInfo[]? routes)
+{
+    public string State => running ? "running" : "stopped";
+    public ClusterRouteInfo[] RouteList => routes ?? Array.Empty<ClusterRouteInfo>();
+    public int RouteCount => RouteList.Length;
+    public string BaseDomainText => string.IsNullOrEmpty(base_domain) ? "(the TLD)" : base_domain!;
+    public string IngressText => ingress switch
+    {
+        "hull" => "hull (Hull serves the URLs)",
+        "delegate" => "delegate (ingress container)",
+        _ => "none (the cluster serves itself)",
+    };
+    // Every fully-qualified URL across all routes, for the cluster console list.
+    public IEnumerable<string> AllUrls =>
+        RouteList.Where(r => r.served).SelectMany(r => r.HostList).Select(h => "https://" + h);
+}
 
 /// <summary>
 /// Thin client over the local hulld API. All logic lives in the daemon; this
@@ -267,6 +295,38 @@ public sealed class HullClient
 
     public async Task<List<ServiceInfo>> ServicesAsync(CancellationToken ct = default) =>
         await _http.GetFromJsonAsync<List<ServiceInfo>>("/v1/services", JsonOpts, ct) ?? new();
+
+    public async Task<List<ClusterInfo>> ClustersAsync(CancellationToken ct = default) =>
+        await _http.GetFromJsonAsync<List<ClusterInfo>>("/v1/clusters", JsonOpts, ct) ?? new();
+
+    /// <summary>Assigns a URL (subdomain) to a cluster service. body: {service, port, aliases?, serve?}.</summary>
+    public async Task SetClusterRouteAsync(string name, string subdomain, object body, CancellationToken ct = default)
+    {
+        var resp = await _http.PutAsJsonAsync($"/v1/clusters/{Uri.EscapeDataString(name)}/routes/{Uri.EscapeDataString(subdomain)}", body, ct);
+        await EnsureOkAsync(resp, ct);
+    }
+
+    public async Task RemoveClusterRouteAsync(string name, string subdomain, CancellationToken ct = default)
+    {
+        var resp = await _http.DeleteAsync($"/v1/clusters/{Uri.EscapeDataString(name)}/routes/{Uri.EscapeDataString(subdomain)}", ct);
+        await EnsureOkAsync(resp, ct);
+    }
+
+    /// <summary>Sets a cluster's base_domain and/or ingress. body: {base_domain?, ingress?}.</summary>
+    public async Task SetClusterConfigAsync(string name, object body, CancellationToken ct = default)
+    {
+        var resp = await _http.PutAsJsonAsync($"/v1/clusters/{Uri.EscapeDataString(name)}", body, ct);
+        await EnsureOkAsync(resp, ct);
+    }
+
+    // EnsureOkAsync surfaces the daemon's {"error":...} message on failure.
+    private static async Task EnsureOkAsync(HttpResponseMessage resp, CancellationToken ct)
+    {
+        if (resp.IsSuccessStatusCode) return;
+        string msg = $"HTTP {(int)resp.StatusCode}";
+        try { var e = await resp.Content.ReadFromJsonAsync<ErrorEnvelope>(JsonOpts, ct); if (!string.IsNullOrEmpty(e?.error)) msg = e!.error; } catch { }
+        throw new HttpRequestException(msg);
+    }
 
     /// <summary>
     /// Sends a request whose response may be a JobRef ({"job":{...}}). Returns
