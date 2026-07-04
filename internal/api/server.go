@@ -571,7 +571,7 @@ func (s *Server) handleCreateCluster(w http.ResponseWriter, r *http.Request) {
 	job := s.Jobs.Start("create-cluster:"+req.Name, func(log func(string)) error {
 		eng := s.NewJobEngine(log)
 		dir, err := eng.NewCluster(context.Background(), engine.NewClusterOptions{
-			Name: req.Name, Root: req.Root, ComposeRoot: req.ComposeRoot, Managed: req.Managed, Containers: specs,
+			Name: req.Name, Root: req.Root, ComposeRoot: req.ComposeRoot, Managed: req.Managed, Containers: specs, SkipStart: req.NoStart,
 		})
 		if err != nil {
 			return err

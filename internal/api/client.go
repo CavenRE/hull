@@ -361,9 +361,22 @@ func (c *Client) Logs(ctx context.Context, project, service string, tail int, on
 	}
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	errNext := false
 	for sc.Scan() {
-		if line := sc.Text(); strings.HasPrefix(line, "data: ") {
-			onLine(strings.TrimPrefix(line, "data: "))
+		line := sc.Text()
+		switch {
+		case line == "event: error":
+			// The daemon signals a stream failure with a terminal error event
+			// whose next data line carries the message.
+			errNext = true
+		case strings.HasPrefix(line, "data: "):
+			msg := strings.TrimPrefix(line, "data: ")
+			if errNext {
+				return fmt.Errorf("daemon: %s", msg)
+			}
+			onLine(msg)
+		case line == "":
+			errNext = false
 		}
 	}
 	return sc.Err()

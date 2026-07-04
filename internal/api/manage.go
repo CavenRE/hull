@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os/exec"
 	"runtime"
@@ -266,15 +267,34 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	lines := make(chan string, 256)
 	done := make(chan struct{})
+	var streamErr error
 	go func() {
 		defer close(done)
-		_ = stream(r.Context(), dir, tail, func(line string) {
+		streamErr = stream(r.Context(), dir, tail, func(line string) {
 			select {
 			case lines <- line:
 			case <-r.Context().Done():
 			}
 		})
 	}()
+	// finish drains buffered lines and, if the stream failed for a reason other
+	// than the client disconnecting, emits a terminal SSE error event so the
+	// client can surface it (a bare EOF otherwise reads as success).
+	finish := func() {
+		for {
+			select {
+			case line := <-lines:
+				_, _ = fmt.Fprintf(w, "data: %s\n\n", line)
+			default:
+				if streamErr != nil && r.Context().Err() == nil {
+					log.Printf("logs: stream for %q failed: %v", dir, streamErr)
+					_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", streamErr.Error())
+				}
+				flusher.Flush()
+				return
+			}
+		}
+	}
 	flushTick := time.NewTicker(150 * time.Millisecond)
 	defer flushTick.Stop()
 	dirty := false
@@ -292,16 +312,8 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 				dirty = false
 			}
 		case <-done:
-			// Drain anything still buffered before closing the stream.
-			for {
-				select {
-				case line := <-lines:
-					_, _ = fmt.Fprintf(w, "data: %s\n\n", line)
-				default:
-					flusher.Flush()
-					return
-				}
-			}
+			finish()
+			return
 		case <-r.Context().Done():
 			return
 		}

@@ -1,12 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"text/tabwriter"
-
 	"strconv"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
@@ -15,6 +15,27 @@ import (
 	"github.com/CavenRE/hull/internal/engine"
 	"github.com/CavenRE/hull/internal/manifest"
 )
+
+// findCluster fetches the named cluster via the daemon (when up) or in-process,
+// returning a friendly error when it does not exist.
+func (a *app) findCluster(ctx context.Context, name string) (*api.ClusterInfo, error) {
+	var clusters []api.ClusterInfo
+	var err error
+	if client, ok := a.client(); ok {
+		clusters, err = client.Clusters(ctx)
+	} else {
+		clusters, err = api.ClusterList(ctx, a.Config, dockerx.RunningComposeProjects)
+	}
+	if err != nil {
+		return nil, err
+	}
+	for i := range clusters {
+		if clusters[i].Name == name {
+			return &clusters[i], nil
+		}
+	}
+	return nil, fmt.Errorf("no cluster %q (see: hull cluster list)", name)
+}
 
 func init() {
 	cluster := &cobra.Command{
@@ -114,24 +135,9 @@ hull up/down/restart/rebuild/reset <name> all operate on the whole cluster.`,
 			if err != nil {
 				return err
 			}
-			var clusters []api.ClusterInfo
-			if client, ok := a.client(); ok {
-				clusters, err = client.Clusters(cmd.Context())
-			} else {
-				clusters, err = api.ClusterList(cmd.Context(), a.Config, dockerx.RunningComposeProjects)
-			}
+			c, err := a.findCluster(cmd.Context(), args[0])
 			if err != nil {
 				return err
-			}
-			var c *api.ClusterInfo
-			for i := range clusters {
-				if clusters[i].Name == args[0] {
-					c = &clusters[i]
-					break
-				}
-			}
-			if c == nil {
-				return fmt.Errorf("no cluster %q (see: hull cluster list)", args[0])
 			}
 			if flagJSON {
 				return printJSON(c.Routes)
@@ -204,10 +210,9 @@ compose file you own is written (type: cluster).`,
 			}
 			req := api.CreateClusterRequest{
 				Name: args[0], Root: createRoot, ComposeRoot: createComposeRoot,
-				Managed: createManaged, Containers: containers,
+				Managed: createManaged, NoStart: createNoStart, Containers: containers,
 			}
-			// The create endpoint always starts; --no-start stays in-process.
-			if client, ok := a.client(); ok && !createNoStart {
+			if client, ok := a.client(); ok {
 				job, err := client.CreateCluster(cmd.Context(), req)
 				if err != nil {
 					return err
@@ -391,24 +396,9 @@ compose file you own is written (type: cluster).`,
 			if err != nil {
 				return err
 			}
-			var clusters []api.ClusterInfo
-			if client, ok := a.client(); ok {
-				clusters, err = client.Clusters(cmd.Context())
-			} else {
-				clusters, err = api.ClusterList(cmd.Context(), a.Config, dockerx.RunningComposeProjects)
-			}
+			c, err := a.findCluster(cmd.Context(), args[0])
 			if err != nil {
 				return err
-			}
-			var c *api.ClusterInfo
-			for i := range clusters {
-				if clusters[i].Name == args[0] {
-					c = &clusters[i]
-					break
-				}
-			}
-			if c == nil {
-				return fmt.Errorf("no cluster %q (see: hull cluster list)", args[0])
 			}
 			if flagJSON {
 				return printJSON(c.Routes)

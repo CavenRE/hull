@@ -85,6 +85,7 @@ type CreateClusterRequest struct {
 	Root        string                 `json:"root,omitempty"`
 	ComposeRoot string                 `json:"compose_root,omitempty"`
 	Managed     bool                   `json:"managed"`
+	NoStart     bool                   `json:"no_start,omitempty"`
 	Containers  []ClusterContainerSpec `json:"containers"`
 }
 
