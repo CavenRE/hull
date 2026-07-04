@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -299,8 +300,16 @@ type ClusterRouteSpec struct {
 // hull.yaml. It edits only the routes block through the YAML node tree, so
 // hand-authored comments, blank lines, and key order elsewhere survive.
 func (e *Engine) SetClusterRoute(p *state.Project, key string, spec ClusterRouteSpec) error {
-	if _, err := clusterManifest(p); err != nil {
+	m, err := clusterManifest(p)
+	if err != nil {
 		return err
+	}
+	// Best-effort: reject a route to a service the wrapped compose does not
+	// define, so a typo is caught instead of writing a dead route. Skipped
+	// silently when the compose is missing or unparseable.
+	composeDir := filepath.Join(p.Dir, m.ComposeRoot)
+	if names := composeServiceNames(composeDir, m.ComposeFiles); names != nil && !names[spec.Service] {
+		return fmt.Errorf("service %q is not defined in %s's compose (services: %s)", spec.Service, m.Name, sortedKeys(names))
 	}
 	// Subdomain is left empty in the written route (it defaults to the key on
 	// load), keeping the block minimal.
@@ -577,6 +586,41 @@ func parseComposeRoutes(composeDir string, files []string) map[string]*manifest.
 		return nil
 	}
 	return routes
+}
+
+// composeServiceNames returns the set of service names in a cluster's compose
+// file. Best-effort: a missing or unparseable compose yields nil, and the
+// caller then skips service validation.
+func composeServiceNames(composeDir string, files []string) map[string]bool {
+	path := firstComposeFile(composeDir, files)
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var doc struct {
+		Services map[string]yaml.Node `yaml:"services"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Services) == 0 {
+		return nil
+	}
+	names := make(map[string]bool, len(doc.Services))
+	for name := range doc.Services {
+		names[name] = true
+	}
+	return names
+}
+
+// sortedKeys joins a set's keys in sorted order for a friendly error list.
+func sortedKeys(set map[string]bool) string {
+	keys := make([]string, 0, len(set))
+	for k := range set {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, ", ")
 }
 
 // firstComposeFile returns the path of the first existing compose file in dir

@@ -13,6 +13,7 @@ import (
 	"github.com/CavenRE/hull/internal/api"
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/engine"
+	"github.com/CavenRE/hull/internal/manifest"
 )
 
 func init() {
@@ -254,6 +255,9 @@ compose file you own is written (type: cluster).`,
 				return err
 			}
 			clusterName, sub := args[0], args[1]
+			if !manifest.ValidSubdomain(sub) {
+				return fmt.Errorf("invalid subdomain %q: lowercase letters, digits, and hyphens only, starting with a letter", sub)
+			}
 			var serve *bool
 			if cmd.Flags().Changed("serve") {
 				serve = &routeServe
@@ -298,6 +302,9 @@ compose file you own is written (type: cluster).`,
 				return err
 			}
 			clusterName, sub := args[0], args[1]
+			if !manifest.ValidSubdomain(sub) {
+				return fmt.Errorf("invalid subdomain %q", sub)
+			}
 			if err := a.withDaemon(
 				func(c *api.Client) error { return c.RemoveClusterRoute(cmd.Context(), clusterName, sub) },
 				func() error {

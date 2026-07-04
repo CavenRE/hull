@@ -214,6 +214,12 @@ var (
 	envKeyRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
 
+// ValidSubdomain reports whether s is a usable cluster route subdomain label
+// (lowercase letters, digits, hyphens; starts with a letter).
+func ValidSubdomain(s string) bool {
+	return nameRE.MatchString(s)
+}
+
 // Slug normalizes a display name to a domain-safe label matching nameRE:
 // lowercase, spaces/underscores/dots → hyphens, other chars dropped,
 // collapsed and trimmed hyphens. The result may still start with a digit
