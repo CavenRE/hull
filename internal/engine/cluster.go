@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -295,23 +296,24 @@ type ClusterRouteSpec struct {
 }
 
 // SetClusterRoute adds or updates a route (keyed by subdomain) in a cluster's
-// hull.yaml, then re-validates and writes it.
+// hull.yaml. It edits only the routes block through the YAML node tree, so
+// hand-authored comments, blank lines, and key order elsewhere survive.
 func (e *Engine) SetClusterRoute(p *state.Project, key string, spec ClusterRouteSpec) error {
-	m, err := clusterManifest(p)
-	if err != nil {
+	if _, err := clusterManifest(p); err != nil {
 		return err
 	}
-	if m.Routes == nil {
-		m.Routes = map[string]*manifest.ClusterRoute{}
-	}
-	m.Routes[key] = &manifest.ClusterRoute{
-		Service:   spec.Service,
-		Port:      spec.Port,
-		Subdomain: key,
-		Aliases:   spec.Aliases,
-		Serve:     spec.Serve,
-	}
-	return writeClusterManifest(p.Dir, m)
+	// Subdomain is left empty in the written route (it defaults to the key on
+	// load), keeping the block minimal.
+	rt := &manifest.ClusterRoute{Service: spec.Service, Port: spec.Port, Aliases: spec.Aliases, Serve: spec.Serve}
+	return editClusterManifest(p.Dir, func(root *yaml.Node) error {
+		routes := ensureMapChild(root, "routes")
+		val := &yaml.Node{}
+		if err := val.Encode(rt); err != nil {
+			return err
+		}
+		upsertMapEntry(routes, key, val)
+		return nil
+	})
 }
 
 // RemoveClusterRoute deletes a route from a cluster's hull.yaml.
@@ -323,8 +325,12 @@ func (e *Engine) RemoveClusterRoute(p *state.Project, key string) error {
 	if _, ok := m.Routes[key]; !ok {
 		return fmt.Errorf("cluster %s has no route %q", m.Name, key)
 	}
-	delete(m.Routes, key)
-	return writeClusterManifest(p.Dir, m)
+	return editClusterManifest(p.Dir, func(root *yaml.Node) error {
+		if routes := findMapChild(root, "routes"); routes != nil {
+			deleteMapEntry(routes, key)
+		}
+		return nil
+	})
 }
 
 // clusterManifest returns the project's manifest, erroring if it is not a cluster.
@@ -336,21 +342,105 @@ func clusterManifest(p *state.Project) (*manifest.Manifest, error) {
 		return nil, fmt.Errorf("%s is not managed by Hull", p.Name)
 	}
 	if p.Manifest.Type != manifest.TypeCluster {
+		// A type: app project is Hull-rendered and has no wrapped compose to
+		// route into; point at the create alternative.
+		if p.Manifest.Type == manifest.TypeApp {
+			return nil, fmt.Errorf("%s is a managed app, not an adopted cluster; give a container a domain with `hull cluster create ... --container name=%s,serve` instead", p.Name, p.Name)
+		}
 		return nil, fmt.Errorf("%s is not a cluster (routes apply to type: cluster)", p.Name)
 	}
 	return p.Manifest, nil
 }
 
-// writeClusterManifest marshals, re-validates, and writes a cluster manifest.
-func writeClusterManifest(dir string, m *manifest.Manifest) error {
-	data, err := yaml.Marshal(m)
+// editClusterManifest applies edit to the hull.yaml document's root mapping,
+// preserving comments and order outside the edited nodes, then re-validates and
+// writes it.
+func editClusterManifest(dir string, edit func(root *yaml.Node) error) error {
+	file := filepath.Join(dir, manifest.Filename)
+	data, err := os.ReadFile(file)
 	if err != nil {
 		return err
 	}
-	if _, err := manifest.Parse(data); err != nil {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, manifest.Filename), data, 0o644)
+	root := documentRoot(&doc)
+	if root == nil || root.Kind != yaml.MappingNode {
+		return fmt.Errorf("%s is not a valid manifest", file)
+	}
+	if err := edit(root); err != nil {
+		return err
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&doc); err != nil {
+		return err
+	}
+	_ = enc.Close()
+	out := buf.Bytes()
+	if _, err := manifest.Parse(out); err != nil {
+		return err
+	}
+	return os.WriteFile(file, out, 0o644)
+}
+
+// documentRoot returns the top mapping node of a parsed YAML document.
+func documentRoot(doc *yaml.Node) *yaml.Node {
+	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
+		return doc.Content[0]
+	}
+	return doc
+}
+
+// findMapChild returns the value node for key in mapping m, or nil.
+func findMapChild(m *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			return m.Content[i+1]
+		}
+	}
+	return nil
+}
+
+// ensureMapChild returns the mapping value for key, creating (or replacing a
+// non-mapping/null value with) an empty mapping.
+func ensureMapChild(m *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			if m.Content[i+1].Kind != yaml.MappingNode {
+				m.Content[i+1] = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			}
+			return m.Content[i+1]
+		}
+	}
+	kn := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}
+	vn := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	m.Content = append(m.Content, kn, vn)
+	return vn
+}
+
+// upsertMapEntry sets key -> val in mapping m (replacing or appending).
+func upsertMapEntry(m *yaml.Node, key string, val *yaml.Node) {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			m.Content[i+1] = val
+			return
+		}
+	}
+	kn := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}
+	m.Content = append(m.Content, kn, val)
+}
+
+// deleteMapEntry removes key from mapping m if present.
+func deleteMapEntry(m *yaml.Node, key string) {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			m.Content = append(m.Content[:i], m.Content[i+2:]...)
+			return
+		}
+	}
 }
 
 func hasComposeFile(dir string, extra []string) bool {
