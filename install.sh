@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
-# Hull installer (Linux/macOS). Builds the CLI (and optionally the GUI) from
-# source, checks dependencies, installs to ~/.local/bin, and hands off to
-# `hull setup`. Windows users: see install.ps1.
+# Hull installer (Linux/macOS). Builds the CLI + daemon from source, checks
+# dependencies, installs to ~/.local/bin, and hands off to `hull setup`.
+# Windows users: see build.ps1.
 #
 # Usage:
-#   ./install.sh [--no-gui|--gui] [--prefix DIR] [--service] [--skip-setup] [--yes]
+#   ./install.sh [--prefix DIR] [--service] [--skip-setup] [--yes]
 #
-#   --no-gui      CLI only (default if the GUI toolchain is absent)
-#   --gui         build the Tauri GUI too (requires Rust + webkit/appindicator)
 #   --prefix DIR  install binaries here (default: ~/.local/bin)
 #   --service     run hulld as a systemd --user service (Linux)
 #   --skip-setup  don't run `hull setup`/`hull doctor` at the end
@@ -25,19 +23,16 @@ step() { printf '\n%s> %s%s\n' "$B" "$*" "$X"; }
 
 # ── args ────────────────────────────────────────────────────────────────────
 PREFIX="${HOME}/.local/bin"
-WANT_GUI=auto
 SKIP_SETUP=0
 ASSUME_YES=0
 SERVICE=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --no-gui) WANT_GUI=no ;;
-    --gui) WANT_GUI=yes ;;
     --prefix) PREFIX="${2:?--prefix needs a directory}"; shift ;;
     --service) SERVICE=1 ;;
     --skip-setup) SKIP_SETUP=1 ;;
     --yes|-y) ASSUME_YES=1 ;;
-    -h|--help) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown flag: $1 (try --help)" ;;
   esac
   shift
@@ -52,40 +47,9 @@ confirm() { # confirm "question" -> 0 yes / 1 no
   printf '%s [y/N] ' "$1"; read -r a; case "$a" in y|Y|yes) return 0 ;; *) return 1 ;; esac
 }
 
-# Canonical XDG locations , these MUST match internal/platform/desktop_linux.go
-# so `hull uninstall` / uninstall.sh can clean up whatever installed Hull.
-DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+# Canonical XDG location for the systemd --user unit , matches
+# internal/platform/desktop_linux.go so uninstall can clean up.
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
-
-# install_desktop_files installs the menu launcher + hicolor icons for the GUI.
-# Linux only (macOS doesn't use .desktop files); call only when hull-gui exists.
-install_desktop_files() {
-  local apps="$DATA_HOME/applications" icons="$DATA_HOME/icons/hicolor"
-  local src="$REPO_DIR/gui/src-tauri/icons"
-  mkdir -p "$apps"
-  # size_dir:source-file , matches the sizes RemoveIcons() cleans up.
-  for pair in "32x32:32x32.png" "128x128:128x128.png" "256x256:128x128@2x.png" "512x512:icon.png"; do
-    local size="${pair%%:*}" file="${pair##*:}"
-    [ -f "$src/$file" ] || continue
-    mkdir -p "$icons/$size/apps"
-    install -m 0644 "$src/$file" "$icons/$size/apps/hull.png"
-  done
-  cat > "$apps/hull.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=Hull
-GenericName=Local Web Environment
-Comment=A local environment for your sites & apps
-Exec=$PREFIX/hull-gui
-Icon=hull
-Terminal=false
-Categories=Development;
-StartupWMClass=Hull
-EOF
-  command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$apps" 2>/dev/null || true
-  command -v gtk-update-icon-cache  >/dev/null 2>&1 && gtk-update-icon-cache -f -t "$icons" 2>/dev/null || true
-  ok "installed menu launcher + icons"
-}
 
 # install_systemd_unit installs (and tries to enable) a systemd --user unit so
 # hulld runs in the background. Matches WriteSystemdUserUnit() in Go.
@@ -180,40 +144,6 @@ else
   esac
 fi
 
-# GUI toolchain (optional)
-GUI_BUILDABLE=1
-have_cargo() { command -v cargo >/dev/null 2>&1; }
-gui_linux_libs_ok() {
-  command -v pkg-config >/dev/null 2>&1 || return 1
-  pkg-config --exists webkit2gtk-4.1 || return 1
-  # appindicator: either ayatana or the classic lib satisfies Tauri's tray
-  pkg-config --exists ayatana-appindicator3-0.1 || pkg-config --exists appindicator3-0.1 || return 1
-}
-if [ "$WANT_GUI" != no ]; then
-  have_cargo || { GUI_BUILDABLE=0; [ "$WANT_GUI" = yes ] && warn "Rust/cargo missing , needed for the GUI (https://rustup.rs)"; }
-  if [ "$OS" = Linux ] && ! gui_linux_libs_ok; then
-    GUI_BUILDABLE=0
-    if [ "$WANT_GUI" = yes ] || { [ "$WANT_GUI" = auto ] && have_cargo; }; then
-      warn "GUI system libs missing (webkit2gtk-4.1 / appindicator)"
-      case "$PM" in
-        pacman) maybe_install "GUI libs" "webkit2gtk-4.1 libayatana-appindicator" \
-                  "https://v2.tauri.app/start/prerequisites/" && gui_linux_libs_ok && GUI_BUILDABLE=1 || true ;;
-        apt)    maybe_install "GUI libs" "libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev" \
-                  "https://v2.tauri.app/start/prerequisites/" && gui_linux_libs_ok && GUI_BUILDABLE=1 || true ;;
-        *)      warn "Tauri Linux prerequisites: https://v2.tauri.app/start/prerequisites/" ;;
-      esac
-    fi
-  fi
-fi
-# resolve the final GUI decision
-BUILD_GUI=0
-case "$WANT_GUI" in
-  yes)  [ "$GUI_BUILDABLE" = 1 ] && BUILD_GUI=1 || die "GUI requested but toolchain is incomplete (see notes above)" ;;
-  auto) [ "$GUI_BUILDABLE" = 1 ] && have_cargo && BUILD_GUI=1 ;;
-  no)   BUILD_GUI=0 ;;
-esac
-[ "$BUILD_GUI" = 1 ] && ok "GUI will be built" || say "${D}GUI build skipped (CLI-only). Re-run with --gui once the toolchain is ready.${X}"
-
 # ── build the CLI ───────────────────────────────────────────────────────────
 step "Building Hull (CLI)"
 VER="$(git -C "$REPO_DIR" describe --tags --always --dirty 2>/dev/null || echo dev)"
@@ -238,20 +168,6 @@ if [ "$OS" = Linux ] && command -v setcap >/dev/null 2>&1; then
     else
       warn "without it, run the daemon as root or lower net.ipv4.ip_unprivileged_port_start"
     fi
-  fi
-fi
-
-# ── build the GUI ───────────────────────────────────────────────────────────
-if [ "$BUILD_GUI" = 1 ]; then
-  step "Building Hull (GUI)"
-  cargo build --release --manifest-path gui/src-tauri/Cargo.toml
-  GUI_BIN="$REPO_DIR/gui/src-tauri/target/release/hull-gui"
-  if [ -f "$GUI_BIN" ]; then
-    install -m 0755 "$GUI_BIN" "$PREFIX/hull-gui"
-    ok "installed hull-gui → $PREFIX"
-    [ "$OS" = Linux ] && install_desktop_files
-  else
-    warn "GUI build finished but binary not found at $GUI_BIN"
   fi
 fi
 

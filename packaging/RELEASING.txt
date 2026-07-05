@@ -1,10 +1,10 @@
-Hull , release process
-======================
+Hull , release process (CLI)
+============================
 
 Decision: builds are LOCAL and releases are uploaded BY HAND. The GitHub
 Actions CI/release workflows were intentionally dropped (commit 64c0655); we do
 not maintain a CI pipeline. Each platform has a one-command build that produces
-a self-contained installer, and the AUR package builds from the tagged tarball.
+the CLI + daemon binaries, and the AUR package builds from the tagged tarball.
 
 Per-release checklist
 ---------------------
@@ -14,22 +14,20 @@ Per-release checklist
 
 2. Windows (on a Windows box):
      powershell -ExecutionPolicy Bypass -File build.ps1
-     -> bin\Hull-Setup.exe        (graphical installer; embeds GUI+daemon+CLI)
+     -> bin\hull.exe + bin\hulld.exe
 
-3. Linux (on a Linux box with go + rust + webkit2gtk-4.1 + gtk3):
+3. Linux / macOS (needs go):
      ./build.sh
-     -> bin/hull-installer         (graphical installer; embeds GUI+daemon+CLI)
+     -> bin/hull + bin/hulld
+   Or install straight into ~/.local/bin with dependency checks and PATH wiring:
+     ./install.sh          (or `yay -S hull` on Arch)
 
-   macOS / plain CLI: there is no graphical installer; users run ./install.sh
-   from the source tree (or `yay -S hull` on Arch).
-
-4. Create the GitHub Release for the tag and upload, naming the Linux asset
-   with its arch so the get.sh bootstrap can find it:
-     - Hull-Setup.exe                  (Windows)
-     - hull-installer-linux-x86_64     (Linux x86_64; rename bin/hull-installer)
-     - hull-installer-linux-aarch64    (Linux arm64, if built)
-   get.sh tries "hull-installer-linux-<arch>" then a plain "hull-installer".
-   The README's download links point at .../releases/latest.
+4. Create the GitHub Release for the tag and upload the binaries, naming the
+   platform assets so users can grab them directly:
+     - hull-windows-x86_64.zip      (bin\hull.exe + bin\hulld.exe)
+     - hull-linux-x86_64.tar.gz     (bin/hull + bin/hulld)
+     - hull-linux-aarch64.tar.gz    (Linux arm64, if built)
+   The README's install instructions point at get.sh and ./install.sh.
 
 5. AUR (Arch):
      cd packaging/aur
@@ -40,8 +38,7 @@ Per-release checklist
 
 Notes
 -----
-- No code signing yet (Windows Authenticode / Apple Developer ID) , installers
-  are unsigned; users may see an OS warning.
-- build.sh uses a webkit2gtk-4.0 -> 4.1 pkg-config shim because webview_go pins
-  4.0 while modern distros ship 4.1; the shim is created and torn down by the
-  script, nothing to maintain.
+- No code signing yet (Windows Authenticode / Apple Developer ID) , binaries
+  are unsigned; users may see an OS warning on first run.
+- This branch ships the CLI + daemon only. The desktop GUI lives on its own
+  branch and is released separately.

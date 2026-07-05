@@ -6,15 +6,6 @@
 *.exe
 *.test
 coverage.out
-gui/src-tauri/target/
-gui/src-tauri/gen/
-gui/src-tauri/binaries/
-cmd/hull-setup/payload/
-cmd/hull-setup/payload.zip
-cmd/hull-setup/payload.tgz
-
-# Node (in case GUI tooling is added later)
-node_modules/
 
 # Docs & working notes , only README.md + CHANGELOG.md are tracked in git.
 *.md
@@ -31,8 +22,3 @@ node_modules/
 .DS_Store
 Thumbs.db
 desktop.ini
-
-# .NET build output (gui-windows)
-gui-windows/bin/
-gui-windows/obj/
-gui-windows/screenshots/

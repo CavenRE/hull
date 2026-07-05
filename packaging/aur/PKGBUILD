@@ -1,34 +1,32 @@
 # Maintainer: CavenRE <caven.erasmus@gmail.com>
 #
-# Split package:
-#   hull      , the CLI (`hull`) + daemon (`hulld`) + systemd --user unit
-#   hull-gui  , the optional Tauri desktop app + menu launcher + icons
+# hull , the CLI (`hull`) + daemon (`hulld`) + systemd --user unit.
 #
-# Install just the CLI:        pacman -S hull        (or: yay -S hull)
-# Install the CLI + desktop:   pacman -S hull hull-gui
+# Install:  pacman -S hull        (or: yay -S hull)
 #
 # This builds from a tagged release tarball. For a tip-of-tree package, copy
 # this to a `hull-git` PKGBUILD: set pkgname=hull-git, source the git repo, and
 # add a pkgver() using `git describe`.
 
-pkgbase=hull
-pkgname=('hull' 'hull-gui')
+pkgname=hull
 pkgver=0.9.5
 pkgrel=1
 pkgdesc='A local environment for your sites & apps , native router, DNS and services'
 arch=('x86_64' 'aarch64')
 url='https://github.com/CavenRE/hull'
 license=('MIT')
-makedepends=('go' 'git' 'rust' 'cargo' 'webkit2gtk-4.1' 'libayatana-appindicator' 'pkgconf')
-source=("$pkgbase-$pkgver.tar.gz::https://github.com/CavenRE/hull/archive/refs/tags/v$pkgver.tar.gz")
+makedepends=('go' 'git')
+depends=('docker' 'docker-compose')
+install=hull.install
+source=("$pkgname-$pkgver.tar.gz::https://github.com/CavenRE/hull/archive/refs/tags/v$pkgver.tar.gz")
 sha256sums=('SKIP') # run `updpkgsums` before publishing to pin the checksum
 
-_srcdir="$pkgbase-$pkgver"
+_srcdir="$pkgname-$pkgver"
 
 prepare() {
   cd "$_srcdir"
-  # Cache modules/crates inside the build dir so build() needs no network on
-  # rebuilds and makepkg can clean up after itself.
+  # Cache modules inside the build dir so build() needs no network on rebuilds
+  # and makepkg can clean up after itself.
   export GOPATH="$srcdir/gopath"
   go mod download
 }
@@ -43,19 +41,11 @@ build() {
     -X github.com/CavenRE/hull/internal/version.Version=$pkgver \
     -X github.com/CavenRE/hull/internal/version.Commit=aur"
 
-  # CLI + daemon
   go build -ldflags "$ldflags" -o build/hull  ./cmd/hull
   go build -ldflags "$ldflags" -o build/hulld ./cmd/hulld
-
-  # Desktop app (Tauri, no bundling , we install the bare binary + a .desktop)
-  cargo build --release --manifest-path gui/src-tauri/Cargo.toml
 }
 
-package_hull() {
-  pkgdesc='Hull CLI and daemon , a local environment for your sites & apps'
-  depends=('docker' 'docker-compose')
-  optdepends=('hull-gui: desktop app and setup wizard')
-  install=hull.install
+package() {
   cd "$_srcdir"
 
   install -Dm755 build/hull  "$pkgdir/usr/bin/hull"
@@ -78,32 +68,4 @@ WantedBy=default.target
 EOF
 
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE" 2>/dev/null || true
-}
-
-package_hull-gui() {
-  pkgdesc='Hull desktop app , GUI and setup wizard for Hull'
-  depends=('hull' 'webkit2gtk-4.1' 'libayatana-appindicator' 'gtk3')
-  cd "$_srcdir"
-
-  install -Dm755 gui/src-tauri/target/release/hull-gui "$pkgdir/usr/bin/hull-gui"
-
-  # menu launcher
-  install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/hull.desktop" <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=Hull
-GenericName=Local Web Environment
-Comment=A local environment for your sites & apps
-Exec=/usr/bin/hull-gui
-Icon=hull
-Terminal=false
-Categories=Development;
-StartupWMClass=Hull
-EOF
-
-  # hicolor icons (source sizes: 32, 128, 256, 512)
-  install -Dm644 gui/src-tauri/icons/32x32.png      "$pkgdir/usr/share/icons/hicolor/32x32/apps/hull.png"
-  install -Dm644 gui/src-tauri/icons/128x128.png    "$pkgdir/usr/share/icons/hicolor/128x128/apps/hull.png"
-  install -Dm644 gui/src-tauri/icons/128x128@2x.png "$pkgdir/usr/share/icons/hicolor/256x256/apps/hull.png"
-  install -Dm644 gui/src-tauri/icons/icon.png       "$pkgdir/usr/share/icons/hicolor/512x512/apps/hull.png"
 }

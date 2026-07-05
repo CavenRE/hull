@@ -1,15 +1,11 @@
 <div align="center">
 
-<img src="gui/src-tauri/icons/128x128.png" width="92" alt="Hull logo">
-
 # Hull 🚢
 
 **A fast, cross-platform local development environment.**
-Docker-based dev sites with automatic HTTPS domains, shared databases, and a one-command setup , driven by a CLI, a daemon, and an optional desktop app.
+Docker-based dev sites with automatic HTTPS domains, shared databases, and a one-command setup , driven by a CLI and a background daemon.
 
 Runs on **Windows · macOS · Linux** (Arch & Debian/Ubuntu).
-
-<img src="design/screenshots/sites-overview.jpg" alt="Hull , Sites overview" width="860">
 
 </div>
 
@@ -21,7 +17,9 @@ Hull provisions Docker-based local development environments and serves each proj
 
 It scaffolds Laravel, WordPress, and plain-PHP projects in one command, runs shared database instances multiple projects can share, and routes everything through an embedded HTTPS reverse proxy with a locally-trusted certificate authority.
 
-Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on the [`legacy`](../../tree/legacy) branch). It is cross-platform, daemon-backed, and ships with an optional desktop GUI.
+Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on the [`legacy`](../../tree/legacy) branch). It is cross-platform and daemon-backed, and the CLI is fully featured on its own.
+
+> **CLI-first:** this branch is the CLI + daemon. Every command works standalone; when the daemon is running the same commands route through it. The desktop GUI is developed on its own branch.
 
 > **Source of truth:** every project is described by a small `hull.yaml`. The `compose.yaml` Hull runs is a generated artifact , never hand-edited.
 
@@ -36,7 +34,6 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
 - [First-run setup](#first-run-setup)
 - [Quick start](#quick-start)
 - [CLI reference](#cli-reference)
-- [The desktop app](#the-desktop-app)
 - [Configuration](#configuration)
 - [Platform notes](#platform-notes)
 - [Uninstalling](#uninstalling)
@@ -50,7 +47,7 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
 - **One-command scaffolding** , `hull new shop laravel --db postgres` creates the project, wires the framework, and boots it at `https://shop.test`.
 - **Automatic HTTPS & DNS** , an embedded Caddy reverse proxy with a local root CA serves every site over trusted TLS; a built-in wildcard resolver answers `*.test` (no `dnsmasq` container required).
 - **Shared service instances** , run `postgres-16`, `mariadb-lts`, `redis`, etc. once and link many projects to them; multiple versions live side by side.
-- **Headless or GUI** , the CLI is fully featured on its own. A running daemon adds live routing, a desktop app, and background jobs , but is never required.
+- **Headless or daemon-backed** , the CLI is fully featured on its own. A running daemon adds live routing and background jobs , but is never required.
 - **Portable bundles** , `hull export` produces a `hull-bundle.zip` (project + fresh DB dumps) that `hull import` restores on another machine.
 - **Adopt what you already have** , import existing projects, wrap multi-container `docker compose` stacks as **clusters**, or migrate projects from bash-Hull (v1).
 - **Ephemeral & native tooling** , `hull npm run dev` runs in a throwaway Node container; `hull artisan ...` and `hull exec ...` run straight against your project's app container , no host pollution.
@@ -61,10 +58,9 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
 
 ```
           ┌──────────────┐        ┌──────────────┐
- hull ───▶│              │        │  Docker      │
- (CLI)    │    hulld     │───────▶│  Engine      │
-          │  (daemon)    │        └──────────────┘
- GUI ────▶│              │
+ hull ───▶│    hulld     │───────▶│  Docker      │
+ (CLI)    │  (daemon)    │        │  Engine      │
+          │              │        └──────────────┘
           │  • engine    │   embedded, in-process:
           │  • router    │   • Caddy HTTPS proxy + local CA
           │  • DNS       │   • wildcard *.test resolver
@@ -75,8 +71,7 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
 ```
 
 - **`hulld`** is one Go daemon that owns everything: the project engine, shared services, the embedded Caddy router (with a local SSL CA), the wildcard DNS resolver, and OS trust-store management , all behind a localhost API guarded by a bearer token.
-- **`hull`** is a thin client over that API. When no daemon is running it executes the **same engine code in-process**, so the CLI works fully headless.
-- The **desktop app** is a Tauri shell that talks to the same API and can manage the daemon's lifecycle.
+- **`hull`** is a thin client over that API. When no daemon is running it executes the **same engine code in-process**, so the CLI works fully headless. Run `hull help routing` for exactly how that switch works.
 - Each project's **`hull.yaml`** is rendered into a `compose.yaml` (covered by golden tests) and run with `docker compose`. The router discovers each container's published loopback port and proxies `https://<name>.test` to it.
 
 ---
@@ -87,7 +82,6 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
 |---|---|
 | **Running Hull** | Docker Engine + the `docker compose` plugin (Docker Desktop, `docker.io`, Podman, OrbStack, or Colima) |
 | **Building from source** | Go **1.26+** |
-| **Building the GUI** | Rust (`rustup`), and on Linux: `webkit2gtk-4.1` + `libayatana-appindicator` |
 
 ---
 
@@ -95,47 +89,30 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
 
 ### Windows
 
-**Download [`Hull-Setup.exe`](../../releases/latest) and run it** , a small graphical installer (no console, no admin rights). A checkbox lets you pick what to install:
-
-- **Desktop app + CLI** (default) , the full Hull: the app, the daemon, and the `hull` CLI.
-- **CLI only** , just the `hull` CLI + daemon, no desktop app.
-
-Either way it adds `hull` to your `PATH` and registers a clean one-click uninstall.
-
-**Prefer to build it yourself?**
+Build the CLI from source (needs Go):
 
 ```powershell
 git clone https://github.com/CavenRE/hull.git
 cd hull
-powershell -ExecutionPolicy Bypass -File build.ps1   # → bin\Hull-Setup.exe
+powershell -ExecutionPolicy Bypass -File build.ps1   # → bin\hull.exe + bin\hulld.exe
 ```
+
+Then add `bin\` to your `PATH`, or copy `hull.exe` + `hulld.exe` somewhere already on it.
 
 ### Linux
 
-**Quickest , one line:**
+**Quickest , one line** (clones and builds the CLI from source; needs Go):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh          # desktop app + CLI
-curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh -s -- --cli   # CLI only
+curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/CLI-Update/get.sh | sh
 ```
 
-This downloads the prebuilt installer when a Release exists for your platform, and otherwise clones the repo and builds from source. Flags after `--` are passed through: `--cli`, `--silent`, `--service`, `--prefix DIR`, `--source` (force a source build).
+Flags after `--` are passed through: `--service` (run `hulld` as a `systemd --user` service), `--prefix DIR`, `-y/--yes`.
 
-**Graphical installer.** Download [`hull-installer`](../../releases/latest) and run it , a small WebKitGTK window (the counterpart to Windows' `Hull-Setup.exe`) with the same checkbox to pick **Desktop app + CLI** (default) or **CLI only**. It also offers a menu launcher, launch-at-login, and running the daemon as a `systemd --user` service. Prefer to build it yourself?
-
-```bash
-git clone https://github.com/CavenRE/hull.git
-cd hull
-./build.sh                     # → bin/hull-installer (embeds the GUI, daemon & CLI)
-./bin/hull-installer           # graphical install …
-./bin/hull-installer --silent  # … or headless (add --no-gui for CLI only)
-```
-
-**Arch (AUR).** Install the CLI, or the CLI + desktop app:
+**Arch (AUR).**
 
 ```bash
 yay -S hull            # CLI + daemon
-yay -S hull hull-gui   # also the desktop app
 ```
 
 (The PKGBUILD lives in [`packaging/aur/`](packaging/aur).)
@@ -143,15 +120,16 @@ yay -S hull hull-gui   # also the desktop app
 **From source (any distro).**
 
 ```bash
+git clone https://github.com/CavenRE/hull.git
+cd hull
 ./install.sh           # builds & installs the CLI (hull + hulld) to ~/.local/bin
-./install.sh --gui     # also build & install the desktop app + menu launcher
 ./install.sh --service # additionally run hulld as a systemd --user service
 ```
 
 ### macOS
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh   # clones & builds (no prebuilt yet)
+curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/CLI-Update/get.sh | sh   # clones & builds
 ```
 
 …or clone and build explicitly:
@@ -160,18 +138,15 @@ curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh   #
 git clone https://github.com/CavenRE/hull.git
 cd hull
 ./install.sh           # builds & installs the CLI (hull + hulld) to ~/.local/bin
-./install.sh --gui     # also build & install the desktop app
 ```
 
-The `install.sh` script checks your dependencies, offers to install any that are missing (via your package manager), builds the binaries with version info, and adds `~/.local/bin` to your `PATH`. Other flags: `--prefix DIR`, `--no-gui`, `--service` (Linux), `--skip-setup`, `--yes` (non-interactive).
+The `install.sh` script checks your dependencies, offers to install any that are missing (via your package manager), builds the binaries with version info, and adds `~/.local/bin` to your `PATH`. Other flags: `--prefix DIR`, `--service` (Linux), `--skip-setup`, `--yes` (non-interactive).
 
 ---
 
 ## First-run setup
 
-The **desktop app does this for you** , on first launch its setup wizard walks through Docker, your projects folder, the local domain/loopback, and any starter services, then provisions everything.
-
-From the CLI, enable native networking on the machine (one time):
+Enable native networking on the machine (one time):
 
 ```bash
 hull setup     # enable the embedded router (:80/:443) + DNS, install the local CA
@@ -207,7 +182,7 @@ hull down shop            # stop it (data is preserved)
 
 ## CLI reference
 
-Run `hull <command> --help` for full flags on any command.
+Run `hull <command> --help` for full flags on any command, `hull help routing` for the daemon model, and `hull help flags` for the global flags.
 
 ### Projects & lifecycle
 
@@ -224,6 +199,7 @@ Run `hull <command> --help` for full flags on any command.
 | `hull status` | Show running containers and their ports. |
 | `hull list` | List registered projects and their state. |
 | `hull render` | Regenerate `compose.yaml` from a project's `hull.yaml`. |
+| `hull stop` | Bring down every project, shared service, and the daemon. |
 
 ### Project settings
 
@@ -258,7 +234,7 @@ Run `hull <command> --help` for full flags on any command.
 | `hull import <name\|bundle>` | Import an existing project folder or a `hull-bundle.zip`. |
 | `hull export <project>` | Export a project as a portable `hull-bundle.zip` (with fresh DB dumps). |
 | `hull migrate <name>` | Adopt bash-Hull (v1) projects into v2. |
-| `hull cluster add` / `ls` | Adopt an existing `docker compose` project as a cluster, and list adopted ones. |
+| `hull cluster add` / `ls` / `urls` / `route` | Adopt a `docker compose` project as a cluster, list adopted ones, and assign subdomains to its services. |
 
 ### System & networking
 
@@ -269,29 +245,7 @@ Run `hull <command> --help` for full flags on any command.
 | `hull doctor` | Diagnose the environment (Docker, ports, DNS, certs, daemon). |
 | `hull daemon run` / `status` / `stop` | Manage the daemon (`run` is equivalent to `hulld`). |
 | `hull completion <shell>` | Generate a shell autocompletion script. |
-
----
-
-## The desktop app
-
-The optional Tauri app is a thin client over the same daemon API , every action it takes is one you can also do from the CLI. Close it to the tray and the daemon keeps your sites running.
-
-<table>
-<tr>
-<td width="50%"><img src="design/screenshots/dashboard.jpg" alt="Dashboard"><br><sub>Dashboard , sites, services & system health at a glance</sub></td>
-<td width="50%"><img src="design/screenshots/sites-create-app.jpg" alt="Create a project"><br><sub>Create a site, app, or multi-container cluster</sub></td>
-</tr>
-<tr>
-<td width="50%"><img src="design/screenshots/services-list.jpg" alt="Shared services"><br><sub>Versioned shared database & cache instances</sub></td>
-<td width="50%"><img src="design/screenshots/service-create.jpg" alt="Add a service"><br><sub>Spin up a shared service in a click</sub></td>
-</tr>
-<tr>
-<td width="50%"><img src="design/screenshots/settings-domain.jpg" alt="Settings , local domain"><br><sub>Settings: loopback address, TLD & daemon control</sub></td>
-<td width="50%"><img src="design/screenshots/settings-light.jpg" alt="Light mode"><br><sub>Light & dark themes</sub></td>
-</tr>
-</table>
-
-Highlights: a project dashboard, shared-service management, a mail catcher, live logs, an onboarding/doctor panel, and **start / stop / restart** controls for the daemon itself.
+| `hull uninstall` | Remove Hull from this machine (`--purge-data` also clears `~/.hull`). |
 
 ---
 
@@ -336,7 +290,7 @@ services:
 
 ## Platform notes
 
-**Linux , privileged ports.** The embedded router binds `:80`/`:443` directly (no container). Grant the capability once with the installer, or lower the unprivileged-port threshold system-wide:
+**Linux , privileged ports.** The embedded router binds `:80`/`:443` directly (no container). Grant the capability once during install, or lower the unprivileged-port threshold system-wide:
 
 ```bash
 sudo setcap 'cap_net_bind_service=+ep' ~/.local/bin/hulld
@@ -354,30 +308,30 @@ echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/10-hull-p
 
 ## Uninstalling
 
-**Windows** , Settings → Apps → **Hull** → Uninstall, or run `hull uninstall` in a terminal. It stops the app, removes the program files, the PATH entry, shortcuts, and the autostart entry. Add `--purge-data` to also clear `~/.hull` (config, CA, service data).
+**Windows** , run `hull uninstall` in a terminal. It stops the daemon, removes the binaries, the PATH entry, and shortcuts. Add `--purge-data` to also clear `~/.hull` (config, CA, service data).
 
 **Linux** , one line from anywhere (works even if you no longer have the source tree):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/CLI-Update/get.sh | sh -s -- --uninstall
 #  add --purge to also remove ~/.hull (config, CA, service data)
 ```
 
 …or, if Hull is already on your PATH:
 
 ```bash
-hull uninstall            # remove binaries, menu launcher, icons, systemd unit, PATH entry
+hull uninstall            # remove binaries, systemd unit, PATH entry; stop the daemon; undo trust/DNS
 hull uninstall --purge-data   # also move ~/.hull aside to ~/.hull.bak
 ```
 
 …or use the script from the source tree (equivalent , both clean up the same things):
 
 ```bash
-./uninstall.sh            # remove binaries + desktop integration; stop the daemon; undo trust/DNS
+./uninstall.sh            # remove binaries + systemd unit; stop the daemon; undo trust/DNS
 ./uninstall.sh --purge    # also remove ~/.hull (config, CA, service data)
 ```
 
-Installed from the **AUR**? Remove it the same way: `sudo pacman -R hull hull-gui` (`hull uninstall` will detect the package install and point you here).
+Installed from the **AUR**? Remove it the same way: `sudo pacman -R hull` (`hull uninstall` will detect the package install and point you here).
 
 **macOS**:
 
