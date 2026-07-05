@@ -32,16 +32,34 @@ func init() {
 	cmd := &cobra.Command{
 		Use:   "import <name|bundle.zip>",
 		Short: "Import an existing project or a Hull bundle",
-		Long: `Import an existing application with auto-discovery, or restore a
-hull-bundle.zip exported on another machine.
-
-For a directory import, move the code to <root>/<name> first. Hull detects
-the framework, PHP version, database, and Redis from composer.json, .env,
-and wp-config.php; flags override detection. Found SQL dumps can be
-restored into the provisioned database.`,
-		Example: `  hull import my-old-app
-  hull import my-old-app --db mysql
-  hull import myapp-bundle.zip`,
+		Long: "Bring an existing application under Hull management with auto-discovery,\n" +
+			"or restore a hull-bundle.zip that was exported on another machine.\n" +
+			"\n" +
+			"For a directory import, move the code into one of your roots as\n" +
+			"<root>/<name> first, then run hull import <name>. Hull inspects\n" +
+			"composer.json, .env, and wp-config.php to detect the framework, PHP\n" +
+			"version, database engine, and whether Redis is used, then writes a\n" +
+			"hull.yaml and patches the framework config (originals are kept as\n" +
+			"*.hull-backup). Any of --template, --db, --php, or --redis overrides what\n" +
+			"was detected.\n" +
+			"\n" +
+			"For a bundle, pass the .zip path: Hull extracts it into a new directory\n" +
+			"under your first root and restores the project from the bundled manifest.\n" +
+			"Bundles can declare lifecycle hooks that run commands inside your\n" +
+			"containers, so Hull lists them and asks for consent before running an\n" +
+			"imported bundle's hooks.\n" +
+			"\n" +
+			"SQL dumps found in the project (or bundle) can be restored into the\n" +
+			"provisioned database; you are offered a picker unless --skip-dumps.\n" +
+			"\n" +
+			"Routing: a plain name-based import with no overrides and no --no-start\n" +
+			"goes through the daemon (which adopts, starts, and reconciles routes),\n" +
+			"then the dump restore runs CLI-side. A .zip, any override flag, or\n" +
+			"--no-start forces the in-process path.",
+		Example: "  hull import my-old-app\n" +
+			"  hull import my-old-app --db mysql --php 8.3\n" +
+			"  hull import myapp-bundle.zip\n" +
+			"  hull import legacy-site --no-start --skip-dumps",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()

@@ -16,6 +16,19 @@ func init() {
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List registered projects and their state",
+		Long: "List every registered project and its current state.\n\n" +
+			"Hull scans your configured roots and reconciles each project against\n" +
+			"live Docker state. When a daemon is running the list comes from it;\n" +
+			"otherwise Hull computes it in-process. Each row reports the project's\n" +
+			"name, state (running, stopped, or broken when it reports an error),\n" +
+			"kind (app, cluster, or legacy), routed URL (a dash when it serves no\n" +
+			"domain), and absolute directory.\n\n" +
+			"The default output is a NAME STATE KIND URL DIR table; pass --json for a\n" +
+			"machine-readable array of ProjectInfo objects suited to scripting. If no\n" +
+			"projects are found, Hull prints your roots and a hull new hint.",
+		Example: "  hull list\n" +
+			"  hull ls\n" +
+			"  hull list --json",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
@@ -64,6 +77,15 @@ func init() {
 	rootCmd.AddCommand(&cobra.Command{
 		Use:   "status",
 		Short: "Show running containers and ports",
+		Long: "Show the running Docker containers and their published ports.\n\n" +
+			"This runs docker ps directly and prints a NAMES STATUS PORTS table. It\n" +
+			"is intentionally local and never routes through the daemon, so it shows\n" +
+			"every container on the machine, not only the ones Hull manages. That\n" +
+			"makes it handy for spotting a stray container holding a port or\n" +
+			"confirming Docker itself is healthy.\n\n" +
+			"For a Hull-centric view of just your projects and their URLs, use hull\n" +
+			"list instead.",
+		Example: "  hull status",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return dockerx.Exec(cmd.Context(), "", "docker", "ps",
 				"--format", "table {{.Names}}\t{{.Status}}\t{{.Ports}}")

@@ -20,12 +20,101 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:           "hull",
-	Short:         "Composable local development environment",
-	Long:          "Hull provisions Docker-based local dev environments with automatic\nHTTPS domains, databases, and framework scaffolding.",
+	Use:   "hull",
+	Short: "Composable local development environment",
+	Long: "Hull provisions Docker-based local development environments and serves each\n" +
+		"project at a trusted https://<name>.<tld> address, with shared databases,\n" +
+		"framework scaffolding, and multi-container clusters.\n" +
+		"\n" +
+		"Hull is CLI-first. Every command works standalone (the headless guarantee),\n" +
+		"and when a background daemon (hulld) is running the same command routes\n" +
+		"through the daemon's local API instead so the CLI and the desktop app share\n" +
+		"one view of state. Run `hull help routing` for how that switch works.\n" +
+		"\n" +
+		"Common tasks:\n" +
+		"  hull new <name> <template>    scaffold a project (laravel, wordpress, plain)\n" +
+		"  hull up / down [name...]      start or stop projects\n" +
+		"  hull list                     see every project and its URL\n" +
+		"  hull services add <engine>    run a shared database/cache/mail instance\n" +
+		"  hull link <project> <engine>  point a project at a shared instance\n" +
+		"  hull cluster add <dir>        adopt an existing multi-container compose stack\n" +
+		"  hull stop                     bring everything (and the daemon) down\n" +
+		"\n" +
+		"Command groups: lifecycle (up, down, restart, repair, logs, stop), projects\n" +
+		"(new, rm, rebuild, reset, render, set, import, export, migrate), services and\n" +
+		"linking, clusters, config and groups, daemon and diagnostics, and tooling\n" +
+		"(exec, artisan, npm). Every command has detailed `--help`.\n" +
+		"\n" +
+		"Global flags apply everywhere: run `hull help flags`. Source-of-truth model:\n" +
+		"each project is described by a small hull.yaml; the compose.yaml Hull runs is\n" +
+		"generated and should never be hand-edited.",
 	Version:       version.String(),
 	SilenceUsage:  true,
 	SilenceErrors: true,
+}
+
+// Help topics: cross-cutting explanations surfaced via `hull help <topic>`
+// (and listed under "Additional help topics" in the root help). They have no
+// action; running one prints its explanation.
+func init() {
+	topic := func(use, short, long string) {
+		rootCmd.AddCommand(&cobra.Command{
+			Use:    use,
+			Short:  short,
+			Long:   long,
+			Hidden: true, // keep the main command list focused; `hull help <topic>` still works
+			RunE:   func(cmd *cobra.Command, args []string) error { fmt.Println(long); return nil },
+		})
+	}
+
+	topic("routing", "How Hull chooses between the daemon and in-process execution",
+		"Hull is CLI-first and hybrid. When a background daemon (hulld) is running,\n"+
+			"most commands route through its local HTTP API so the CLI, the daemon, and\n"+
+			"the desktop app all act on one shared view of state. When no daemon is\n"+
+			"running, the same commands run the identical engine code in-process, so the\n"+
+			"CLI always works standalone (the headless guarantee).\n"+
+			"\n"+
+			"How the choice is made: the CLI reads ~/.hull/daemon.json (written by a\n"+
+			"running daemon: its port, token, and PID) and probes GET /v1/status within\n"+
+			"1.5 seconds. If that answers, the command uses the daemon; otherwise it runs\n"+
+			"in-process. The global --no-daemon flag forces the in-process path even when\n"+
+			"a daemon is up (an escape hatch when a daemon is wedged).\n"+
+			"\n"+
+			"Why prefer the daemon: it owns the embedded router, DNS, and the OS hosts\n"+
+			"block, and reconciles routes after every change. A mutation made in-process\n"+
+			"while a daemon is up would leave the daemon's view briefly stale (it self-\n"+
+			"heals on its next 3-second reconcile). A few commands are always local\n"+
+			"(status runs docker ps; render, export, migrate are in-process; daemon\n"+
+			"status/stop talk to the daemon directly regardless of --no-daemon).\n"+
+			"\n"+
+			"Start a daemon with `hull daemon run` (or the desktop app); check it with\n"+
+			"`hull daemon status`; stop everything including the daemon with `hull stop`.")
+
+	topic("flags", "Global flags that apply to every command",
+		"These persistent flags work on every hull command:\n"+
+			"\n"+
+			"  --home <dir>    Use a specific Hull home directory instead of the default\n"+
+			"                  ($HULL_HOME, or ~/.hull). This sets where config.yaml and\n"+
+			"                  daemon.json live, so it scopes both config and which daemon\n"+
+			"                  a command talks to. Useful for a second isolated setup.\n"+
+			"\n"+
+			"  --no-daemon     Ignore any running daemon and run the command in-process.\n"+
+			"                  Guarantees the CLI works with no daemon, and is the escape\n"+
+			"                  hatch when a daemon is unresponsive. Does not affect\n"+
+			"                  `hull daemon status`/`stop`, which always probe the daemon.\n"+
+			"\n"+
+			"  --json          Emit machine-readable JSON on read commands that support it\n"+
+			"                  (list, deps, config get, config roots list, and the\n"+
+			"                  services/group/cluster listers). Other commands ignore it.\n"+
+			"\n"+
+			"  -y, --yes       Assume yes for confirmation prompts, so destructive commands\n"+
+			"                  (rm, reset, services rm, uninstall) run without prompting.\n"+
+			"                  Equivalent to the -f/--force flag those commands also accept.\n"+
+			"                  Off an interactive terminal, a prompt fails closed unless\n"+
+			"                  --yes is given, so scripts never hang.\n"+
+			"\n"+
+			"Ctrl-C cancels any command cleanly, including streaming ones (logs) and long\n"+
+			"jobs (rm, cluster create).")
 }
 
 // Global flags, shared by every command via the root's persistent flag set.

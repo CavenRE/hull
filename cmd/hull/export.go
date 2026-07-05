@@ -22,11 +22,28 @@ func init() {
 	cmd := &cobra.Command{
 		Use:   "export <name>",
 		Short: "Export a project as a portable hull-bundle.zip",
-		Long: `Bundle a project for another machine: code (vendor/node_modules/.git
-excluded by default), a fresh database dump from its running database, and
-its .env with secret values stripped (use --include-env to keep them).
-
-Import the result anywhere with: hull import <name>-bundle.zip`,
+		Long: "Package a managed project into a single portable hull-bundle.zip that can\n" +
+			"be moved to another machine and restored with hull import.\n" +
+			"\n" +
+			"The bundle contains the project code (vendor, node_modules, and .git are\n" +
+			"excluded by default), the hull.yaml manifest, a fresh SQL dump taken from\n" +
+			"each running database, and the project's .env with secret values stripped\n" +
+			"out so credentials do not travel in the archive.\n" +
+			"\n" +
+			"Flags let you widen what goes in: --include-env keeps the real secret\n" +
+			"values, --include-vendor ships vendor/ and node_modules/, and --skip-db\n" +
+			"omits the database dumps entirely. Taking dumps requires Docker to be\n" +
+			"running (the project must be up); use --skip-db if the engine is down.\n" +
+			"\n" +
+			"This runs in-process only; the project must already be managed by Hull\n" +
+			"(have a hull.yaml). The output path defaults to <name>-bundle.zip; use\n" +
+			"--output to write elsewhere.\n" +
+			"\n" +
+			"Restore the result anywhere with: hull import <name>-bundle.zip",
+		Example: "  hull export shop\n" +
+			"  hull export shop -o /backups/shop.zip\n" +
+			"  hull export shop --include-vendor --include-env\n" +
+			"  hull export shop --skip-db",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()

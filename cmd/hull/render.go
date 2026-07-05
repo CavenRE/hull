@@ -19,8 +19,23 @@ func init() {
 	cmd := &cobra.Command{
 		Use:   "render [dir]",
 		Short: "Regenerate compose.yaml from a project's hull.yaml",
-		Long:  "Render the compose file for a project (default: current directory).\nBy default the result is written to compose.yaml in the project.",
-		Args:  cobra.MaximumNArgs(1),
+		Long: "Regenerate a project's compose.yaml from its hull.yaml manifest. With no\n" +
+			"directory it renders the project in the current directory.\n" +
+			"\n" +
+			"hull.yaml is the source of truth; compose.yaml is a generated artifact\n" +
+			"that Hull normally re-renders on every up. Use render to inspect exactly\n" +
+			"what Hull would produce, to refresh the compose file after hand-editing\n" +
+			"the manifest, or to diff the two before starting anything.\n" +
+			"\n" +
+			"This runs entirely in-process and never talks to Docker or the daemon, so\n" +
+			"it works offline and even when the engine is down. By default it writes\n" +
+			"compose.yaml in the project; use --output to write elsewhere, or --stdout\n" +
+			"to print the YAML without touching any file.",
+		Example: "  hull render\n" +
+			"  hull render ./shop\n" +
+			"  hull render --stdout\n" +
+			"  hull render ./shop -o /tmp/compose.yaml",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {

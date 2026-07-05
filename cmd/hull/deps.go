@@ -14,7 +14,19 @@ func init() {
 	rootCmd.AddCommand(&cobra.Command{
 		Use:   "deps",
 		Short: "Show dependency status (Docker + embedded components)",
-		Args:  cobra.NoArgs,
+		Long: "Show the status of the external and embedded pieces Hull depends on,\n" +
+			"such as Docker and the components Hull ships with, as a table of name,\n" +
+			"status, and detected version.\n\n" +
+			"It routes through the daemon when one is running (asking it what it\n" +
+			"sees), otherwise it detects dependencies in process. For anything that\n" +
+			"is missing or stopped it prints a short blurb plus an install hint and a\n" +
+			"link, so you know exactly what to install or start next.\n\n" +
+			"Use this when a command complains that Docker is unavailable, or as a\n" +
+			"quick preflight before creating your first project. Pass --json to get\n" +
+			"a machine-readable array instead of the table.",
+		Example: "  hull deps\n" +
+			"  hull deps --json",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {

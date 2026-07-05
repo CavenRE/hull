@@ -18,11 +18,22 @@ func init() {
 	cmd := &cobra.Command{
 		Use:   "set <project>",
 		Short: "Change a managed project's settings",
-		Long: `Update a project's PHP version, domain, or serve flag. Only the
-flags you pass are changed. Applies through a running daemon when one is up.`,
-		Example: `  hull set myapp --php 8.3
-  hull set myapp --domain shop
-  hull set worker --serve=false`,
+		Long: "Update a managed project's settings in place: its PHP version (--php),\n" +
+			"its local domain label (--domain), or whether Hull routes a subdomain to\n" +
+			"it (--serve).\n" +
+			"\n" +
+			"Only the flags you actually pass are changed; everything else is left as\n" +
+			"is. At least one flag is required. Because --serve defaults to true,\n" +
+			"omitting it leaves routing untouched, while --serve=false explicitly stops\n" +
+			"serving the project.\n" +
+			"\n" +
+			"Changes are written to hull.yaml and the compose artifact is re-rendered.\n" +
+			"When a daemon is running the update is applied through it (and takes\n" +
+			"effect live); otherwise it runs in-process. Restart the project if needed\n" +
+			"to pick up an image change such as a new PHP version.",
+		Example: "  hull set myapp --php 8.3\n" +
+			"  hull set myapp --domain shop\n" +
+			"  hull set worker --serve=false",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()

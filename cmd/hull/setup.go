@@ -21,9 +21,19 @@ func init() {
 	cmd := &cobra.Command{
 		Use:   "trust",
 		Short: "Install Hull's local root certificate into the system trust store",
-		Long: `Provision Hull's local certificate authority (if needed) and install
-its root certificate into the OS trust store , and Firefox's, when present.
-Windows shows a confirmation dialog; Linux/macOS may ask for sudo.`,
+		Long: "Provision Hull's local certificate authority (if it does not exist yet)\n" +
+			"and install its root certificate into the OS trust store, and into\n" +
+			"Firefox's own store when Firefox is present. This is what makes\n" +
+			"https://<name>.<tld> load without a browser warning.\n\n" +
+			"This runs locally against the system trust store; it does not route\n" +
+			"through the daemon. Installing may prompt: Windows shows a confirmation\n" +
+			"dialog and Linux/macOS may ask for sudo. Restart open browsers afterward\n" +
+			"so they pick up the new CA.\n\n" +
+			"hull setup already installs trust as one of its steps, so you usually\n" +
+			"only run this directly to re-install after trust was skipped or reset,\n" +
+			"or with --uninstall to remove Hull's certificate from the trust stores.",
+		Example: "  hull trust\n" +
+			"  hull trust --uninstall",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
@@ -62,16 +72,25 @@ func init() {
 	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Enable Hull's native router and DNS on this machine",
-		Long: `One-time machine setup for v2-native networking (replaces the v1
-setup pipeline):
-
-  1. enable the embedded router (ports 80/443) and DNS in config.yaml
-  2. install the local root certificate into the trust store
-  3. register *.<tld> DNS with the operating system
-  4. provision shared system files
-
-Afterwards, run the daemon (hulld, or: hull daemon run) and every running
-project is served at https://<name>.<tld> with a trusted certificate.`,
+		Long: "One-time machine setup for v2-native networking (replaces the v1 setup\n" +
+			"pipeline). Run this once per machine before starting the daemon. It:\n\n" +
+			"  1. enables the embedded router (ports 80/443) and DNS in config.yaml\n" +
+			"  2. installs the local root certificate into the trust store\n" +
+			"  3. registers *.<tld> DNS with the operating system\n" +
+			"  4. provisions the shared system files\n\n" +
+			"It routes through the daemon when one is running, otherwise it applies\n" +
+			"the same changes in process. Steps 2 and 3 may prompt for elevation (a\n" +
+			"Windows dialog, or sudo on Linux/macOS); if a step needs manual action\n" +
+			"it prints the exact commands instead of failing the whole run.\n\n" +
+			"Use --skip-trust when the certificate is already installed, and\n" +
+			"--skip-dns when this machine already resolves *.<tld> another way (for\n" +
+			"example an existing dnsmasq or NetworkManager setup) so the daemon does\n" +
+			"not try to bind port 53 and collide with it. Afterwards start the daemon\n" +
+			"(hulld, or hull daemon run) and every running project is served at\n" +
+			"https://<name>.<tld> with a trusted certificate. Verify with hull doctor.",
+		Example: "  hull setup\n" +
+			"  hull setup --skip-dns\n" +
+			"  hull setup --skip-trust --skip-dns",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {

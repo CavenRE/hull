@@ -74,7 +74,7 @@ func runUninstall(o uninstallOpts) error {
 
 	fmt.Println("Removing program files…")
 	removeInstalledFiles(dir) // sync , so most is gone even if the async wipe is blocked
-	scheduleDirDelete(dir)     // removes the running hull.exe + dir after we exit
+	scheduleDirDelete(dir)    // removes the running hull.exe + dir after we exit
 	fmt.Println("Hull uninstalled. (Open a new terminal so the PATH change applies.)")
 	return nil
 }

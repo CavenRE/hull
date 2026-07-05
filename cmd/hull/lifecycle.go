@@ -17,7 +17,19 @@ func init() {
 	up := &cobra.Command{
 		Use:   "up [name...]",
 		Short: "Start environments",
-		Long:  "Start the current project, named projects, all projects (--all),\nor pick interactively when run outside a project.",
+		Long: "Start one or more Hull projects.\n\n" +
+			"Targets are resolved in priority order: explicit names on the command\n" +
+			"line, then --all (every registered project), then the current directory's\n" +
+			"project, then an interactive picker when you are outside a project. For\n" +
+			"each target Hull checks Docker, regenerates compose.yaml from hull.yaml\n" +
+			"(the artifact always tracks the manifest for v2 projects), runs pre_up\n" +
+			"hooks, ensures the caddy network exists, brings the compose project up,\n" +
+			"records the start in the ledger, and runs post_up hooks.\n\n" +
+			"When a daemon is running the work routes through it; otherwise Hull runs\n" +
+			"the same steps in-process. Starting stops at the first target that errors.",
+		Example: "  hull up\n" +
+			"  hull up shop blog\n" +
+			"  hull up --all",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
@@ -54,7 +66,18 @@ func init() {
 	down := &cobra.Command{
 		Use:   "down [name...]",
 		Short: "Stop environments",
-		Long:  "Stop the current project, named projects, every registered project\n(--all), or pick interactively when run outside a project.",
+		Long: "Stop one or more running Hull projects.\n\n" +
+			"Uses the same targeting as up (explicit names, then --all, then the\n" +
+			"current project, then an interactive picker), except the picker lists\n" +
+			"only running projects. For each target Hull runs pre_down hooks\n" +
+			"best-effort (a cleanup failure never wedges the stop), runs docker\n" +
+			"compose down, and records the stop in the ledger.\n\n" +
+			"Containers stop but named volumes and project files are kept, so a\n" +
+			"later hull up brings the project back with its data intact. Use --all to\n" +
+			"stop every registered project, not just the ones currently running.",
+		Example: "  hull down\n" +
+			"  hull down shop blog\n" +
+			"  hull down --all",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
@@ -90,7 +113,20 @@ func init() {
 	rootCmd.AddCommand(&cobra.Command{
 		Use:   "restart [name]",
 		Short: "Restart a project's containers",
-		Args:  cobra.MaximumNArgs(1),
+		Long: "Restart a project by force-recreating its containers.\n\n" +
+			"Operates on a single target: the name you pass, or the current\n" +
+			"directory's project when you pass nothing. After checking Docker, Hull\n" +
+			"force-recreates the containers (compose up --force-recreate for v2\n" +
+			"projects, compose recreate for clusters) rather than a plain compose\n" +
+			"restart.\n\n" +
+			"The force-recreate is deliberate: it repairs config drift and reattaches\n" +
+			"detached networks, which a plain restart cannot fix. Routes through the\n" +
+			"daemon when one is running, else in-process. Prints nothing on success.\n" +
+			"If a container is wedged badly enough that recreate does not recover it,\n" +
+			"use hull repair.",
+		Example: "  hull restart\n" +
+			"  hull restart shop",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
@@ -115,8 +151,21 @@ func init() {
 	rootCmd.AddCommand(&cobra.Command{
 		Use:   "repair [name]",
 		Short: "Recreate a project from a clean slate (fixes a wedged/detached state; keeps data)",
-		Long:  "Bring a project down (containers + networks; named volumes kept) and back\nup. Use it when a half-finished start left a container detached or wedged\nand a plain restart won't recover it.",
-		Args:  cobra.MaximumNArgs(1),
+		Long: "Recreate a project from a clean slate to recover a wedged or detached\n" +
+			"state, keeping its data.\n\n" +
+			"Operates on a single target (the name you pass, or the current project).\n" +
+			"After checking Docker, Hull brings the project fully down (containers and\n" +
+			"networks are removed; named volumes are kept) and then brings it back up.\n" +
+			"Removing and recreating the networks is what makes repair stronger than\n" +
+			"restart.\n\n" +
+			"Reach for this when a half-finished start left a container detached or\n" +
+			"wedged and a plain hull restart will not recover it. Routes through the\n" +
+			"daemon when one is running, else in-process. A compose-down error is\n" +
+			"printed to stderr but does not stop the bring-up. Your data volumes and\n" +
+			"project files are never touched.",
+		Example: "  hull repair\n" +
+			"  hull repair shop",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
@@ -142,7 +191,20 @@ func init() {
 	logs := &cobra.Command{
 		Use:   "logs [name]",
 		Short: "Tail a project's (or a shared service instance's) container logs",
-		Args:  cobra.MaximumNArgs(1),
+		Long: "Tail the container logs of a project or a shared service instance.\n\n" +
+			"With no arguments Hull tails the current directory's project. Pass a\n" +
+			"project name to tail that project, or --service <name> to tail a shared\n" +
+			"service instance (for example postgres-16) instead. A project name and\n" +
+			"--service are mutually exclusive, and passing neither outside a project\n" +
+			"is an error.\n\n" +
+			"Under the hood this streams docker compose logs --follow --no-color\n" +
+			"--tail 200, so you get up to 200 lines of history and then a live feed.\n" +
+			"When a daemon is running it delivers the stream as Server-Sent Events;\n" +
+			"otherwise Hull streams directly. Press Ctrl-C to stop tailing.",
+		Example: "  hull logs\n" +
+			"  hull logs shop\n" +
+			"  hull logs --service postgres-16",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {

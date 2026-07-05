@@ -15,10 +15,21 @@ func init() {
 	rootCmd.AddCommand(&cobra.Command{
 		Use:   "stop",
 		Short: "Stop everything Hull is running (projects, services, and the daemon)",
-		Long: "Bring down every project and shared service Hull started , including\n" +
-			"adopted clusters living outside your roots , then stop the daemon so its\n" +
-			"embedded router and DNS release ports 80/443/53. Project files and data\n" +
-			"volumes are left untouched.",
+		Long: "Stop everything Hull is running: projects, shared services, and the\n" +
+			"daemon itself. This is the single command to fully quiet Hull on a\n" +
+			"machine.\n\n" +
+			"When a daemon is running it stops all projects and services and then\n" +
+			"shuts itself down; with no daemon Hull does the same sweep in-process.\n" +
+			"The sweep spans four deduplicated sources so nothing is missed: managed\n" +
+			"projects under your roots, the started ledger (which catches adopted or\n" +
+			"out-of-root clusters), a safety pass over containers carrying Hull's\n" +
+			"ownership label (orphans), and running shared service instances. It is\n" +
+			"best-effort, so one failure never blocks the rest.\n\n" +
+			"After the daemon exits, Hull probes the router and DNS ports (80, 443,\n" +
+			"53 by default) and reports which were released, so it can honestly say\n" +
+			"the machine is clear or flag a straggler. Project files and data volumes\n" +
+			"are left untouched.",
+		Example: "  hull stop",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {

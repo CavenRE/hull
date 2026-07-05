@@ -42,9 +42,21 @@ func init() {
 	cluster := &cobra.Command{
 		Use:   "cluster",
 		Short: "Adopt and inspect multi-container clusters",
-		Long: `A cluster is a Hull project that wraps an existing docker compose
-project (many containers managed as one unit). Lifecycle uses the normal verbs:
-hull up/down/restart/rebuild/reset <name> all operate on the whole cluster.`,
+		Long: "A cluster is a Hull project made of many containers managed as one unit.\n" +
+			"There are two kinds:\n" +
+			"  - adopted (type: cluster): wraps a compose file you already own and\n" +
+			"    edit; Hull never rewrites it.\n" +
+			"  - managed (type: app): Hull renders and owns the compose file for you.\n\n" +
+			"Once a cluster exists the normal lifecycle verbs operate on the whole unit:\n" +
+			"hull up/down/restart/rebuild/reset <name>. This subgroup covers the parts\n" +
+			"that are cluster-specific: adopting an existing stack (add), scaffolding a\n" +
+			"new one (create), inspecting it (list, urls), configuring its addressing\n" +
+			"(set, ingress), and mapping subdomains to services (route).\n\n" +
+			"Most subcommands route through the daemon when one is reachable and fall\n" +
+			"back to the in-process engine otherwise, so they work with no daemon running.",
+		Example: "  hull cluster add ./my-stack --root core\n" +
+			"  hull cluster list\n" +
+			"  hull cluster urls my-stack",
 	}
 
 	var (
@@ -56,9 +68,26 @@ hull up/down/restart/rebuild/reset <name> all operate on the whole cluster.`,
 	add := &cobra.Command{
 		Use:   "add <dir>",
 		Short: "Adopt an existing compose project as a cluster",
-		Args:  cobra.ExactArgs(1),
-		Example: `  hull cluster add ./my-stack --root core
-  hull cluster add . --profile dev`,
+		Long: "Adopt an existing docker compose project as a Hull cluster (type: cluster)\n" +
+			"without moving or rewriting any of your files. Hull only writes a hull.yaml\n" +
+			"alongside the stack recording where the compose file lives and which routes\n" +
+			"it serves; your compose files are never modified.\n\n" +
+			"The directory must exist, contain a compose file (compose.yaml, compose.yml,\n" +
+			"docker-compose.*, or one under --root), and not already have a hull.yaml.\n" +
+			"Use --root when the compose file lives in a subfolder (e.g. core). Pass extra\n" +
+			"compose files with repeatable --compose (added as -f overlays) and active\n" +
+			"profiles with repeatable --profile. --name overrides the default, which is the\n" +
+			"slugified folder name.\n\n" +
+			"On adoption Hull seeds routes best-effort: first by parsing a Caddyfile in the\n" +
+			"compose root (vhost blocks mapping subdomain to service:port), then falling\n" +
+			"back to compose services that publish web-looking ports (80, 443, 3000, 4200,\n" +
+			"5000, 8000, 8080, 8081, 8443, 8888, 9000). Review the result with hull cluster\n" +
+			"urls and adjust with hull cluster route add/rm. Routes through the daemon when\n" +
+			"reachable, else the in-process engine.",
+		Args: cobra.ExactArgs(1),
+		Example: "  hull cluster add ./my-stack --root core\n" +
+			"  hull cluster add . --profile dev\n" +
+			"  hull cluster add ./legacy --name shop --compose compose.override.yml",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
@@ -92,7 +121,19 @@ hull up/down/restart/rebuild/reset <name> all operate on the whole cluster.`,
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List adopted and managed clusters",
-		Args:    cobra.NoArgs,
+		Long: "List every cluster Hull knows about, both adopted (type: cluster) and\n" +
+			"managed (type: app), reconciled with live compose state so each shows whether\n" +
+			"it is currently running.\n\n" +
+			"The table columns are NAME, STATE (running or stopped), ROOT (the compose-root\n" +
+			"subfolder, or - when the compose file sits at the cluster root), ROUTES (count\n" +
+			"of defined routes), and DIR (absolute path). Pass --json for a machine-readable\n" +
+			"array of ClusterInfo objects.\n\n" +
+			"Routes through the daemon when reachable, else lists in-process. This lists\n" +
+			"clusters only; use hull list for regular single-container projects.",
+		Args: cobra.NoArgs,
+		Example: "  hull cluster list\n" +
+			"  hull cluster ls\n" +
+			"  hull cluster list --json",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
@@ -130,7 +171,20 @@ hull up/down/restart/rebuild/reset <name> all operate on the whole cluster.`,
 	cluster.AddCommand(&cobra.Command{
 		Use:   "urls <name>",
 		Short: "List every URL a cluster serves (or would serve)",
-		Args:  cobra.ExactArgs(1),
+		Long: "Expand a cluster's routes into the full list of URLs it serves or would\n" +
+			"serve. Unlike hull cluster route list (which shows raw route definitions),\n" +
+			"this expands every subdomain plus its aliases into complete hostnames under\n" +
+			"the cluster's domain suffix (its base_domain if set, otherwise Hull's TLD),\n" +
+			"and filters out routes that are not served (serve=false).\n\n" +
+			"The table columns are URL, SERVICE, PORT, and SERVED, with one row per\n" +
+			"hostname. A footer reports the cluster's ingress mode: none means Hull only\n" +
+			"lists these URLs and the cluster's own proxy actually serves them; delegate\n" +
+			"and hull mean Hull routes them. Pass --json for an array of route objects.\n\n" +
+			"Use this to confirm what a cluster is addressable at after adopting it or\n" +
+			"editing routes. Routes through the daemon when reachable, else in-process.",
+		Args: cobra.ExactArgs(1),
+		Example: "  hull cluster urls tapkit\n" +
+			"  hull cluster urls tapkit --json",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
@@ -179,23 +233,31 @@ hull up/down/restart/rebuild/reset <name> all operate on the whole cluster.`,
 	create := &cobra.Command{
 		Use:   "create <name>",
 		Short: "Create a new multi-container cluster from scratch",
-		Long: `Build a new multi-container project. Each --container declares one
-container as comma-separated key=value fields:
-
-  name=<n>       container/service name (required)
-  template=<t>   laravel | wordpress | plain (a Hull-scaffolded app), or
-  image=<repo>   a raw image (mutually exclusive with template)
-  version=<v>    image tag / framework version
-  port=<n>       upstream/published port (required to serve a raw image)
-  serve          route a subdomain to this container (opt-in; bare, or
-                 serve=true|false). Omitted means not served, so only the
-                 containers you name get a URL.
-
---managed makes Hull render and own the compose file (type: app); otherwise a
-compose file you own is written (type: cluster).`,
-		Example: `  hull cluster create shop --managed \
-    --container name=web,template=laravel,port=8000,serve \
-    --container name=api,image=node:20-alpine,port=3000,serve`,
+		Long: "Build a brand-new multi-container cluster (as opposed to hull cluster add,\n" +
+			"which adopts an existing stack). Declare each container with a repeatable\n" +
+			"--container flag of comma-separated key=value fields:\n\n" +
+			"  name=<n>       container/service name (required)\n" +
+			"  template=<t>   laravel | wordpress | plain (a Hull-scaffolded app), or\n" +
+			"  image=<repo>   a raw image (mutually exclusive with template)\n" +
+			"  version=<v>    image tag / framework version\n" +
+			"  port=<n>       upstream/published port (required to serve a raw image)\n" +
+			"  serve          route a subdomain to this container (opt-in; bare, or\n" +
+			"                 serve=true|false). Omitted means not served, so only the\n" +
+			"                 containers you name get a URL.\n\n" +
+			"Each container needs exactly one of template= or image=. Template containers\n" +
+			"carry their own default port; a served raw image must set port=. At least one\n" +
+			"--container is required and the name must slug cleanly.\n\n" +
+			"--managed makes Hull render and own the compose file (type: app); without it\n" +
+			"a compose file you own and edit is written (type: cluster). --root picks which\n" +
+			"configured root to create under (default: first), --compose-root places the\n" +
+			"compose file in a subfolder, and --no-start writes the files without booting.\n\n" +
+			"Routes through the daemon (streaming job output) when reachable, else runs the\n" +
+			"in-process engine after a Docker check. Unless --no-start it boots the cluster.\n" +
+			"After creating, review the URLs with hull cluster urls <name>.",
+		Example: "  hull cluster create shop --managed \\\n" +
+			"    --container name=web,template=laravel,port=8000,serve \\\n" +
+			"    --container name=api,image=node:20-alpine,port=3000,serve\n" +
+			"  hull cluster create demo --container name=app,template=wordpress,serve --no-start",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
@@ -250,14 +312,23 @@ compose file you own is written (type: cluster).`,
 	setCmd := &cobra.Command{
 		Use:   "set <name>",
 		Short: "Set a cluster's base domain and ingress mode",
-		Long: `Configure how Hull addresses a cluster's URLs.
-
-  --base-domain   the domain routes nest under (e.g. tapkit.local). Empty
-                  resets to Hull's TLD (<subdomain>.<tld>).
-  --ingress       how Hull serves the URLs: none (list only; the cluster's
-                  own proxy serves them), delegate, or hull.`,
-		Example: `  hull cluster set tapkit --base-domain tapkit.local --ingress delegate`,
-		Args:    cobra.ExactArgs(1),
+		Long: "Configure how Hull addresses a cluster's URLs. At least one of the two flags\n" +
+			"is required; only the flags you pass are changed.\n\n" +
+			"  --base-domain   the domain that routes nest under (e.g. tapkit.local), so a\n" +
+			"                  route named api becomes api.tapkit.local. Passing an empty\n" +
+			"                  string resets to Hull's TLD (<subdomain>.<tld>).\n" +
+			"  --ingress       how Hull serves the URLs: none (Hull only lists them; the\n" +
+			"                  cluster's own proxy serves them), delegate (Hull adds an\n" +
+			"                  ingress container, see hull cluster ingress), or hull\n" +
+			"                  (Hull's built-in router serves them).\n\n" +
+			"The edit is surgical: only the base_domain and ingress keys in hull.yaml are\n" +
+			"touched, preserving comments, blank lines, and key order. The value none is\n" +
+			"stored internally as an empty string. Routes through the daemon when reachable,\n" +
+			"else in-process. After changing, review the effect with hull cluster urls.",
+		Example: "  hull cluster set tapkit --base-domain tapkit.local --ingress delegate\n" +
+			"  hull cluster set tapkit --ingress hull\n" +
+			"  hull cluster set tapkit --base-domain \"\"",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
@@ -307,16 +378,25 @@ compose file you own is written (type: cluster).`,
 	ingressCmd := &cobra.Command{
 		Use:   "ingress <name>",
 		Short: "Preview or write the ingress-container overlay (delegate mode)",
-		Long: `Generate the delegate-mode ingress artifacts for a cluster: a compose
-overlay adding a reverse-proxy container on the cluster's networks (so it
-reaches internal-only services by name), plus its Caddy config. With --write,
-they land in the compose root so you can run:
-
-  docker compose -f <base-compose> -f compose.hull.yaml up -d
-
-Note: live serving is not yet auto-wired into 'hull up', and the container's TLS
-uses its own internal CA (trust integration is pending). This previews and
-validates the generated artifacts.`,
+		Long: "Generate the delegate-mode ingress artifacts for a cluster: a compose overlay\n" +
+			"(compose.hull.yaml) that adds a caddy reverse-proxy container joined to all of\n" +
+			"the cluster's networks (so it can reach internal-only services by name), plus a\n" +
+			"Caddyfile (compose.hull.caddy) with one vhost per served hostname. Hull computes\n" +
+			"a per-cluster loopback IP (127.0.0.x) and per-hostname network aliases.\n\n" +
+			"By default this previews both files to stdout as a commented block without\n" +
+			"touching anything. With --write it writes them into the compose root so you can\n" +
+			"run:\n\n" +
+			"  docker compose -f <base-compose> -f compose.hull.yaml up -d\n\n" +
+			"Use --replace <service> when the cluster already ships its own proxy: the\n" +
+			"overlay scales that service to replicas: 0 so Hull's ingress takes over. It is\n" +
+			"reversible by deleting the overlay. The base compose file is never modified.\n\n" +
+			"This command runs in-process only (no daemon path). Note: live serving is not\n" +
+			"yet auto-wired into hull up, and the container's TLS uses its own internal CA\n" +
+			"(trust integration is pending), so this mainly previews and validates the\n" +
+			"generated artifacts.",
+		Example: "  hull cluster ingress tapkit\n" +
+			"  hull cluster ingress tapkit --write\n" +
+			"  hull cluster ingress tapkit --write --replace edge_router",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
@@ -351,7 +431,20 @@ validates the generated artifacts.`,
 	ingressCmd.Flags().StringVar(&ingressReplace, "replace", "", "scale this existing proxy service to 0 so Hull's ingress takes over (reversible)")
 	cluster.AddCommand(ingressCmd)
 
-	route := &cobra.Command{Use: "route", Short: "Assign and manage a cluster's URL routes"}
+	route := &cobra.Command{
+		Use:   "route",
+		Short: "Assign and manage a cluster's URL routes",
+		Long: "Manage the routes that map a cluster's subdomains to its compose services.\n" +
+			"A route records a subdomain, the target service and port, optional alias\n" +
+			"subdomains, and whether Hull serves it. Use add to create or update a route,\n" +
+			"rm to remove one, and list to see the raw definitions.\n\n" +
+			"Routes are what hull cluster urls expands into full hostnames. Editing routes\n" +
+			"surgically updates the routes section of the cluster's hull.yaml. These verbs\n" +
+			"route through the daemon when reachable, else run in-process.",
+		Example: "  hull cluster route add tapkit api --service management_api --port 8081\n" +
+			"  hull cluster route list tapkit\n" +
+			"  hull cluster route rm tapkit api",
+	}
 
 	var (
 		routeService string
@@ -362,9 +455,22 @@ validates the generated artifacts.`,
 	routeAdd := &cobra.Command{
 		Use:   "add <cluster> <subdomain>",
 		Short: "Assign a URL (subdomain) to one of the cluster's services",
-		Args:  cobra.ExactArgs(2),
-		Example: `  hull cluster route add tapkit api --service management_api --port 8081
-  hull cluster route add tapkit t --service edge_router --port 8080 --alias tap`,
+		Long: "Assign a subdomain to one of the cluster's compose services, creating the\n" +
+			"route or updating it if it already exists. The subdomain must be lowercase\n" +
+			"letters, digits, and hyphens, starting with a letter.\n\n" +
+			"--service and --port are both required and name the target compose service and\n" +
+			"its container port. Repeat --alias to give the same service extra subdomains.\n" +
+			"--serve defaults to true; pass --serve=false to record the route but leave it\n" +
+			"unserved (listed only). When a compose file is present Hull best-effort checks\n" +
+			"that the service exists (the check is skipped if compose is missing or cannot\n" +
+			"be parsed).\n\n" +
+			"The route is upserted into the cluster's hull.yaml, preserving surrounding\n" +
+			"structure. Routes through the daemon when reachable, else in-process. After\n" +
+			"adding, see the resulting URLs with hull cluster urls <cluster>.",
+		Args: cobra.ExactArgs(2),
+		Example: "  hull cluster route add tapkit api --service management_api --port 8081\n" +
+			"  hull cluster route add tapkit t --service edge_router --port 8080 --alias tap\n" +
+			"  hull cluster route add tapkit internal --service worker --port 9000 --serve=false",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
@@ -411,7 +517,15 @@ validates the generated artifacts.`,
 	route.AddCommand(&cobra.Command{
 		Use:   "rm <cluster> <subdomain>",
 		Short: "Remove a cluster route",
-		Args:  cobra.ExactArgs(2),
+		Long: "Remove a route from a cluster by its subdomain. Hull validates the subdomain\n" +
+			"format and checks the route exists, returning a friendly error if it does not.\n\n" +
+			"The route entry is deleted from the cluster's hull.yaml, leaving the rest of\n" +
+			"the manifest intact. This only removes Hull's route definition; it does not\n" +
+			"touch your compose services or containers. Routes through the daemon when\n" +
+			"reachable, else in-process. List current routes with hull cluster route list.",
+		Args: cobra.ExactArgs(2),
+		Example: "  hull cluster route rm tapkit api\n" +
+			"  hull cluster route rm tapkit t",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
@@ -442,7 +556,17 @@ validates the generated artifacts.`,
 		Use:     "list <cluster>",
 		Aliases: []string{"ls"},
 		Short:   "List a cluster's route definitions",
-		Args:    cobra.ExactArgs(1),
+		Long: "List a cluster's raw route definitions. The table columns are SUBDOMAIN,\n" +
+			"SERVICE, PORT, ALIASES (comma-separated, or - when none), and SERVED.\n\n" +
+			"This shows the routes as defined and does not expand aliases into full\n" +
+			"hostnames; use hull cluster urls <cluster> for the complete list of URLs\n" +
+			"(with the base domain applied and unserved routes filtered out). Pass --json\n" +
+			"for an array of route objects. Routes through the daemon when reachable, else\n" +
+			"in-process.",
+		Args: cobra.ExactArgs(1),
+		Example: "  hull cluster route list tapkit\n" +
+			"  hull cluster route ls tapkit\n" +
+			"  hull cluster route list tapkit --json",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
