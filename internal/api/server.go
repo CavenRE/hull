@@ -677,6 +677,7 @@ func captureRunner(log func(string)) dockerx.Runner {
 		log("$ " + name + " " + strings.Join(args, " "))
 		cmd := exec.Command(name, args...)
 		cmd.Dir = dir
+		dockerx.NoWindow(cmd) // headless daemon: don't flash a console per job command
 		out, err := cmd.CombinedOutput()
 		for _, line := range strings.Split(strings.TrimRight(string(out), "\r\n"), "\n") {
 			if line = strings.TrimRight(line, "\r"); line != "" {

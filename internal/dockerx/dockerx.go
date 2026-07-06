@@ -39,6 +39,15 @@ func stdinIsTerminal() bool {
 	return fi.Mode()&os.ModeCharDevice != 0
 }
 
+// NoWindow configures cmd so that, on Windows, it runs in its own hidden
+// windowless console (CREATE_NO_WINDOW) instead of flashing one; it is a no-op
+// on other platforms. Exported for daemon-reachable callers that build their
+// own *exec.Cmd outside this package (the job runner, the dependency probe) and
+// so cannot reference the platform SysProcAttr flags directly without breaking
+// the cross-platform build. Prefer Exec/Output/stream helpers where they fit;
+// use this when you need a bespoke command but still must not pop a window.
+func NoWindow(cmd *exec.Cmd) { noWindow(cmd) }
+
 // Output runs a command and captures stdout, trimming trailing whitespace.
 func Output(ctx context.Context, dir string, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)

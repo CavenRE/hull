@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"github.com/CavenRE/hull/internal/dockerx"
 )
 
 // DependencyInfo describes one external/embedded dependency for the GUI's
@@ -70,7 +72,9 @@ func DetectDependencies(ctx context.Context, tld string) []DependencyInfo {
 }
 
 func dockerOutput(ctx context.Context, args ...string) (string, error) {
-	out, err := exec.CommandContext(ctx, "docker", args...).Output()
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	dockerx.NoWindow(cmd) // served by the daemon (GET /v1/dependencies): no console flash
+	out, err := cmd.Output()
 	return strings.TrimSpace(string(out)), err
 }
 

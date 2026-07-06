@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"syscall"
 )
 
 // DNSSupported reports whether Hull can manage *.<tld> DNS on this machine.
@@ -57,6 +58,10 @@ func runElevated(script string) error {
 
 	cmd := exec.Command("powershell", "-NoProfile", "-Command",
 		fmt.Sprintf(`Start-Process powershell -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','%s'`, path))
+	// The daemon (console-less) can reach this via hosts/DNS sync; without
+	// CREATE_NO_WINDOW the outer powershell pops a console. The UAC consent
+	// dialog is a separate secure-desktop prompt, so it still appears.
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000} // CREATE_NO_WINDOW
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("elevated PowerShell failed (UAC declined?): %s", string(out))
