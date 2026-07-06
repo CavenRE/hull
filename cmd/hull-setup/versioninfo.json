@@ -1,0 +1,25 @@
+{
+  "FixedFileInfo": {
+    "FileVersion": { "Major": 0, "Minor": 9, "Patch": 6, "Build": 0 },
+    "ProductVersion": { "Major": 0, "Minor": 9, "Patch": 6, "Build": 0 },
+    "FileFlagsMask": "3f",
+    "FileFlags": "00",
+    "FileOS": "040004",
+    "FileType": "01",
+    "FileSubType": "00"
+  },
+  "StringFileInfo": {
+    "CompanyName": "CavenRE",
+    "FileDescription": "Hull installer",
+    "InternalName": "Hull",
+    "LegalCopyright": "MIT License",
+    "OriginalFilename": "Hull.exe",
+    "ProductName": "Hull",
+    "ProductVersion": "0.9.6",
+    "FileVersion": "0.9.6"
+  },
+  "VarFileInfo": {
+    "Translation": { "LangID": "0409", "CharsetID": "04B0" }
+  },
+  "IconPath": "hull.ico"
+}
