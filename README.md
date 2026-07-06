@@ -91,15 +91,9 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
 
 ### Windows
 
-**One line in PowerShell** (clones + builds the CLI from source; needs Go and git):
+**Installer (recommended).** Download `Hull.exe` from the [latest release](../../releases/latest) and run it. It installs `hull` + `hulld` to `%LOCALAPPDATA%\Hull`, adds them to your PATH, and registers an Apps & Features entry. No admin required. It's unsigned for now, so Windows SmartScreen shows an "unknown publisher" prompt , click **More info → Run anyway**.
 
-```powershell
-irm https://raw.githubusercontent.com/CavenRE/hull/master/get.ps1 | iex
-```
-
-This builds `hull` + `hulld`, installs them to `%LOCALAPPDATA%\Hull`, and adds that to your `PATH`. No admin required.
-
-**Prefer to build by hand?**
+**Build from source** (needs Go and git):
 
 ```powershell
 git clone https://github.com/CavenRE/hull.git
@@ -107,7 +101,7 @@ cd hull
 powershell -ExecutionPolicy Bypass -File build.ps1   # → bin\hull.exe + bin\hulld.exe
 ```
 
-Then add `bin\` to your `PATH`, or copy `hull.exe` + `hulld.exe` somewhere already on it.
+Then add `bin\` to your `PATH`, or copy `hull.exe` + `hulld.exe` somewhere already on it. (`build.ps1 -Installer` also produces `dist\Hull.exe`, the installer above.)
 
 ### Linux
 
