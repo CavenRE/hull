@@ -2,9 +2,9 @@
 # Hull bootstrap , install or uninstall the CLI straight from GitHub.
 #
 #   Install:
-#     curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/CLI-Update/get.sh | sh
+#     curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh
 #   Uninstall:
-#     curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/CLI-Update/get.sh | sh -s -- --uninstall
+#     curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh -s -- --uninstall
 #     ( add --purge to also remove ~/.hull )
 #
 # Install path: clones the repo and builds the CLI + daemon from source (needs Go).
@@ -18,7 +18,7 @@
 set -eu
 
 REPO="CavenRE/hull"
-BRANCH="CLI-Update"
+BRANCH="master"
 RAW="https://raw.githubusercontent.com/$REPO/$BRANCH"
 CLONE="https://github.com/$REPO.git"
 

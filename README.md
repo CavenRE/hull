@@ -19,7 +19,7 @@ It scaffolds Laravel, WordPress, and plain-PHP projects in one command, runs sha
 
 Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on the [`legacy`](../../tree/legacy) branch). It is cross-platform and daemon-backed, and the CLI is fully featured on its own.
 
-> **CLI-first:** this branch is the CLI + daemon. Every command works standalone; when the daemon is running the same commands route through it. The desktop GUI is developed on its own branch.
+> **CLI-first:** Hull is the CLI + daemon, and every command works standalone; when the daemon is running the same commands route through it. Native desktop apps are in development, one per platform (see [Desktop apps](#desktop-apps-coming-soon)).
 
 > **Source of truth:** every project is described by a small `hull.yaml`. The `compose.yaml` Hull runs is a generated artifact , never hand-edited.
 
@@ -34,6 +34,7 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
 - [First-run setup](#first-run-setup)
 - [Quick start](#quick-start)
 - [CLI reference](#cli-reference)
+- [Desktop apps](#desktop-apps-coming-soon)
 - [Configuration](#configuration)
 - [Platform notes](#platform-notes)
 - [Uninstalling](#uninstalling)
@@ -104,7 +105,7 @@ Then add `bin\` to your `PATH`, or copy `hull.exe` + `hulld.exe` somewhere alrea
 **Quickest , one line** (clones and builds the CLI from source; needs Go):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/CLI-Update/get.sh | sh
+curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh
 ```
 
 Flags after `--` are passed through: `--service` (run `hulld` as a `systemd --user` service), `--prefix DIR`, `-y/--yes`.
@@ -129,7 +130,7 @@ cd hull
 ### macOS
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/CLI-Update/get.sh | sh   # clones & builds
+curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh   # clones & builds
 ```
 
 …or clone and build explicitly:
@@ -249,6 +250,26 @@ Run `hull <command> --help` for full flags on any command, `hull help routing` f
 
 ---
 
+## Desktop apps (coming soon)
+
+Hull is CLI-first and stays that way. Native desktop apps are in development, one per platform, each a thin client over the daemon's `/v1` API, so they can do nothing the CLI cannot. When they land you will add one without leaving the terminal:
+
+```bash
+hull gui install        # fetches and installs the desktop app for your system
+```
+
+or download a bundled installer that lays down the CLI and the app together, with a CLI-only option inside it.
+
+| Platform | Repository | Status |
+|---|---|---|
+| Windows | [hull-gui-windows](https://github.com/CavenRE/hull-gui-windows) | In progress |
+| macOS | [hull-gui-macos](https://github.com/CavenRE/hull-gui-macos) | Planned |
+| Linux | [hull-gui-linux](https://github.com/CavenRE/hull-gui-linux) | Planned |
+
+The CLI never depends on a desktop app; the apps depend only on Hull's stable API. Nothing here blocks or changes the CLI.
+
+---
+
 ## Configuration
 
 **Global** , `~/.hull/config.yaml`:
@@ -313,7 +334,7 @@ echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/10-hull-p
 **Linux** , one line from anywhere (works even if you no longer have the source tree):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/CLI-Update/get.sh | sh -s -- --uninstall
+curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh -s -- --uninstall
 #  add --purge to also remove ~/.hull (config, CA, service data)
 ```
 
