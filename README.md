@@ -91,7 +91,15 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
 
 ### Windows
 
-Build the CLI from source (needs Go):
+**One line in PowerShell** (clones + builds the CLI from source; needs Go and git):
+
+```powershell
+irm https://raw.githubusercontent.com/CavenRE/hull/master/get.ps1 | iex
+```
+
+This builds `hull` + `hulld`, installs them to `%LOCALAPPDATA%\Hull`, and adds that to your `PATH`. No admin required.
+
+**Prefer to build by hand?**
 
 ```powershell
 git clone https://github.com/CavenRE/hull.git
