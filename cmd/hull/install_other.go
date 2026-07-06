@@ -8,6 +8,10 @@ import (
 	"path/filepath"
 )
 
+// maybeRunAsInstaller is Windows-only (double-click installer UX); elsewhere the
+// binary is only ever run from a shell, so this never applies.
+func maybeRunAsInstaller() bool { return false }
+
 func defaultInstallDir() string {
 	if h, err := os.UserHomeDir(); err == nil {
 		return filepath.Join(h, ".local", "bin")

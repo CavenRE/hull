@@ -3,17 +3,59 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"unsafe"
 
 	"golang.org/x/sys/windows/registry"
 
 	"github.com/CavenRE/hull/internal/api"
 	"github.com/CavenRE/hull/internal/version"
 )
+
+var (
+	modkernel32               = syscall.NewLazyDLL("kernel32.dll")
+	procGetConsoleProcessList = modkernel32.NewProc("GetConsoleProcessList")
+)
+
+// maybeRunAsInstaller detects a double-click launch from Explorer (a fresh
+// console with only this process attached) with no CLI arguments, and runs the
+// install flow with prompts so the user does not have to open a terminal.
+// Returns true if it handled the launch.
+func maybeRunAsInstaller() bool {
+	if len(os.Args) != 1 || !launchedFromExplorer() {
+		return false
+	}
+	fmt.Println("  Hull installer")
+	fmt.Println("  =============")
+	fmt.Println()
+	fmt.Printf("  This installs Hull to %s and adds it to your PATH.\n", defaultInstallDir())
+	fmt.Print("  Press Enter to install, or close this window to cancel... ")
+	waitEnter()
+	fmt.Println()
+	if err := runInstall(""); err != nil {
+		fmt.Fprintf(os.Stderr, "\n  Install failed: %v\n", err)
+	}
+	fmt.Print("\n  Press Enter to close... ")
+	waitEnter()
+	return true
+}
+
+// launchedFromExplorer reports whether we own a fresh console with no other
+// process attached, the signature of a double-click (a launch from an existing
+// terminal shares that terminal's console with the shell, so the count is >1).
+func launchedFromExplorer() bool {
+	var pids [4]uint32
+	r, _, _ := procGetConsoleProcessList.Call(uintptr(unsafe.Pointer(&pids[0])), uintptr(len(pids)))
+	return r == 1
+}
+
+func waitEnter() { _, _ = bufio.NewReader(os.Stdin).ReadString('\n') }
 
 func defaultInstallDir() string { return filepath.Join(os.Getenv("LOCALAPPDATA"), "Hull") }
 

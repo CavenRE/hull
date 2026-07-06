@@ -285,6 +285,12 @@ func (a *app) saveGroups(ctx context.Context, s *groups.Store) error {
 }
 
 func main() {
+	// Double-clicked from Explorer with no arguments? Act as an installer, so
+	// the user does not have to open a terminal (a console app would otherwise
+	// just flash its help and vanish).
+	if maybeRunAsInstaller() {
+		return
+	}
 	rootCmd.SetVersionTemplate("hull {{.Version}}\n")
 	// Ctrl-C cancels the command context so a long or wedged call (e.g. a
 	// streaming log tail, or a request to an unresponsive daemon) unwinds
