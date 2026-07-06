@@ -37,6 +37,7 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
 - [Desktop apps](#desktop-apps-coming-soon)
 - [Configuration](#configuration)
 - [Platform notes](#platform-notes)
+- [Updating](#updating)
 - [Uninstalling](#uninstalling)
 - [Philosophy & contributing](#philosophy--contributing)
 - [License](#license)
@@ -195,6 +196,7 @@ Run `hull <command> --help` for full flags on any command, `hull help routing` f
 | `hull restart [name]` | Restart a project's containers. |
 | `hull rebuild [name]` | Rebuild images and bring the project back up (`--no-cache`). |
 | `hull reset [name]` | Wipe the project's data volumes and start fresh. |
+| `hull repair [name]` | Recreate a project from a clean slate to fix a wedged or detached state (keeps data). |
 | `hull rm <name>` | Destroy an environment and its data. |
 | `hull logs [name]` | Tail a project's container logs. |
 | `hull status` | Show running containers and their ports. |
@@ -235,7 +237,7 @@ Run `hull <command> --help` for full flags on any command, `hull help routing` f
 | `hull import <name\|bundle>` | Import an existing project folder or a `hull-bundle.zip`. |
 | `hull export <project>` | Export a project as a portable `hull-bundle.zip` (with fresh DB dumps). |
 | `hull migrate <name>` | Adopt bash-Hull (v1) projects into v2. |
-| `hull cluster add` / `ls` / `urls` / `route` | Adopt a `docker compose` project as a cluster, list adopted ones, and assign subdomains to its services. |
+| `hull cluster add` / `ls` / `urls` / `route` / `ingress` | Adopt a `docker compose` project as a cluster, list adopted ones, assign subdomains to its services, and preview or write the ingress overlay. |
 
 ### System & networking
 
@@ -245,7 +247,9 @@ Run `hull <command> --help` for full flags on any command, `hull help routing` f
 | `hull trust` | Install/remove Hull's local root certificate in the OS trust store (`--uninstall`). |
 | `hull doctor` | Diagnose the environment (Docker, ports, DNS, certs, daemon). |
 | `hull daemon run` / `status` / `stop` | Manage the daemon (`run` is equivalent to `hulld`). |
+| `hull deps` | Show dependency status (Docker + embedded components). |
 | `hull completion <shell>` | Generate a shell autocompletion script. |
+| `hull update` | Update Hull (CLI + daemon) to the latest, rebuilt from source (`--check`, `--branch`, `--force`). |
 | `hull uninstall` | Remove Hull from this machine (`--purge-data` also clears `~/.hull`). |
 
 ---
@@ -324,6 +328,17 @@ echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/10-hull-p
 **Linux , file permissions.** On native Docker, Hull automatically remaps PHP containers to your host UID so bind-mounted project files (SQLite databases, `storage/`, caches) stay writable. Docker Desktop on macOS/Windows handles this in its VM.
 
 **Coexisting with other stacks.** If you already run a local proxy on `127.0.0.2:443`, set `router.loopback` to a free `127.0.0.x` so Hull binds its own loopback IP without a port clash.
+
+---
+
+## Updating
+
+```bash
+hull update            # rebuild + install the latest, in place
+hull update --check    # just see whether a newer version is available
+```
+
+Since there are no prebuilt CLI releases yet, `hull update` clones the latest source and rebuilds `hull` + `hulld` where they already live (it needs Go and git, the same as installing). Installed from a package manager? Update it there instead, for example `yay -Syu hull`. Your running daemon keeps serving the old version until you restart it, so after updating, restart the daemon to pick up the change. Flags: `--check` (report only), `--branch <name>`, `--force`.
 
 ---
 
