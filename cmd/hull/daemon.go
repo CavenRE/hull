@@ -36,8 +36,7 @@ func init() {
 			if err != nil {
 				return err
 			}
-			logf := func(format string, v ...any) { fmt.Printf(format+"\n", v...) }
-			return api.Serve(cmd.Context(), a.Config, logf)
+			return runDaemon(a.Config)
 		},
 	})
 
