@@ -1,6 +1,8 @@
 <div align="center">
 
-# Hull 🚢
+<img src="docs/logo.png" width="96" alt="Hull logo">
+
+# Hull
 
 **A fast, cross-platform local development environment.**
 Docker-based dev sites with automatic HTTPS domains, shared databases, and a one-command setup , driven by a CLI and a background daemon.
