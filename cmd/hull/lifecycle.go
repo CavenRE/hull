@@ -42,6 +42,10 @@ func init() {
 			if err != nil {
 				return err
 			}
+			// Sites are only served while the daemon is up; offer to start it.
+			if err := ensureDaemonRunning(cmd.Context(), a.Config.HullHome); err != nil {
+				return err
+			}
 			client, viaDaemon := a.client()
 			for _, p := range targets {
 				fmt.Printf("Starting %s...\n", p.Name)

@@ -163,7 +163,7 @@ hull doctor    # verify Docker, ports, resolution, certificate, daemon
 Then start the daemon and you're live:
 
 ```bash
-hull daemon run   # start the daemon
+hull start   # runs the daemon in the background
 ```
 
 See [Platform notes](#platform-notes) for Linux specifics (privileged ports, DNS resolvers).
@@ -206,6 +206,7 @@ Run `hull <command> --help` for full flags on any command, `hull help routing` f
 | `hull status` | Show running containers and their ports. |
 | `hull list` | List registered projects and their state. |
 | `hull render` | Regenerate `compose.yaml` from a project's `hull.yaml`. |
+| `hull start` | Start Hull (the daemon) in the background, so your sites are served. |
 | `hull stop` | Bring down every project, shared service, and the daemon. |
 
 ### Project settings
