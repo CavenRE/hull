@@ -12,8 +12,13 @@ import (
 // reconcile loop: the daemon has no visible console, so without this each
 // docker invocation would flash a window.
 func noWindow(cmd *exec.Cmd) {
-	// HideWindow only: the daemon already runs in a hidden console that docker
-	// inherits, so we must NOT force a new console here (CREATE_NO_WINDOW would
-	// give docker its own, and its grandchildren would pop visible windows).
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	// CREATE_NO_WINDOW gives docker its own hidden, windowless console. The
+	// compose plugin / com.docker.cli grandchildren docker spawns inherit THAT
+	// console and stay invisible too. Merely hoping to inherit a hidden console
+	// from the daemon is the fragile path; a fresh CREATE_NO_WINDOW per docker
+	// call is the arrangement that actually holds.
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: 0x08000000, // CREATE_NO_WINDOW
+	}
 }
