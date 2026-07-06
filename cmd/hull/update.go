@@ -34,7 +34,7 @@ func init() {
 		Long: "Update the Hull CLI and daemon in place by rebuilding them from source.\n\n" +
 			"There are no prebuilt CLI releases yet, so this clones the Hull repo and\n" +
 			"runs `go build`, exactly the way you installed it. It needs git and Go on\n" +
-			"your PATH. It writes the fresh `hull` and `hulld` next to the running\n" +
+			"your PATH. It writes the fresh `hull` next to the running\n" +
 			"binary (whatever directory `hull` itself lives in), so it updates the same\n" +
 			"install you already have.\n\n" +
 			"How it decides: it reads the latest commit on the branch (default master)\n" +
@@ -42,8 +42,8 @@ func init() {
 			"from. If they match it does nothing unless you pass --force. Use --check to\n" +
 			"see whether an update is available without installing it.\n\n" +
 			"The daemon: your running daemon keeps serving until you restart it, so the\n" +
-			"new version takes effect on the next `hulld` start. On Windows the daemon\n" +
-			"holds a lock on hulld.exe, so if replacing it needs the file free Hull stops\n" +
+			"new version takes effect on the next daemon restart. On Windows the daemon\n" +
+			"holds a lock on hull.exe, so if replacing it needs the file free Hull stops\n" +
 			"the daemon first, then tells you to start it again.\n\n" +
 			"If Hull was installed from a package manager (pacman, dpkg), this defers to\n" +
 			"it instead of overwriting managed files.",
@@ -75,16 +75,14 @@ func runUpdate(ctx context.Context, o updateOpts) error {
 	if resolved, err := filepath.EvalSymlinks(self); err == nil {
 		self = resolved
 	}
-	binDir := filepath.Dir(self)
 	suffix := ""
 	if runtime.GOOS == "windows" {
 		suffix = ".exe"
 	}
-	hulldTarget := filepath.Join(binDir, "hulld"+suffix)
 
 	// Clear any .old/.new left by a previous run (a running exe cannot delete
 	// its own replaced file on Windows, so it is left for next time).
-	cleanupLeftovers(self, hulldTarget)
+	cleanupLeftovers(self)
 
 	// Package-manager installs are owned by the manager; don't fight it.
 	if pm := packageManagerOwner(self); pm != "" {
@@ -139,16 +137,12 @@ func runUpdate(ctx context.Context, o updateOpts) error {
 		ver, shortSHA(latest))
 
 	newHull := filepath.Join(tmp, "hull"+suffix)
-	newHulld := filepath.Join(tmp, "hulld"+suffix)
-	fmt.Println("Building hull + hulld...")
+	fmt.Println("Building hull...")
 	if err := runIO(ctx, src, "go", "build", "-ldflags", ldflags, "-o", newHull, "./cmd/hull"); err != nil {
 		return fmt.Errorf("building hull failed: %w", err)
 	}
-	if err := runIO(ctx, src, "go", "build", "-ldflags", ldflags, "-o", newHulld, "./cmd/hulld"); err != nil {
-		return fmt.Errorf("building hulld failed: %w", err)
-	}
 
-	// Where a daemon would be, for stopping/messaging.
+	// Where a daemon would be, for messaging.
 	home := ""
 	if a, err := loadApp(); err == nil {
 		home = a.Config.HullHome
@@ -158,50 +152,22 @@ func runUpdate(ctx context.Context, o updateOpts) error {
 		_, daemonRunning = api.Connect(home)
 	}
 
-	// Stage both new binaries (as *.new in the install dir) before swapping
-	// either, so a copy failure leaves the install untouched. The two swaps
-	// that follow are quick renames, keeping the version-skew window small.
-	stagedHulld, err := stageReplacement(hulldTarget, newHulld)
+	// Swap the running hull binary. On Windows a running daemon (also hull.exe)
+	// locks the file; commitReplacement renames the running image aside, which
+	// Windows permits, so the swap works without stopping the daemon. The old
+	// daemon keeps serving until restarted onto the new binary.
+	staged, err := stageReplacement(self, newHull)
 	if err != nil {
-		return fmt.Errorf("staging hulld: %w", err)
-	}
-	stagedHull, err := stageReplacement(self, newHull)
-	if err != nil {
-		_ = os.Remove(stagedHulld)
 		return fmt.Errorf("staging hull: %w", err)
 	}
-
-	// Swap hulld. If the file is locked (Windows, daemon running), stop the
-	// daemon and retry. The daemon is re-checked here, not at an earlier probe,
-	// so a daemon that started mid-update is still handled.
-	daemonStopped := false
-	if err := commitReplacement(hulldTarget, stagedHulld); err != nil {
-		if home != "" {
-			if _, ok := api.Connect(home); ok {
-				fmt.Println("Stopping the daemon to replace it...")
-				stopDaemonAndWait(ctx, home)
-				daemonStopped = true
-			}
-		}
-		if err2 := commitReplacement(hulldTarget, stagedHulld); err2 != nil {
-			_ = os.Remove(stagedHull) // nothing swapped yet: leave both binaries as they were
-			return fmt.Errorf("could not replace hulld: %w", err2)
-		}
-	}
-
-	// Swap the running hull binary itself.
-	if err := commitReplacement(self, stagedHull); err != nil {
-		return fmt.Errorf("hulld was updated but replacing hull failed; re-run `hull update` to finish: %w", err)
+	if err := commitReplacement(self, staged); err != nil {
+		return fmt.Errorf("could not replace hull: %w", err)
 	}
 
 	fmt.Printf("Updated Hull: %s -> %s\n", version.String(), ver)
-
-	switch {
-	case daemonStopped:
-		fmt.Println("The daemon was stopped for the update. Start it again with: hulld")
-	case daemonRunning:
+	if daemonRunning {
 		fmt.Println("A daemon is still running the previous version. Restart it to pick up the update:")
-		fmt.Println("  hull daemon stop && hulld   (or restart your systemd --user service)")
+		fmt.Println("  hull daemon stop && hull daemon run   (or restart your systemd --user service)")
 	}
 	return nil
 }

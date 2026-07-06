@@ -7,7 +7,7 @@
 #   ./install.sh [--prefix DIR] [--service] [--skip-setup] [--yes]
 #
 #   --prefix DIR  install binaries here (default: ~/.local/bin)
-#   --service     run hulld as a systemd --user service (Linux)
+#   --service     run the Hull daemon as a systemd --user service (Linux)
 #   --skip-setup  don't run `hull setup`/`hull doctor` at the end
 #   --yes         assume "yes" to install prompts (non-interactive)
 set -euo pipefail
@@ -63,7 +63,7 @@ After=network-online.target docker.service
 Wants=network-online.target
 
 [Service]
-ExecStart=$PREFIX/hulld daemon run
+ExecStart=$PREFIX/hull daemon run
 Restart=on-failure
 RestartSec=2
 
@@ -151,19 +151,18 @@ COMMIT="$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo none)"
 LDFLAGS="-s -w -X github.com/CavenRE/hull/internal/version.Version=${VER} -X github.com/CavenRE/hull/internal/version.Commit=${COMMIT}"
 mkdir -p "$PREFIX"
 go build -ldflags "$LDFLAGS" -o "$PREFIX/hull"  ./cmd/hull
-go build -ldflags "$LDFLAGS" -o "$PREFIX/hulld" ./cmd/hulld
-ok "installed hull + hulld → $PREFIX (version $VER)"
+ok "installed hull → $PREFIX (version $VER)"
 
 # On Linux the daemon's embedded router binds 80/443 directly (no container),
 # which needs CAP_NET_BIND_SERVICE. macOS lets non-root bind low ports; on
 # Windows it's unrestricted. A fresh binary loses file caps, so re-apply here.
 if [ "$OS" = Linux ] && command -v setcap >/dev/null 2>&1; then
-  if [ "$(getcap "$PREFIX/hulld" 2>/dev/null)" = "" ]; then
-    if confirm "  Grant hulld permission to bind ports 80/443 (sudo setcap)?"; then
-      if sudo setcap 'cap_net_bind_service=+ep' "$PREFIX/hulld"; then
-        ok "hulld may now bind 80/443"
+  if [ "$(getcap "$PREFIX/hull" 2>/dev/null)" = "" ]; then
+    if confirm "  Grant hull permission to bind ports 80/443 (sudo setcap)?"; then
+      if sudo setcap 'cap_net_bind_service=+ep' "$PREFIX/hull"; then
+        ok "hull may now bind 80/443"
       else
-        warn "setcap failed , run: sudo setcap 'cap_net_bind_service=+ep' $PREFIX/hulld"
+        warn "setcap failed , run: sudo setcap 'cap_net_bind_service=+ep' $PREFIX/hull"
       fi
     else
       warn "without it, run the daemon as root or lower net.ipv4.ip_unprivileged_port_start"
@@ -179,7 +178,7 @@ if [ "$OS" = Linux ] && command -v systemctl >/dev/null 2>&1; then
   if [ "$SERVICE" = 1 ]; then
     want_service=1
   elif [ "$ASSUME_YES" = 0 ] && [ -t 0 ]; then
-    confirm "  Run hulld in the background as a systemd --user service?" && want_service=1
+    confirm "  Run the Hull daemon in the background as a systemd --user service?" && want_service=1
   fi
   [ "$want_service" = 1 ] && { step "Installing systemd --user service"; install_systemd_unit; }
 fi
@@ -206,7 +205,7 @@ if [ "$SKIP_SETUP" = 0 ] && [ "$DOCKER_OK" = 1 ]; then
   "$PREFIX/hull" doctor || true
   say ""
   say "Next: ${B}hull setup${X}  (enables the native router + DNS; may prompt for sudo)"
-  say "Then: ${B}hulld${X}        (start the daemon) and ${B}hull up${X}"
+  say "Then: ${B}hull daemon run${X}  (start the daemon) and ${B}hull up${X}"
 else
   step "Done"
   [ "$DOCKER_OK" = 0 ] && warn "install Docker, then run: hull doctor"

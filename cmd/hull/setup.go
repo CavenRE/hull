@@ -86,7 +86,7 @@ func init() {
 			"--skip-dns when this machine already resolves *.<tld> another way (for\n" +
 			"example an existing dnsmasq or NetworkManager setup) so the daemon does\n" +
 			"not try to bind port 53 and collide with it. Afterwards start the daemon\n" +
-			"(hulld, or hull daemon run) and every running project is served at\n" +
+			"(hull daemon run) and every running project is served at\n" +
 			"https://<name>.<tld> with a trusted certificate. Verify with hull doctor.",
 		Example: "  hull setup\n" +
 			"  hull setup --skip-dns\n" +
@@ -171,7 +171,7 @@ func init() {
 				}
 			}
 
-			fmt.Println("\nSetup complete. Start the daemon:  hulld   (or: hull daemon run)")
+			fmt.Println("\nSetup complete. Start the daemon:  hull daemon run")
 			fmt.Println("Then verify with:                  hull doctor")
 			return nil
 		},

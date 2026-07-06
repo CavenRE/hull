@@ -3,7 +3,7 @@
 
 _grant_caps() {
   if command -v setcap >/dev/null 2>&1; then
-    setcap 'cap_net_bind_service=+ep' /usr/bin/hulld 2>/dev/null || true
+    setcap 'cap_net_bind_service=+ep' /usr/bin/hull 2>/dev/null || true
   fi
 }
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Removes Hull's binaries and systemd unit, and (optionally) ~/.hull data.
+# Removes Hull's binary and systemd unit, and (optionally) ~/.hull data.
 # Leaves your projects and ~/.hull untouched unless --purge is given.
 #
 # Usage: ./uninstall.sh [--prefix DIR] [--purge]
-#   --prefix DIR  where binaries were installed (default: ~/.local/bin)
+#   --prefix DIR  where the binary was installed (default: ~/.local/bin)
 #   --purge       also remove ~/.hull (config, local CA, service data) , destructive
 set -euo pipefail
 PREFIX="${HOME}/.local/bin"; PURGE=0
@@ -48,7 +48,7 @@ for rc in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile";
   fi
 done
 
-for b in hull hulld; do
+for b in hull; do
   if [ -e "$PREFIX/$b" ] || [ -L "$PREFIX/$b" ]; then rm -f "$PREFIX/$b"; echo "removed $PREFIX/$b"; fi
 done
 

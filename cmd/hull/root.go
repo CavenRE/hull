@@ -27,7 +27,7 @@ var rootCmd = &cobra.Command{
 		"framework scaffolding, and multi-container clusters.\n" +
 		"\n" +
 		"Hull is CLI-first. Every command works standalone (the headless guarantee),\n" +
-		"and when a background daemon (hulld) is running the same command routes\n" +
+		"and when a background daemon is running the same command routes\n" +
 		"through the daemon's local API instead so the CLI and the desktop app share\n" +
 		"one view of state. Run `hull help routing` for how that switch works.\n" +
 		"\n" +
@@ -68,7 +68,7 @@ func init() {
 	}
 
 	topic("routing", "How Hull chooses between the daemon and in-process execution",
-		"Hull is CLI-first and hybrid. When a background daemon (hulld) is running,\n"+
+		"Hull is CLI-first and hybrid. When a background daemon is running,\n"+
 			"most commands route through its local HTTP API so the CLI, the daemon, and\n"+
 			"the desktop app all act on one shared view of state. When no daemon is\n"+
 			"running, the same commands run the identical engine code in-process, so the\n"+

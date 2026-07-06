@@ -60,7 +60,7 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
 
 ```
           ┌──────────────┐        ┌──────────────┐
- hull ───▶│    hulld     │───────▶│  Docker      │
+ hull ───▶│  hull daemon │───────▶│  Docker      │
  (CLI)    │  (daemon)    │        │  Engine      │
           │              │        └──────────────┘
           │  • engine    │   embedded, in-process:
@@ -72,7 +72,7 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
         hull.yaml │ generates  compose.yaml ──▶ docker compose
 ```
 
-- **`hulld`** is one Go daemon that owns everything: the project engine, shared services, the embedded Caddy router (with a local SSL CA), the wildcard DNS resolver, and OS trust-store management , all behind a localhost API guarded by a bearer token.
+- **The daemon** (started with `hull daemon run`) owns everything: the project engine, shared services, the embedded Caddy router (with a local SSL CA), the wildcard DNS resolver, and OS trust-store management , all behind a localhost API guarded by a bearer token.
 - **`hull`** is a thin client over that API. When no daemon is running it executes the **same engine code in-process**, so the CLI works fully headless. Run `hull help routing` for exactly how that switch works.
 - Each project's **`hull.yaml`** is rendered into a `compose.yaml` (covered by golden tests) and run with `docker compose`. The router discovers each container's published loopback port and proxies `https://<name>.test` to it.
 
@@ -91,17 +91,17 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
 
 ### Windows
 
-**Installer (recommended).** Download `Hull.exe` from the [latest release](../../releases/latest) and run it. It installs `hull` + `hulld` to `%LOCALAPPDATA%\Hull`, adds them to your PATH, and registers an Apps & Features entry. No admin required. It's unsigned for now, so Windows SmartScreen shows an "unknown publisher" prompt , click **More info → Run anyway**.
+**Installer (recommended).** Download `hull.exe` from the [latest release](../../releases/latest), then run `hull.exe install`. It copies `hull` into `%LOCALAPPDATA%\Hull`, adds it to your PATH, and registers an Apps & Features entry. No admin required. It's unsigned for now, so Windows SmartScreen shows an "unknown publisher" prompt , click **More info → Run anyway**.
 
 **Build from source** (needs Go and git):
 
 ```powershell
 git clone https://github.com/CavenRE/hull.git
 cd hull
-powershell -ExecutionPolicy Bypass -File build.ps1   # → bin\hull.exe + bin\hulld.exe
+powershell -ExecutionPolicy Bypass -File build.ps1   # → bin\hull.exe
 ```
 
-Then add `bin\` to your `PATH`, or copy `hull.exe` + `hulld.exe` somewhere already on it. (`build.ps1 -Installer` also produces `dist\Hull.exe`, the installer above.)
+Then add `bin\` to your `PATH`, or run `bin\hull.exe install`.
 
 ### Linux
 
@@ -111,7 +111,7 @@ Then add `bin\` to your `PATH`, or copy `hull.exe` + `hulld.exe` somewhere alrea
 curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh
 ```
 
-Flags after `--` are passed through: `--service` (run `hulld` as a `systemd --user` service), `--prefix DIR`, `-y/--yes`.
+Flags after `--` are passed through: `--service` (run the daemon as a `systemd --user` service), `--prefix DIR`, `-y/--yes`.
 
 **Arch (AUR).**
 
@@ -126,8 +126,8 @@ yay -S hull            # CLI + daemon
 ```bash
 git clone https://github.com/CavenRE/hull.git
 cd hull
-./install.sh           # builds & installs the CLI (hull + hulld) to ~/.local/bin
-./install.sh --service # additionally run hulld as a systemd --user service
+./install.sh           # builds & installs hull to ~/.local/bin
+./install.sh --service # additionally run the daemon as a systemd --user service
 ```
 
 ### macOS
@@ -141,7 +141,7 @@ curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh   #
 ```bash
 git clone https://github.com/CavenRE/hull.git
 cd hull
-./install.sh           # builds & installs the CLI (hull + hulld) to ~/.local/bin
+./install.sh           # builds & installs hull to ~/.local/bin
 ```
 
 The `install.sh` script checks your dependencies, offers to install any that are missing (via your package manager), builds the binaries with version info, and adds `~/.local/bin` to your `PATH`. Other flags: `--prefix DIR`, `--service` (Linux), `--skip-setup`, `--yes` (non-interactive).
@@ -161,7 +161,7 @@ hull doctor    # verify Docker, ports, resolution, certificate, daemon
 Then start the daemon and you're live:
 
 ```bash
-hulld          # or: hull daemon run
+hull daemon run   # start the daemon
 ```
 
 See [Platform notes](#platform-notes) for Linux specifics (privileged ports, DNS resolvers).
@@ -248,10 +248,11 @@ Run `hull <command> --help` for full flags on any command, `hull help routing` f
 | `hull setup` | Enable the native router + DNS on this machine (`--skip-trust`, `--skip-dns`). |
 | `hull trust` | Install/remove Hull's local root certificate in the OS trust store (`--uninstall`). |
 | `hull doctor` | Diagnose the environment (Docker, ports, DNS, certs, daemon). |
-| `hull daemon run` / `status` / `stop` | Manage the daemon (`run` is equivalent to `hulld`). |
+| `hull daemon run` / `status` / `stop` | Manage the daemon (`hull daemon run` starts it in the foreground). |
 | `hull deps` | Show dependency status (Docker + embedded components). |
 | `hull completion <shell>` | Generate a shell autocompletion script. |
-| `hull update` | Update Hull (CLI + daemon) to the latest, rebuilt from source (`--check`, `--branch`, `--force`). |
+| `hull install` | Install this hull binary onto the system (copy to a stable location + PATH). |
+| `hull update` | Update Hull to the latest, rebuilt from source (`--check`, `--branch`, `--force`). |
 | `hull uninstall` | Remove Hull from this machine (`--purge-data` also clears `~/.hull`). |
 
 ---
@@ -320,7 +321,7 @@ services:
 **Linux , privileged ports.** The embedded router binds `:80`/`:443` directly (no container). Grant the capability once during install, or lower the unprivileged-port threshold system-wide:
 
 ```bash
-sudo setcap 'cap_net_bind_service=+ep' ~/.local/bin/hulld
+sudo setcap 'cap_net_bind_service=+ep' ~/.local/bin/hull
 # or, surviving every rebuild:
 echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/10-hull-ports.conf && sudo sysctl --system
 ```
@@ -340,7 +341,7 @@ hull update            # rebuild + install the latest, in place
 hull update --check    # just see whether a newer version is available
 ```
 
-Since there are no prebuilt CLI releases yet, `hull update` clones the latest source and rebuilds `hull` + `hulld` where they already live (it needs Go and git, the same as installing). Installed from a package manager? Update it there instead, for example `yay -Syu hull`. Your running daemon keeps serving the old version until you restart it, so after updating, restart the daemon to pick up the change. Flags: `--check` (report only), `--branch <name>`, `--force`.
+Since there are no prebuilt CLI releases yet, `hull update` clones the latest source and rebuilds `hull` where it already lives (it needs Go and git, the same as installing). Installed from a package manager? Update it there instead, for example `yay -Syu hull`. Your running daemon keeps serving the old version until you restart it, so after updating, restart the daemon to pick up the change. Flags: `--check` (report only), `--branch <name>`, `--force`.
 
 ---
 

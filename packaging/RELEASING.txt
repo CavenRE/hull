@@ -4,7 +4,8 @@ Hull , release process (CLI)
 Decision: builds are LOCAL and releases are uploaded BY HAND. The GitHub
 Actions CI/release workflows were intentionally dropped (commit 64c0655); we do
 not maintain a CI pipeline. Each platform has a one-command build that produces
-the CLI + daemon binaries, and the AUR package builds from the tagged tarball.
+the single hull binary (the daemon runs in the foreground via `hull daemon
+run`), and the AUR package builds from the tagged tarball.
 
 Per-release checklist
 ---------------------
@@ -14,18 +15,20 @@ Per-release checklist
 
 2. Windows (on a Windows box):
      powershell -ExecutionPolicy Bypass -File build.ps1
-     -> bin\hull.exe + bin\hulld.exe
+     -> bin\hull.exe
+   hull.exe self-installs: users run `hull install` to copy it into
+   %LOCALAPPDATA%\Hull and add it to PATH. There is no separate installer exe.
 
 3. Linux / macOS (needs go):
      ./build.sh
-     -> bin/hull + bin/hulld
+     -> bin/hull
    Or install straight into ~/.local/bin with dependency checks and PATH wiring:
      ./install.sh          (or `yay -S hull` on Arch)
 
 4. Create the GitHub Release for the tag and upload the binaries, naming the
    platform assets so users can grab them directly:
-     - hull-windows-x86_64.zip      (bin\hull.exe + bin\hulld.exe)
-     - hull-linux-x86_64.tar.gz     (bin/hull + bin/hulld)
+     - hull-windows-x86_64.zip      (bin\hull.exe)
+     - hull-linux-x86_64.tar.gz     (bin/hull)
      - hull-linux-aarch64.tar.gz    (Linux arm64, if built)
    The README's install instructions point at get.sh and ./install.sh.
 
@@ -40,5 +43,5 @@ Notes
 -----
 - No code signing yet (Windows Authenticode / Apple Developer ID) , binaries
   are unsigned; users may see an OS warning on first run.
-- This branch ships the CLI + daemon only. The desktop GUI lives on its own
-  branch and is released separately.
+- This branch ships the single hull binary only (CLI plus the foreground
+  daemon). The desktop GUI lives on its own branch and is released separately.

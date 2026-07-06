@@ -42,14 +42,12 @@ build() {
     -X github.com/CavenRE/hull/internal/version.Commit=aur"
 
   go build -ldflags "$ldflags" -o build/hull  ./cmd/hull
-  go build -ldflags "$ldflags" -o build/hulld ./cmd/hulld
 }
 
 package() {
   cd "$_srcdir"
 
   install -Dm755 build/hull  "$pkgdir/usr/bin/hull"
-  install -Dm755 build/hulld "$pkgdir/usr/bin/hulld"
 
   # systemd --user unit (enable with: systemctl --user enable --now hulld)
   install -Dm644 /dev/stdin "$pkgdir/usr/lib/systemd/user/hulld.service" <<'EOF'
@@ -59,7 +57,7 @@ After=network-online.target docker.service
 Wants=network-online.target
 
 [Service]
-ExecStart=/usr/bin/hulld daemon run
+ExecStart=/usr/bin/hull daemon run
 Restart=on-failure
 RestartSec=2
 

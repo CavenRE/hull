@@ -2,11 +2,9 @@
 /bin/
 /dist/
 /hull
-/hulld
 *.exe
 *.test
 coverage.out
-cmd/hull-setup/payload.zip
 
 # Docs & working notes , only README.md + CHANGELOG.md are tracked in git.
 *.md

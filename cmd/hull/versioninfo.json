@@ -10,10 +10,10 @@
   },
   "StringFileInfo": {
     "CompanyName": "CavenRE",
-    "FileDescription": "Hull installer",
-    "InternalName": "Hull",
+    "FileDescription": "Hull local development environment",
+    "InternalName": "hull",
     "LegalCopyright": "MIT License",
-    "OriginalFilename": "Hull.exe",
+    "OriginalFilename": "hull.exe",
     "ProductName": "Hull",
     "ProductVersion": "0.9.6",
     "FileVersion": "0.9.6"

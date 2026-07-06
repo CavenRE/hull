@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,8 @@ import (
 	"syscall"
 
 	"golang.org/x/sys/windows/registry"
+
+	"github.com/CavenRE/hull/internal/api"
 )
 
 const uninstallRegKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\Hull`
@@ -25,11 +28,10 @@ func runUninstall(o uninstallOpts) error {
 		return err
 	}
 	dir := filepath.Dir(exe)
-	// Safety: only proceed if this really is a Hull install directory.
-	if _, e1 := os.Stat(filepath.Join(dir, "hull-gui.exe")); e1 != nil {
-		if _, e2 := os.Stat(filepath.Join(dir, "hulld.exe")); e2 != nil {
-			return fmt.Errorf("%s does not look like a Hull install , aborting", dir)
-		}
+	// Safety: only proceed if this really is a Hull install directory. The
+	// running hull.exe lives here, so it must be present.
+	if _, err := os.Stat(filepath.Join(dir, "hull.exe")); err != nil {
+		return fmt.Errorf("%s does not look like a Hull install, aborting", dir)
 	}
 
 	stopApp()
@@ -90,9 +92,14 @@ func isReinstall() bool {
 	return false
 }
 
+// stopApp stops a running daemon gracefully via its API. It must NOT taskkill
+// by image name: the daemon is a hull.exe process, and so is this uninstaller,
+// so a name-based kill would terminate ourselves mid-uninstall.
 func stopApp() {
-	for _, p := range []string{"hull-gui.exe", "hulld.exe"} {
-		_ = exec.Command("taskkill", "/F", "/IM", p).Run()
+	if a, err := loadApp(); err == nil {
+		if c, ok := api.Connect(a.Config.HullHome); ok {
+			_ = c.Shutdown(context.Background())
+		}
 	}
 }
 

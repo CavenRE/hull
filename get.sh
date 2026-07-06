@@ -10,7 +10,7 @@
 # Install path: clones the repo and builds the CLI + daemon from source (needs Go).
 #
 # Options:
-#   --service          run hulld as a systemd --user service (Linux)
+#   --service          run the daemon ("hull daemon run") as a systemd --user service (Linux)
 #   --prefix DIR       install binaries here (default: ~/.local/bin)
 #   --uninstall        remove Hull from this machine
 #   --purge            with --uninstall: also remove ~/.hull (config, CA, data)

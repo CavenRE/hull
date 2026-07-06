@@ -16,10 +16,10 @@ func init() {
 
 	daemon.AddCommand(&cobra.Command{
 		Use:   "run",
-		Short: "Run the daemon in the foreground (same as hulld)",
-		Long: "Run the Hull daemon (hulld) in the foreground. This is the same process\n" +
-			"the hulld binary runs; it is offered here so you can start it without a\n" +
-			"separate executable, for development or a docker-run deployment.\n\n" +
+		Short: "Run the daemon in the foreground",
+		Long: "Run the Hull daemon in the foreground. This is the same code that a\n" +
+			"systemd unit or a detached launch runs; it is offered here so you can\n" +
+			"start it directly, for development or a docker-run deployment.\n\n" +
 			"On start it acquires a single-daemon lock (fails if one is already\n" +
 			"running), binds to 127.0.0.1 on a random TCP port, generates a fresh\n" +
 			"auth token, and writes the discovery file at ~/.hull/daemon.json (port,\n" +
