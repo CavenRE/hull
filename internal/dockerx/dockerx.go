@@ -22,13 +22,28 @@ func Exec(ctx context.Context, dir string, name string, args ...string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	// Interactive use (hull exec, from a terminal) needs the real console;
+	// background use (the daemon) must not pop a window per docker call.
+	if !stdinIsTerminal() {
+		noWindow(cmd)
+	}
 	return cmd.Run()
+}
+
+// stdinIsTerminal reports whether standard input is an interactive terminal.
+func stdinIsTerminal() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }
 
 // Output runs a command and captures stdout, trimming trailing whitespace.
 func Output(ctx context.Context, dir string, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	noWindow(cmd)
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf

@@ -14,6 +14,7 @@ import (
 func ExecCapture(ctx context.Context, dir string, w io.Writer, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	noWindow(cmd)
 	cmd.Stdout = w
 	var errBuf bytes.Buffer
 	cmd.Stderr = &errBuf
@@ -27,6 +28,7 @@ func ExecCapture(ctx context.Context, dir string, w io.Writer, name string, args
 func ExecStdin(ctx context.Context, dir string, r io.Reader, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	noWindow(cmd)
 	cmd.Stdin = r
 	var outBuf, errBuf bytes.Buffer
 	cmd.Stdout = &outBuf
@@ -42,6 +44,7 @@ func ExecStdin(ctx context.Context, dir string, r io.Reader, name string, args .
 func StreamLines(ctx context.Context, dir string, onLine func(string), name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
+	noWindow(cmd)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
