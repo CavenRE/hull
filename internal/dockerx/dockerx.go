@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+
+	"golang.org/x/term"
 )
 
 // Runner executes a command attached to the user's terminal. Tests inject a
@@ -30,13 +32,16 @@ func Exec(ctx context.Context, dir string, name string, args ...string) error {
 	return cmd.Run()
 }
 
-// stdinIsTerminal reports whether standard input is an interactive terminal.
+// stdinIsTerminal reports whether standard input is a real interactive console.
+// It must NOT be fooled by the NUL device, which a detached daemon inherits as
+// its stdin: NUL is a character device, so the old os.ModeCharDevice test
+// returned true inside the daemon and made Exec skip noWindow, flashing a
+// console window on every `docker compose up`/`down` (the engine's runner is
+// dockerx.Exec). term.IsTerminal uses GetConsoleMode on Windows, so it is true
+// only for an actual console and false for NUL, pipes, and files , which is
+// exactly the "attach a real TTY" condition Exec wants.
 func stdinIsTerminal() bool {
-	fi, err := os.Stdin.Stat()
-	if err != nil {
-		return false
-	}
-	return fi.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(int(os.Stdin.Fd()))
 }
 
 // NoWindow configures cmd so that, on Windows, it runs in its own hidden
