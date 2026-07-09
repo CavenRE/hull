@@ -144,7 +144,6 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 		Image: def.Image(m.PHP, m.Version),
 		Volumes: []string{
 			"./:" + webrootMount,
-			xdebugMount(ctx, def.XdebugTarget),
 		},
 		ExtraHosts: []string{"host.docker.internal:host-gateway"},
 		Networks:   []string{"default"},
@@ -169,6 +168,7 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 
 	applyIDRemap(svc, ctx, def)
 	env := append([]string{}, def.ExtraEnv...)
+	env = append(env, phpTuning(def)...)
 	if m.Template == "wordpress" {
 		dbKey, db, ok := m.DatabaseService(def.RequiredDB...)
 		if !ok {
@@ -203,10 +203,9 @@ func containerService(m *manifest.Manifest, key string, c *manifest.Container, c
 			Command: c.Command,
 			Volumes: []string{
 				mountSource(c.Path) + ":" + webrootMount,
-				xdebugMount(ctx, def.XdebugTarget),
 			},
 			ExtraHosts:  []string{"host.docker.internal:host-gateway"},
-			Environment: mergeEnv(def.ExtraEnv, m.Env, c.Env),
+			Environment: mergeEnv(append(phpTuning(def), def.ExtraEnv...), m.Env, c.Env),
 			Networks:    append([]string{"default"}, c.Networks...),
 		}
 		applyIDRemap(svc, ctx, def)
@@ -255,10 +254,26 @@ func caddyLabels(fqdn string, upstreamPort int) []string {
 	}
 }
 
-// xdebugMount mounts Hull's shared xdebug.ini read-only into a PHP container.
-func xdebugMount(ctx Context, target string) string {
-	home := strings.ReplaceAll(ctx.HullHome, "\\", "/")
-	return home + "/system/php/xdebug.ini:" + target + ":ro"
+// phpTuning returns serversideup/php image env knobs for a PHP site template.
+// The image ships with OPcache DISABLED, so every request recompiles every PHP
+// file, which is agonizing over a Windows/WSL2 bind mount. Enable it, but keep
+// timestamp validation on and revalidate every request so code edits are still
+// picked up immediately (the mtime stat is far cheaper than recompiling).
+// Returns nil for non-serversideup images (wordpress uses the upstream image,
+// which tunes PHP its own way).
+//
+// Xdebug is deliberately not forced on here: serversideup v4 images ship no
+// xdebug extension, so Hull no longer mounts a `zend_extension=xdebug` ini,
+// which only produced a "cannot load xdebug" warning on every PHP invocation.
+func phpTuning(def templates.SiteDef) []string {
+	if !def.ServersideUp() {
+		return nil
+	}
+	return []string{
+		"PHP_OPCACHE_ENABLE=1",
+		"PHP_OPCACHE_VALIDATE_TIMESTAMPS=1",
+		"PHP_OPCACHE_REVALIDATE_FREQ=0",
+	}
 }
 
 // mountSource normalizes a manifest path field to a compose bind source.

@@ -225,8 +225,7 @@ func TestNewProjectWritesArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	xdebugSource := filepath.ToSlash(e.Config.HullHome) + "/system/php/xdebug.ini"
-	for _, want := range []string{"caddy=myapp.test", "postgres:16-alpine", "redis:alpine", xdebugSource} {
+	for _, want := range []string{"caddy=myapp.test", "postgres:16-alpine", "redis:alpine", "PHP_OPCACHE_ENABLE=1"} {
 		if !strings.Contains(string(composeData), want) {
 			t.Errorf("compose.yaml missing %q", want)
 		}

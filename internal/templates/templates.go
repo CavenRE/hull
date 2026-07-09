@@ -14,7 +14,11 @@ const DefaultPHP = "8.4"
 type SiteDef struct {
 	Key          string
 	UpstreamPort int
-	// XdebugTarget is where the shared xdebug.ini mounts inside the container.
+	// XdebugTarget is where a shared xdebug.ini would mount inside the
+	// container. Reserved: Hull no longer mounts it, because serversideup v4
+	// images ship no xdebug extension, so forcing zend_extension=xdebug only
+	// printed a "cannot load xdebug" warning on every PHP call. See phpTuning
+	// in internal/compose/render.go.
 	XdebugTarget string
 	// ExtraEnv is template-fixed environment (KEY=value pairs).
 	ExtraEnv []string

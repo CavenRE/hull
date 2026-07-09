@@ -6,10 +6,12 @@ services:
     image: serversideup/php:8.4-fpm-nginx
     environment:
       - NGINX_WEBROOT=/var/www/html
+      - PHP_OPCACHE_ENABLE=1
+      - PHP_OPCACHE_REVALIDATE_FREQ=0
+      - PHP_OPCACHE_VALIDATE_TIMESTAMPS=1
       - WEB_DOCUMENT_ROOT=/var/www/html
     volumes:
       - ./:/var/www/html
-      - /home/test/.hull/system/php/xdebug.ini:/usr/local/etc/php/conf.d/99-xdebug.ini:ro
     ports:
       - 127.0.0.1::8080
     extra_hosts:
