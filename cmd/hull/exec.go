@@ -41,6 +41,9 @@ func init() {
 		},
 	}
 	cmd.Flags().StringVar(&service, "service", "app", "compose service to exec into")
+	// Stop parsing hull's flags once the command begins, so they belong to the
+	// executed command: `hull exec php --version` passes --version to php, not hull.
+	cmd.Flags().SetInterspersed(false)
 	rootCmd.AddCommand(cmd)
 }
 
@@ -74,6 +77,7 @@ func init() {
 		},
 	}
 	cmd.Flags().StringVar(&service, "service", "app", "compose service to run artisan in (e.g. a queue worker)")
+	cmd.Flags().SetInterspersed(false) // flags after the subcommand pass through (hull artisan migrate --force)
 	rootCmd.AddCommand(cmd)
 }
 
@@ -115,5 +119,6 @@ func init() {
 		},
 	}
 	cmd.Flags().StringVar(&image, "image", "node:20-alpine", "Node image to run npm in")
+	cmd.Flags().SetInterspersed(false) // flags after npm's subcommand pass through (hull npm run build --watch)
 	rootCmd.AddCommand(cmd)
 }

@@ -68,15 +68,37 @@ func init() {
 				return nil
 			}
 			w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(w, "NAME\tSTATE\tCONTAINER\tDIR")
+			_, _ = fmt.Fprintln(w, "NAME\tSTATE\tCONNECT\tWEB UI\tCONTAINER")
+			hasDB := false
 			for _, in := range instances {
 				stateStr := "stopped"
 				if in.Running {
 					stateStr = "running"
 				}
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", in.Name, stateStr, in.Container, in.Dir)
+				connect := "-"
+				if in.HostPort > 0 {
+					connect = fmt.Sprintf("127.0.0.1:%d", in.HostPort)
+					switch in.Engine {
+					case "postgres":
+						connect, hasDB = "postgres@"+connect, true
+					case "mysql", "mariadb":
+						connect, hasDB = "root@"+connect, true
+					}
+				}
+				webUI := "-"
+				if def, ok := templates.Engine(in.Engine); ok && def.UISubdomain != "" {
+					webUI = fmt.Sprintf("https://%s.%s", def.UISubdomain, a.Config.TLD)
+				}
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", in.Name, stateStr, connect, webUI, in.Container)
 			}
-			return w.Flush()
+			if err := w.Flush(); err != nil {
+				return err
+			}
+			if hasDB {
+				fmt.Println("\nDatabases use trust auth, no password (postgres: user postgres, mysql/mariadb: user root).")
+				fmt.Println("Point a desktop client at the CONNECT address, or `hull services add adminer` for a browser UI.")
+			}
+			return nil
 		},
 	})
 
