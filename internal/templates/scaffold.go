@@ -102,13 +102,19 @@ func scaffoldLaravel(ctx context.Context, opts ScaffoldOptions) error {
 		return fmt.Errorf("composer create-project failed: %w", err)
 	}
 
-	// Hand storage and cache dirs to the container's web user (uid 33),
-	// matching v1's laravel-init.sh.
+	// Hand storage, cache, and database dirs to the container's web user
+	// (uid 33), matching v1's laravel-init.sh. `database` is essential:
+	// composer create-project (and the initial migrate) run as root, so
+	// database/database.sqlite lands root-owned, and Laravel 11+ defaults
+	// SESSION_DRIVER=database, so every request writes the session to SQLite.
+	// Without a writable database/ (the dir too, for SQLite's journal/WAL),
+	// the app 500s on the first request with "attempt to write a readonly
+	// database".
 	chown := []string{
 		"run", "--rm",
 		"-v", mount,
 		"-w", "/app",
-		"alpine", "sh", "-c", "chown -R 33:33 storage bootstrap/cache",
+		"alpine", "sh", "-c", "chown -R 33:33 storage bootstrap/cache database",
 	}
 	if err := opts.Run(ctx, "", "docker", chown...); err != nil {
 		return fmt.Errorf("setting storage permissions: %w", err)
