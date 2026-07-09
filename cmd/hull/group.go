@@ -18,12 +18,13 @@ func init() {
 			"Hull home directory, keyed by project path, so nothing inside your project\n" +
 			"folders changes and even unmanaged folders can be grouped. Group definitions\n" +
 			"are scoped per root; project membership is tracked per project directory.\n\n" +
-			"Use the subcommands to inspect (list) or change (add, order, mv) grouping.\n" +
-			"All of them route through a running daemon when one is up, otherwise they\n" +
-			"read or write groups.yaml directly.",
+			"Use the subcommands to inspect (list) or change (add, rm, order, mv)\n" +
+			"grouping. All of them route through a running daemon when one is up,\n" +
+			"otherwise they read or write groups.yaml directly.",
 		Example: "  hull group list\n" +
 			"  hull group add ~/Sites backend\n" +
-			"  hull group mv shop backend",
+			"  hull group mv shop backend\n" +
+			"  hull group rm ~/Sites backend",
 	}
 
 	grp.AddCommand(&cobra.Command{
@@ -99,6 +100,48 @@ func init() {
 				return err
 			}
 			fmt.Printf("✔ group %q added to %s\n", args[1], root)
+			return nil
+		},
+	})
+
+	grp.AddCommand(&cobra.Command{
+		Use:     "rm <root> <name>",
+		Aliases: []string{"remove", "delete"},
+		Short:   "Delete a group from a project root",
+		Long: "Delete a group from a project root. The first argument is the root (its\n" +
+			"configured full path or just its base name, matched case-insensitively)\n" +
+			"and the second is the group to delete.\n\n" +
+			"Deleting a group removes the label and ungroups every project that was in\n" +
+			"it (reporting how many); the projects and their files are untouched, since\n" +
+			"grouping is Hull-side metadata only. Deleting a group that does not exist\n" +
+			"is a no-op, so re-running is safe. A running daemon applies the change\n" +
+			"live, otherwise it edits groups.yaml directly. To move a single project\n" +
+			"out of a group without deleting the group, use hull group mv --clear.",
+		Example: "  hull group rm ~/Sites backend\n" +
+			"  hull group rm Sites frontend",
+		Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := loadApp()
+			if err != nil {
+				return err
+			}
+			root, err := resolveRoot(a, args[0])
+			if err != nil {
+				return err
+			}
+			store, err := a.groupsView(cmd.Context())
+			if err != nil {
+				return err
+			}
+			ungrouped := store.RemoveGroup(root, args[1])
+			if err := a.saveGroups(cmd.Context(), store); err != nil {
+				return err
+			}
+			if ungrouped > 0 {
+				fmt.Printf("✔ group %q removed from %s (%d project(s) ungrouped)\n", args[1], root, ungrouped)
+			} else {
+				fmt.Printf("✔ group %q removed from %s\n", args[1], root)
+			}
 			return nil
 		},
 	})

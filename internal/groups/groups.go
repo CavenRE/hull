@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -119,6 +120,32 @@ func (s *Store) AddGroup(root, name string) {
 	if !slices.Contains(rg.Groups, name) {
 		rg.Groups = append(rg.Groups, name)
 	}
+}
+
+// RemoveGroup deletes a group from a root and ungroups every project under
+// that root that was assigned to it, returning how many projects were
+// ungrouped. Removing a group that does not exist is a no-op. The projects
+// themselves are never touched, grouping is Hull-side, path-keyed metadata.
+func (s *Store) RemoveGroup(root, name string) int {
+	s.ensure()
+	k := key(root)
+	if rg := s.Roots[k]; rg != nil {
+		rg.Groups = slices.DeleteFunc(rg.Groups, func(g string) bool { return g == name })
+		if len(rg.Groups) == 0 {
+			delete(s.Roots, k) // drop the empty root entry so groups.yaml stays tidy
+		}
+	}
+	// Ungroup members under this root that pointed at the removed group. Scoping
+	// by path prevents ungrouping a same-named group in a different root.
+	prefix := k + string(filepath.Separator)
+	ungrouped := 0
+	for dir, g := range s.Members {
+		if g == name && (dir == k || strings.HasPrefix(dir, prefix)) {
+			delete(s.Members, dir)
+			ungrouped++
+		}
+	}
+	return ungrouped
 }
 
 // SetMember assigns a project directory to a group (empty group = ungroup).
