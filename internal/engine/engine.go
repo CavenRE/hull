@@ -388,6 +388,8 @@ func (e *Engine) ExecIn(ctx context.Context, p *state.Project, service string, c
 // un-adopts by removing only the Hull manifest.
 func (e *Engine) Destroy(ctx context.Context, p *state.Project) error {
 	defer e.recordStopped(projectName(p))
+	// Once the project is gone, drop its database from the Adminer picker.
+	defer func() { _ = e.SyncAdminerServers(ctx) }()
 	if isCluster(p) {
 		if err := e.composeFor(p).DownVolumes(ctx); err != nil {
 			fmt.Fprintln(os.Stderr, "cluster compose down failed (continuing to un-adopt):", err)

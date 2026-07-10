@@ -104,5 +104,10 @@ func (e *Engine) Unlink(ctx context.Context, p *state.Project, key string) error
 		m.Services[key] = svc
 		return fmt.Errorf("cannot unlink %q: %w", key, err)
 	}
-	return e.WriteArtifacts(m, p.Dir)
+	if err := e.WriteArtifacts(m, p.Dir); err != nil {
+		return err
+	}
+	// Drop the removed service from the Adminer picker (best-effort).
+	_ = e.SyncAdminerServers(ctx)
+	return nil
 }
