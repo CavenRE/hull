@@ -4,6 +4,46 @@ All notable changes to Hull are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Hull follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.13.0] - 2026-07
+
+A Linux/CachyOS hardening pass with a central database console.
+
+### Added
+- **Central Adminer console** at `db.<tld>`, auto-provisioned the first time a
+  database is attached (opt out with `services.auto_adminer: false`). One page
+  lists every database, shared instances and per-project alike, across MySQL,
+  MariaDB, and PostgreSQL; picking one opens it directly. The list refreshes on
+  link, unlink, new, and rm.
+- **Install-and-go**: `install.sh` runs `hull setup` and starts the daemon in
+  the right order, so a fresh install needs no manual setup or restart. `hull
+  setup` restarts a running daemon so config changes apply immediately, and
+  `loginctl enable-linger` is set so the user daemon starts at boot.
+- NetworkManager + dnsmasq is a first-class DNS backend alongside
+  systemd-resolved; setup configures whichever the machine uses and uninstall
+  removes it.
+
+### Changed
+- **Default loopback is now `127.0.0.2`** so Hull owns its own address and never
+  fights another local service for `:80`, `:443`, or `:53` on `127.0.0.1`. The
+  address is honored end to end: router bind, embedded DNS bind and answer, and
+  the OS DNS registration. On macOS a non-`.1` address is aliased onto `lo0`
+  during setup.
+- DNS registration elevates via sudo (prompting) rather than only printing the
+  commands, matching the certificate step.
+
+### Fixed
+- `hull uninstall` no longer aborts on a single-binary install (it required GUI
+  binaries that source installs never ship).
+- `ingress: hull` cluster routes no longer return a silent 502; the
+  published-port lookup uses the same pinned compose project that `up` used.
+- The embedded router grants `CAP_NET_BIND_SERVICE` and probes a real bind
+  during setup, so `:80`, `:443`, and `:53` no longer fail silently on Linux.
+- `hull rm` removes projects whose containers wrote files owned by another user
+  (WordPress and similar) instead of failing with a permission error.
+- `hull doctor` tells a docker socket-permission problem apart from a stopped
+  engine, and a daemon that is up but cannot bind from one that is down.
+- The AUR package builds again (pkgver was pinned to a nonexistent tag).
+
 ## [0.9.5] — 2026-06
 
 The "almost 1.0" release: Hull ships its own installers and is solid end to end
