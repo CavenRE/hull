@@ -51,6 +51,7 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
 - **One-command scaffolding** , `hull new shop laravel --db postgres` creates the project, wires the framework, and boots it at `https://shop.test`.
 - **Automatic HTTPS & DNS** , an embedded Caddy reverse proxy with a local root CA serves every site over trusted TLS; a built-in wildcard resolver answers `*.test` (no `dnsmasq` container required).
 - **Shared service instances** , run `postgres-16`, `mariadb-lts`, `redis`, etc. once and link many projects to them; multiple versions live side by side.
+- **Central database console** , attach a database to anything and Hull auto-starts Adminer at `https://db.test`, one browser console that reaches every database (MySQL, MariaDB, PostgreSQL), shared instances and per-project alike, with one-click login.
 - **Headless or daemon-backed** , the CLI is fully featured on its own. A running daemon adds live routing and background jobs , but is never required.
 - **Portable bundles** , `hull export` produces a `hull-bundle.zip` (project + fresh DB dumps) that `hull import` restores on another machine.
 - **Adopt what you already have** , import existing projects, wrap multi-container `docker compose` stacks as **clusters**, or migrate projects from bash-Hull (v1).
@@ -152,19 +153,20 @@ The `install.sh` script checks your dependencies, offers to install any that are
 
 ## First-run setup
 
-Enable native networking on the machine (one time):
+On Linux/macOS `install.sh` (and the `get.sh` one-liner) runs this for you and
+starts the daemon , so a fresh install is ready to go, nothing to do here. Run
+these by hand only if you built from source without `install.sh`, or on Windows:
 
 ```bash
-hull setup     # enable the embedded router (:80/:443) + DNS, install the local CA
-hull trust     # trust Hull's root certificate (may prompt for sudo)
+hull setup     # embedded router (:80/:443) + DNS + local CA, prompts for sudo where needed
 hull doctor    # verify Docker, ports, resolution, certificate, daemon
+hull start     # run the daemon in the background
 ```
 
-Then start the daemon and you're live:
-
-```bash
-hull start   # runs the daemon in the background
-```
+`hull setup` binds Hull to its own loopback IP (`127.0.0.2` by default) so it
+never fights another local service for `:80`/`:443`/`:53`, installs and trusts
+the local CA, and registers `*.test` with your OS resolver. Re-running it applies
+config changes and restarts the daemon for you.
 
 See [Platform notes](#platform-notes) for Linux specifics (privileged ports, DNS resolvers).
 
@@ -226,6 +228,15 @@ Run `hull <command> --help` for full flags on any command, `hull help routing` f
 | `hull services list` / `start` / `stop` / `rm` | Manage shared instances (`rm` destroys all its databases). |
 | `hull link <project> <eng[@ver]>` | Link a project to a shared instance (creates its database, wires the framework env). |
 | `hull unlink <project> <key>` | Remove a linked service (e.g. `db`, `redis`) from a project. |
+
+**Accessing your databases.** Your apps connect automatically (Hull wires
+`DB_HOST` and friends). To browse them yourself, open the console at
+`https://db.test`, auto-provisioned the first time any database is attached: it
+lists every database, shared instances and per-project alike, across MySQL,
+MariaDB, and PostgreSQL, and logs you in with one click (local dev uses trust
+auth, no passwords). Shared instances are also published on a stable
+`127.0.0.1:<port>` for desktop clients (see `hull services list`). Opt out of
+auto-provisioning with `services: { auto_adminer: false }` in `config.yaml`.
 
 ### Developer tooling
 
