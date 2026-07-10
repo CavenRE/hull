@@ -90,8 +90,25 @@ func RegisterDNS(tld string, port int) error {
 	}
 }
 
+// sudoScript runs a privileged shell script through sudo, wiring the terminal
+// so sudo can prompt for a password interactively , the same UX as the
+// cert-trust step, so DNS setup isn't the odd one out that only prints
+// commands. Returns an error when sudo is missing or there's no TTY to prompt
+// on (e.g. a daemon/GUI context), so callers fall back to manual instructions.
+func sudoScript(script string) error {
+	if _, err := exec.LookPath("sudo"); err != nil {
+		return fmt.Errorf("sudo not found")
+	}
+	cmd := exec.Command("sudo", "sh", "-c", script)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 // registerResolved writes a systemd-resolved drop-in routing ~<tld> to Hull's
-// resolver on 127.0.0.1:53.
+// resolver on 127.0.0.1:53. Root writes directly; otherwise it elevates via
+// sudo (prompting on a TTY) and falls back to printed manual steps.
 func registerResolved(tld string, port int) error {
 	if port != 53 {
 		return fmt.Errorf("systemd-resolved drop-ins target port 53 , keep dns.port at 53")
@@ -103,7 +120,12 @@ func registerResolved(tld string, port int) error {
 		}
 		return os.WriteFile(path, []byte(dropInContent(tld)), 0o644)
 	}
-	return &ManualStepsError{Instructions: resolvedInstructions(tld)}
+	script := fmt.Sprintf("mkdir -p %s && printf '[Resolve]\\nDNS=127.0.0.1\\nDomains=~%s\\n' > %s && systemctl restart systemd-resolved",
+		resolvedDropInDir, tld, path)
+	if err := sudoScript(script); err != nil {
+		return &ManualStepsError{Instructions: resolvedInstructions(tld)}
+	}
+	return nil
 }
 
 // registerNMDnsmasq enables NetworkManager's dnsmasq plugin and adds a wildcard
@@ -111,22 +133,27 @@ func registerResolved(tld string, port int) error {
 // Arch/CachyOS box uses. dnsmasq answers on 127.0.0.1:53 itself, so Hull runs
 // no resolver of its own here (see NeedsEmbeddedDNS).
 func registerNMDnsmasq(tld string) error {
-	if os.Geteuid() != 0 {
+	if os.Geteuid() == 0 {
+		if err := os.MkdirAll(nmConfDir, 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(nmDNSConfPath(), []byte("[main]\ndns=dnsmasq\n"), 0o644); err != nil {
+			return err
+		}
+		if err := os.MkdirAll(nmDnsmasqDir, 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(nmRulePath(tld), []byte("address=/."+tld+"/127.0.0.1\n"), 0o644); err != nil {
+			return err
+		}
+		return exec.Command("systemctl", "restart", "NetworkManager").Run()
+	}
+	script := fmt.Sprintf("mkdir -p %s %s && printf '[main]\\ndns=dnsmasq\\n' > %s && printf 'address=/.%s/127.0.0.1\\n' > %s && systemctl restart NetworkManager",
+		nmConfDir, nmDnsmasqDir, nmDNSConfPath(), tld, nmRulePath(tld))
+	if err := sudoScript(script); err != nil {
 		return &ManualStepsError{Instructions: nmInstructions(tld)}
 	}
-	if err := os.MkdirAll(nmConfDir, 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(nmDNSConfPath(), []byte("[main]\ndns=dnsmasq\n"), 0o644); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(nmDnsmasqDir, 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(nmRulePath(tld), []byte("address=/."+tld+"/127.0.0.1\n"), 0o644); err != nil {
-		return err
-	}
-	return exec.Command("systemctl", "restart", "NetworkManager").Run()
+	return nil
 }
 
 // UnregisterDNS removes whatever DNS config Hull installed , both backends,

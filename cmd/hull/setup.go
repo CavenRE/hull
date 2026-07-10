@@ -198,12 +198,20 @@ func init() {
 			} else if msg != "" {
 				fmt.Println("  ✔", msg)
 			}
+			// A port held by Hull's own already-running daemon is expected (this
+			// is the normal state when re-running setup), not a conflict , so
+			// don't cry "in use" about ourselves.
+			_, daemonUp := a.client()
 			for _, port := range routerPorts {
 				switch bindProbe(cfg.Router.Loopback, port) {
 				case bindFree:
 					fmt.Printf("  ✔ Port %d bindable\n", port)
 				case bindInUse:
-					fmt.Printf("  ! Port %d is in use , stop the occupant (v1 hull-router? another web server?) or change router ports in config.yaml\n", port)
+					if daemonUp {
+						fmt.Printf("  ✔ Port %d already served by the running Hull daemon\n", port)
+					} else {
+						fmt.Printf("  ! Port %d is in use , stop the occupant (v1 hull-router? another web server?) or change router ports in config.yaml\n", port)
+					}
 				case bindDenied:
 					if capGranted {
 						fmt.Printf("  ✔ Port %d is privileged; the daemon binds it via CAP_NET_BIND_SERVICE\n", port)
