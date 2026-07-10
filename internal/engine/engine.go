@@ -402,7 +402,28 @@ func (e *Engine) Destroy(ctx context.Context, p *state.Project) error {
 			return fmt.Errorf("force cleanup: %w", err)
 		}
 	}
-	return os.RemoveAll(p.Dir)
+	return e.removeProjectDir(ctx, p.Dir)
+}
+
+// removeProjectDir deletes a project directory. A container that runs as root or
+// www-data (WordPress, and others) can leave bind-mounted files owned by another
+// UID, which os.RemoveAll can't unlink as the unprivileged user , `hull rm`
+// would fail with "permission denied" and orphan the directory. On a permission
+// failure, delete it as root inside a throwaway container (the same docker-run
+// approach `new` uses to chown scaffolded files).
+func (e *Engine) removeProjectDir(ctx context.Context, dir string) error {
+	if err := os.RemoveAll(dir); err == nil || !errors.Is(err, os.ErrPermission) {
+		return err
+	}
+	parent, base := filepath.Dir(dir), filepath.Base(dir)
+	if base == "" || base == "." || base == string(filepath.Separator) || parent == dir {
+		return fmt.Errorf("refusing to force-remove suspicious path %q", dir)
+	}
+	if err := e.Run(ctx, "", "docker", "run", "--rm",
+		"-v", parent+":/work", "alpine", "rm", "-rf", "/work/"+base); err != nil {
+		return fmt.Errorf("removing %s (contains files owned by a container user): %w", dir, err)
+	}
+	return nil
 }
 
 // --- started-project ledger + stop-all -------------------------------------
