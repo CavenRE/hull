@@ -53,12 +53,12 @@ type RouterConfig struct {
 	Enabled   bool `yaml:"enabled"`
 	HTTPPort  int  `yaml:"http_port,omitempty"`
 	HTTPSPort int  `yaml:"https_port,omitempty"`
-	// Loopback is the 127.0.0.0/8 address the router (and embedded DNS)
-	// binds and resolves *.tld to. Defaults to 127.0.0.1; a different
-	// last octet (e.g. 127.0.0.3) lets Hull coexist with another local
-	// proxy bound to the same ports on a different loopback IP. Only
-	// effective when Hull's own DNS resolves *.tld , an external resolver
-	// must point at the same address.
+	// Loopback is the 127.0.0.0/8 address the router and embedded DNS bind to
+	// and resolve *.tld to. Defaults to 127.0.0.2 so Hull owns its own loopback
+	// IP and never fights another local service for :80/:443/:53 on 127.0.0.1;
+	// any 127.0.0.x last octet works. On macOS a non-.1 address needs a lo0
+	// alias, which `hull setup` adds. Everything on Hull's side (router bind,
+	// DNS bind, DNS answer, and the OS DNS registration) uses this address.
 	Loopback string `yaml:"loopback,omitempty"`
 }
 
@@ -134,7 +134,7 @@ func (c *Config) applyDefaults() {
 		c.DNS.Port = 53
 	}
 	if !ValidLoopback(c.Router.Loopback) {
-		c.Router.Loopback = "127.0.0.1"
+		c.Router.Loopback = "127.0.0.2"
 	}
 	if len(c.Roots) == 0 {
 		if home, err := os.UserHomeDir(); err == nil {

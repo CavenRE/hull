@@ -292,8 +292,8 @@ router:
   enabled: true
   http_port: 80
   https_port: 443
-  loopback: 127.0.0.1         # 127.0.0.1 to .8: bind a different loopback to
-                              # coexist with another local proxy
+  loopback: 127.0.0.2         # Hull's own loopback IP (default). 127.0.0.1 to
+                              # .8 , keeps :80/:443/:53 off 127.0.0.1
 dns:
   enabled: true               # set false to use an external resolver for *.tld
   port: 53
@@ -329,11 +329,11 @@ sudo setcap 'cap_net_bind_service=+ep' ~/.local/bin/hull
 echo 'net.ipv4.ip_unprivileged_port_start=80' | sudo tee /etc/sysctl.d/10-hull-ports.conf && sudo sysctl --system
 ```
 
-**Linux , DNS resolver.** `hull setup` auto-detects how your machine resolves DNS. On **systemd-resolved** it registers `*.<tld>` for you. On **NetworkManager + dnsmasq** (common on Arch/CachyOS) it detects that systemd-resolved isn't in charge and **leaves DNS to your existing resolver** , it won't enable the embedded resolver or fight for `:53`. Just point `.<tld>` at `127.0.0.1` in your dnsmasq config. (Pass `--skip-dns` to force-skip the step yourself.)
+**Linux , DNS resolver.** `hull setup` auto-detects how your machine resolves DNS and configures `*.<tld>` for you on either backend: a **systemd-resolved** drop-in, or a **NetworkManager + dnsmasq** rule (common on Arch/CachyOS). Both point `*.<tld>` at Hull's loopback IP (default `127.0.0.2`), and `hull uninstall` removes them again. It prompts for `sudo` where needed. (Pass `--skip-dns` if you resolve `*.<tld>` some other way.)
 
 **Linux , file permissions.** On native Docker, Hull automatically remaps PHP containers to your host UID so bind-mounted project files (SQLite databases, `storage/`, caches) stay writable. Docker Desktop on macOS/Windows handles this in its VM.
 
-**Coexisting with other stacks.** If you already run a local proxy on `127.0.0.2:443`, set `router.loopback` to a free `127.0.0.x` so Hull binds its own loopback IP without a port clash.
+**Coexisting with other stacks.** Hull binds its own loopback IP (`127.0.0.2` by default) so it never clashes with a service on `127.0.0.1`. If something else already uses `127.0.0.2`, set `router.loopback` to another free `127.0.0.x` (e.g. `127.0.0.3`). On macOS a non-`.1` address is aliased onto `lo0` for you during `hull setup`.
 
 ---
 

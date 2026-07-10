@@ -77,16 +77,17 @@ func nmActive() bool {
 	return strings.TrimSpace(string(out)) == "active"
 }
 
-// RegisterDNS configures *.<tld> resolution using this machine's backend. Root
-// applies it directly; otherwise it returns the manual sudo steps.
-func RegisterDNS(tld string, port int) error {
+// RegisterDNS configures *.<tld> resolution to addr (Hull's loopback IP) using
+// this machine's backend. Root applies it directly; otherwise it returns the
+// manual sudo steps.
+func RegisterDNS(tld, addr string, port int) error {
 	switch dnsBackend() {
 	case backendResolved:
-		return registerResolved(tld, port)
+		return registerResolved(tld, addr, port)
 	case backendNMDnsmasq:
-		return registerNMDnsmasq(tld)
+		return registerNMDnsmasq(tld, addr)
 	default:
-		return &ManualStepsError{Instructions: DNSInstructions(tld, port)}
+		return &ManualStepsError{Instructions: DNSInstructions(tld, addr, port)}
 	}
 }
 
@@ -107,9 +108,9 @@ func sudoScript(script string) error {
 }
 
 // registerResolved writes a systemd-resolved drop-in routing ~<tld> to Hull's
-// resolver on 127.0.0.1:53. Root writes directly; otherwise it elevates via
-// sudo (prompting on a TTY) and falls back to printed manual steps.
-func registerResolved(tld string, port int) error {
+// resolver on addr:53. Root writes directly; otherwise it elevates via sudo
+// (prompting on a TTY) and falls back to printed manual steps.
+func registerResolved(tld, addr string, port int) error {
 	if port != 53 {
 		return fmt.Errorf("systemd-resolved drop-ins target port 53 , keep dns.port at 53")
 	}
@@ -118,21 +119,21 @@ func registerResolved(tld string, port int) error {
 		if err := os.MkdirAll(resolvedDropInDir, 0o755); err != nil {
 			return err
 		}
-		return os.WriteFile(path, []byte(dropInContent(tld)), 0o644)
+		return os.WriteFile(path, []byte(dropInContent(tld, addr)), 0o644)
 	}
-	script := fmt.Sprintf("mkdir -p %s && printf '[Resolve]\\nDNS=127.0.0.1\\nDomains=~%s\\n' > %s && systemctl restart systemd-resolved",
-		resolvedDropInDir, tld, path)
+	script := fmt.Sprintf("mkdir -p %s && printf '[Resolve]\\nDNS=%s\\nDomains=~%s\\n' > %s && systemctl restart systemd-resolved",
+		resolvedDropInDir, addr, tld, path)
 	if err := sudoScript(script); err != nil {
-		return &ManualStepsError{Instructions: resolvedInstructions(tld)}
+		return &ManualStepsError{Instructions: resolvedInstructions(tld, addr)}
 	}
 	return nil
 }
 
 // registerNMDnsmasq enables NetworkManager's dnsmasq plugin and adds a wildcard
-// rule so *.<tld> resolves to the loopback directly , the mechanism a stock
-// Arch/CachyOS box uses. dnsmasq answers on 127.0.0.1:53 itself, so Hull runs
-// no resolver of its own here (see NeedsEmbeddedDNS).
-func registerNMDnsmasq(tld string) error {
+// rule so *.<tld> resolves to addr directly , the mechanism a stock Arch/CachyOS
+// box uses. dnsmasq answers on addr:53 itself, so Hull runs no resolver of its
+// own here (see NeedsEmbeddedDNS).
+func registerNMDnsmasq(tld, addr string) error {
 	if os.Geteuid() == 0 {
 		if err := os.MkdirAll(nmConfDir, 0o755); err != nil {
 			return err
@@ -143,15 +144,15 @@ func registerNMDnsmasq(tld string) error {
 		if err := os.MkdirAll(nmDnsmasqDir, 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(nmRulePath(tld), []byte("address=/."+tld+"/127.0.0.1\n"), 0o644); err != nil {
+		if err := os.WriteFile(nmRulePath(tld), []byte("address=/."+tld+"/"+addr+"\n"), 0o644); err != nil {
 			return err
 		}
 		return exec.Command("systemctl", "restart", "NetworkManager").Run()
 	}
-	script := fmt.Sprintf("mkdir -p %s %s && printf '[main]\\ndns=dnsmasq\\n' > %s && printf 'address=/.%s/127.0.0.1\\n' > %s && systemctl restart NetworkManager",
-		nmConfDir, nmDnsmasqDir, nmDNSConfPath(), tld, nmRulePath(tld))
+	script := fmt.Sprintf("mkdir -p %s %s && printf '[main]\\ndns=dnsmasq\\n' > %s && printf 'address=/.%s/%s\\n' > %s && systemctl restart NetworkManager",
+		nmConfDir, nmDnsmasqDir, nmDNSConfPath(), tld, addr, nmRulePath(tld))
 	if err := sudoScript(script); err != nil {
-		return &ManualStepsError{Instructions: nmInstructions(tld)}
+		return &ManualStepsError{Instructions: nmInstructions(tld, addr)}
 	}
 	return nil
 }
@@ -181,22 +182,22 @@ func nmDNSConfPath() string        { return filepath.Join(nmConfDir, "hull-dns.c
 func nmRulePath(tld string) string { return filepath.Join(nmDnsmasqDir, "hull-"+tld+".conf") }
 
 // DNSInstructions are the manual sudo equivalents for the active backend.
-func DNSInstructions(tld string, port int) string {
+func DNSInstructions(tld, addr string, port int) string {
 	if dnsBackend() == backendNMDnsmasq {
-		return nmInstructions(tld)
+		return nmInstructions(tld, addr)
 	}
-	return resolvedInstructions(tld)
+	return resolvedInstructions(tld, addr)
 }
 
-func resolvedInstructions(tld string) string {
+func resolvedInstructions(tld, addr string) string {
 	path := filepath.Join(resolvedDropInDir, "hull-"+tld+".conf")
 	return fmt.Sprintf("sudo mkdir -p %s\nprintf '%s' | sudo tee %s\nsudo systemctl restart systemd-resolved",
-		resolvedDropInDir, dropInContent(tld), path)
+		resolvedDropInDir, dropInContent(tld, addr), path)
 }
 
-func nmInstructions(tld string) string {
-	return fmt.Sprintf("sudo mkdir -p %s %s\nprintf '[main]\\ndns=dnsmasq\\n' | sudo tee %s\nprintf 'address=/.%s/127.0.0.1\\n' | sudo tee %s\nsudo systemctl restart NetworkManager",
-		nmConfDir, nmDnsmasqDir, nmDNSConfPath(), tld, nmRulePath(tld))
+func nmInstructions(tld, addr string) string {
+	return fmt.Sprintf("sudo mkdir -p %s %s\nprintf '[main]\\ndns=dnsmasq\\n' | sudo tee %s\nprintf 'address=/.%s/%s\\n' | sudo tee %s\nsudo systemctl restart NetworkManager",
+		nmConfDir, nmDnsmasqDir, nmDNSConfPath(), tld, addr, nmRulePath(tld))
 }
 
 func unregisterInstructions(tld string) string {
@@ -204,6 +205,10 @@ func unregisterInstructions(tld string) string {
 		filepath.Join(resolvedDropInDir, "hull-"+tld+".conf"), nmRulePath(tld), nmDNSConfPath())
 }
 
-func dropInContent(tld string) string {
-	return "[Resolve]\nDNS=127.0.0.1\nDomains=~" + tld + "\n"
+func dropInContent(tld, addr string) string {
+	return "[Resolve]\nDNS=" + addr + "\nDomains=~" + tld + "\n"
 }
+
+// EnsureLoopbackAlias makes addr usable as a bind address. On Linux the whole
+// 127.0.0.0/8 is already loopback, so this is a no-op.
+func EnsureLoopbackAlias(addr string) error { return nil }

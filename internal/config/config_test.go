@@ -97,10 +97,12 @@ func TestValidLoopback(t *testing.T) {
 	}
 }
 
-func TestLoopbackDefaultsTo1(t *testing.T) {
+func TestLoopbackDefaultsTo2(t *testing.T) {
+	// Hull defaults to 127.0.0.2 so it owns its own loopback IP and never
+	// fights another local service for :80/:443/:53 on 127.0.0.1.
 	c := &Config{HullHome: t.TempDir(), Router: RouterConfig{Loopback: "bogus"}}
 	c.applyDefaults()
-	if c.Router.Loopback != "127.0.0.1" {
-		t.Errorf("expected default 127.0.0.1, got %q", c.Router.Loopback)
+	if c.Router.Loopback != "127.0.0.2" {
+		t.Errorf("expected default 127.0.0.2, got %q", c.Router.Loopback)
 	}
 }

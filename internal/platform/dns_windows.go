@@ -17,18 +17,22 @@ func DNSSupported() (bool, string) { return true, "" }
 // does.
 func NeedsEmbeddedDNS() bool { return true }
 
-// RegisterDNS routes *.<tld> lookups to Hull's resolver via an NRPT rule.
-// Requires elevation , launched through a UAC prompt, like v1's hosts sync.
-func RegisterDNS(tld string, port int) error {
+// RegisterDNS routes *.<tld> lookups to Hull's resolver at addr via an NRPT
+// rule. Requires elevation , launched through a UAC prompt, like v1's hosts sync.
+func RegisterDNS(tld, addr string, port int) error {
 	if port != 53 {
 		return fmt.Errorf("windows NRPT cannot target a custom DNS port , keep dns.port at 53")
 	}
 	script := fmt.Sprintf(`$ErrorActionPreference = "Stop"
 Get-DnsClientNrptRule | Where-Object { $_.Namespace -eq ".%[1]s" } | ForEach-Object { Remove-DnsClientNrptRule -Name $_.Name -Force }
-Add-DnsClientNrptRule -Namespace ".%[1]s" -NameServers "127.0.0.1" -Comment "Hull local TLD"
-`, tld)
+Add-DnsClientNrptRule -Namespace ".%[1]s" -NameServers "%[2]s" -Comment "Hull local TLD"
+`, tld, addr)
 	return runElevated(script)
 }
+
+// EnsureLoopbackAlias is a no-op on Windows: the loopback stack answers every
+// 127.0.0.0/8 address without an explicit alias.
+func EnsureLoopbackAlias(addr string) error { return nil }
 
 // UnregisterDNS removes Hull's NRPT rule.
 func UnregisterDNS(tld string) error {
@@ -39,9 +43,9 @@ Get-DnsClientNrptRule | Where-Object { $_.Namespace -eq ".%s" } | ForEach-Object
 }
 
 // DNSInstructions are the manual equivalent (elevated PowerShell).
-func DNSInstructions(tld string, port int) string {
+func DNSInstructions(tld, addr string, port int) string {
 	return fmt.Sprintf(`In an elevated (Administrator) PowerShell:
-  Add-DnsClientNrptRule -Namespace ".%s" -NameServers "127.0.0.1"`, tld)
+  Add-DnsClientNrptRule -Namespace ".%s" -NameServers "%s"`, tld, addr)
 }
 
 // runElevated writes a temp script and runs it via a UAC prompt, waiting

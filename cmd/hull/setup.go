@@ -156,23 +156,37 @@ func init() {
 
 			if !skipDNS {
 				fmt.Printf("> Registering *.%s DNS with the OS (may prompt for elevation)\n", cfg.TLD)
-				if err := platform.RegisterDNS(cfg.TLD, cfg.DNS.Port); err != nil {
+				if err := platform.RegisterDNS(cfg.TLD, cfg.Router.Loopback, cfg.DNS.Port); err != nil {
 					var manual *platform.ManualStepsError
 					if errors.As(err, &manual) {
 						fmt.Println("  ! Needs elevation , run these manually:")
 						fmt.Println(indent(manual.Instructions, "    "))
 					} else {
 						fmt.Println("  !", err)
-						fmt.Println(indent(platform.DNSInstructions(cfg.TLD, cfg.DNS.Port), "    "))
+						fmt.Println(indent(platform.DNSInstructions(cfg.TLD, cfg.Router.Loopback, cfg.DNS.Port), "    "))
 					}
 				} else if cfg.DNS.Enabled {
 					fmt.Printf("  ✔ *.%s routes to Hull's resolver (active once the daemon is running)\n", cfg.TLD)
 				} else {
-					fmt.Printf("  ✔ *.%s now resolves to 127.0.0.1 via the system resolver\n", cfg.TLD)
+					fmt.Printf("  ✔ *.%s now resolves to %s via the system resolver\n", cfg.TLD, cfg.Router.Loopback)
 				}
 			}
 
 			fmt.Println("> Checking ports & bind capability")
+			// Make Hull's loopback IP bindable. No-op on Linux/Windows (all of
+			// 127/8 answers); on macOS a non-.1 address needs a lo0 alias, which
+			// this adds (and persists) so the router/DNS can bind it.
+			if err := platform.EnsureLoopbackAlias(cfg.Router.Loopback); err != nil {
+				var manual *platform.ManualStepsError
+				if errors.As(err, &manual) {
+					fmt.Printf("  ! %s needs a loopback alias , run:\n", cfg.Router.Loopback)
+					fmt.Println(indent(manual.Instructions, "    "))
+				} else {
+					fmt.Printf("  ! could not alias %s: %v\n", cfg.Router.Loopback, err)
+				}
+			} else if cfg.Router.Loopback != "127.0.0.1" {
+				fmt.Printf("  ✔ %s is bindable\n", cfg.Router.Loopback)
+			}
 			routerPorts := []int{cfg.Router.HTTPPort, cfg.Router.HTTPSPort}
 			// Grant CAP_NET_BIND_SERVICE up front for every privileged port the
 			// daemon must bind , otherwise the bind silently fails with EACCES

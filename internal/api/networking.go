@@ -38,7 +38,7 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 	syncNow = func() {}
 
 	if cfg.DNS.Enabled {
-		server := &dns.Server{TLD: cfg.TLD, Addr: "127.0.0.1:" + strconv.Itoa(cfg.DNS.Port), Answer: net.ParseIP(cfg.Router.Loopback)}
+		server := &dns.Server{TLD: cfg.TLD, Addr: cfg.Router.Loopback + ":" + strconv.Itoa(cfg.DNS.Port), Answer: net.ParseIP(cfg.Router.Loopback)}
 		if err := server.Start(); err != nil {
 			// Degrade, never die: routing is the critical path, and hosts
 			// file entries keep resolving without us.

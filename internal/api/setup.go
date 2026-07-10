@@ -57,7 +57,7 @@ func (s *Server) handleSetupReapply(w http.ResponseWriter, r *http.Request) {
 
 	// DNS registration also needs elevation on most platforms.
 	if s.Config.DNS.Enabled {
-		if err := platform.RegisterDNS(s.Config.TLD, s.Config.DNS.Port); err != nil {
+		if err := platform.RegisterDNS(s.Config.TLD, s.Config.Router.Loopback, s.Config.DNS.Port); err != nil {
 			var manual *platform.ManualStepsError
 			if errors.As(err, &manual) {
 				add("DNS registration", "manual", "needs elevation", manual.Instructions)
@@ -95,7 +95,7 @@ func (s *Server) handleSetupTrust(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSetupDNS(w http.ResponseWriter, r *http.Request) {
-	if err := platform.RegisterDNS(s.Config.TLD, s.Config.DNS.Port); err != nil {
+	if err := platform.RegisterDNS(s.Config.TLD, s.Config.Router.Loopback, s.Config.DNS.Port); err != nil {
 		var manual *platform.ManualStepsError
 		if errors.As(err, &manual) {
 			writeJSON(w, http.StatusOK, SetupStepResult{Done: false, Manual: manual.Instructions})

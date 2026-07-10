@@ -25,17 +25,17 @@ func NeedsEmbeddedDNS() bool { return true }
 // native macOS auth dialog (osascript), so the GUI wizard isn't reduced to
 // printing sudo commands. Only if that path is unavailable (headless/CI, or
 // the user cancels) does it fall back to manual instructions.
-func RegisterDNS(tld string, port int) error {
+func RegisterDNS(tld, addr string, port int) error {
 	path := filepath.Join(resolverDir, tld)
 	if os.Geteuid() == 0 {
 		if err := os.MkdirAll(resolverDir, 0o755); err != nil {
 			return err
 		}
-		return os.WriteFile(path, []byte(resolverContent(port)), 0o644)
+		return os.WriteFile(path, []byte(resolverContent(addr, port)), 0o644)
 	}
-	shell := fmt.Sprintf("/bin/mkdir -p %s && /usr/bin/printf '%s' > '%s'", resolverDir, resolverPrintf(port), path)
+	shell := fmt.Sprintf("/bin/mkdir -p %s && /usr/bin/printf '%s' > '%s'", resolverDir, resolverPrintf(addr, port), path)
 	if err := runWithAdmin(shell); err != nil {
-		return &ManualStepsError{Instructions: DNSInstructions(tld, port)}
+		return &ManualStepsError{Instructions: DNSInstructions(tld, addr, port)}
 	}
 	return nil
 }
@@ -56,9 +56,9 @@ func UnregisterDNS(tld string) error {
 
 // DNSInstructions are the manual sudo equivalents. macOS resolver files
 // support custom ports, so any dns.port works here.
-func DNSInstructions(tld string, port int) string {
+func DNSInstructions(tld, addr string, port int) string {
 	path := filepath.Join(resolverDir, tld)
-	return fmt.Sprintf("sudo mkdir -p %s\nprintf '%s' | sudo tee %s", resolverDir, resolverContent(port), path)
+	return fmt.Sprintf("sudo mkdir -p %s\nprintf '%s' | sudo tee %s", resolverDir, resolverContent(addr, port), path)
 }
 
 // runWithAdmin runs a /bin/sh command as root through osascript, which shows
@@ -75,18 +75,44 @@ func runWithAdmin(shellCmd string) error {
 }
 
 // resolverContent is the file body (real newlines) for direct writes.
-func resolverContent(port int) string {
+func resolverContent(addr string, port int) string {
 	if port == 53 {
-		return "nameserver 127.0.0.1\n"
+		return "nameserver " + addr + "\n"
 	}
-	return fmt.Sprintf("nameserver 127.0.0.1\nport %d\n", port)
+	return fmt.Sprintf("nameserver %s\nport %d\n", addr, port)
 }
 
 // resolverPrintf is the same body as a printf format string (literal \n) for
 // embedding in the shell command run under osascript.
-func resolverPrintf(port int) string {
+func resolverPrintf(addr string, port int) string {
 	if port == 53 {
-		return `nameserver 127.0.0.1\n`
+		return `nameserver ` + addr + `\n`
 	}
-	return fmt.Sprintf(`nameserver 127.0.0.1\nport %d\n`, port)
+	return fmt.Sprintf(`nameserver %s\nport %d\n`, addr, port)
+}
+
+// EnsureLoopbackAlias makes addr bindable on macOS, where only 127.0.0.1 is on
+// lo0 by default , a server can't bind 127.0.0.2 without an alias. Adds the
+// alias now (persisting via a LaunchDaemon so it survives reboot) through the
+// admin auth dialog. No-op for 127.0.0.1, which is always present.
+func EnsureLoopbackAlias(addr string) error {
+	if addr == "" || addr == "127.0.0.1" {
+		return nil
+	}
+	const plist = "/Library/LaunchDaemons/dev.hull.loopback.plist"
+	body := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>dev.hull.loopback</string>
+<key>RunAtLoad</key><true/>
+<key>ProgramArguments</key><array>
+<string>/sbin/ifconfig</string><string>lo0</string><string>alias</string><string>%s</string><string>up</string>
+</array></dict></plist>`, addr)
+	// Add the alias now, and persist it for next boot.
+	shell := fmt.Sprintf("/sbin/ifconfig lo0 alias %s up && /usr/bin/printf '%s' > %s",
+		addr, strings.ReplaceAll(body, "\n", `\n`), plist)
+	if err := runWithAdmin(shell); err != nil {
+		return &ManualStepsError{Instructions: fmt.Sprintf("sudo ifconfig lo0 alias %s up", addr)}
+	}
+	return nil
 }
