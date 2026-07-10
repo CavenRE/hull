@@ -45,7 +45,9 @@ func TestBuildImportManifestExtras(t *testing.T) {
 func testEngine(t *testing.T) (*Engine, string) {
 	t.Helper()
 	root := t.TempDir()
-	cfg := &config.Config{TLD: "test", Roots: []string{root}, HullHome: t.TempDir()}
+	noAdminer := false // isolate primitives: don't auto-provision Adminer in unit tests
+	cfg := &config.Config{TLD: "test", Roots: []string{root}, HullHome: t.TempDir(),
+		Services: config.ServicesConfig{AutoAdminer: &noAdminer}}
 	e := New(cfg)
 	e.Run = func(ctx context.Context, dir, name string, args ...string) error {
 		t.Fatalf("unexpected command execution: %s %v", name, args)

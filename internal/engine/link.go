@@ -75,6 +75,9 @@ func (e *Engine) Link(ctx context.Context, p *state.Project, spec string, svcs *
 		if err := svcs.CreateDatabase(ctx, def.Name, version, svc.Database); err != nil {
 			return "", fmt.Errorf("creating database %q in %s: %w", svc.Database, instance, err)
 		}
+		// Auto-provision the Adminer console and refresh its DB picker , a
+		// convenience, so a hiccup here never fails the link.
+		_ = e.EnsureAdminer(ctx)
 	}
 
 	if m.Template == "laravel" {

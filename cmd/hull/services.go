@@ -148,6 +148,11 @@ func init() {
 			); err != nil {
 				return err
 			}
+			if def.IsDatabase {
+				// Auto-provision the Adminer console for the new database instance
+				// and refresh its picker (best-effort , the instance is already up).
+				_ = a.Engine.EnsureAdminer(cmd.Context())
+			}
 			fmt.Printf("✔ Shared instance %s is up. Link a project with: hull link <project> %s\n", templates.InstanceName(def.Name, version), args[0])
 			return nil
 		},

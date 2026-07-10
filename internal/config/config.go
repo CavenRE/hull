@@ -31,10 +31,26 @@ type Config struct {
 	Router RouterConfig `yaml:"router,omitempty"`
 	// DNS configures the embedded wildcard resolver.
 	DNS DNSConfig `yaml:"dns,omitempty"`
+	// Services configures shared-service behavior.
+	Services ServicesConfig `yaml:"services,omitempty"`
 	// Defaults are user preferences applied to new things.
 	Defaults Defaults `yaml:"defaults,omitempty"`
 	// HullHome is the resolved Hull home directory (not stored in the file).
 	HullHome string `yaml:"-"`
+}
+
+// ServicesConfig controls shared-service behavior.
+type ServicesConfig struct {
+	// AutoAdminer auto-provisions the Adminer database console (db.<tld>) the
+	// first time a database is attached to anything. Defaults to on; set to
+	// false to opt out.
+	AutoAdminer *bool `yaml:"auto_adminer,omitempty"`
+}
+
+// AutoAdminerEnabled reports whether Adminer should be auto-provisioned when a
+// database is attached. Defaults to true when unset.
+func (c *Config) AutoAdminerEnabled() bool {
+	return c.Services.AutoAdminer == nil || *c.Services.AutoAdminer
 }
 
 // Defaults are user preferences (Settings page).

@@ -211,6 +211,11 @@ func (e *Engine) NewProject(ctx context.Context, opts NewOptions) (string, error
 		if err := e.runHooks(ctx, p, "post_create", true); err != nil {
 			return dir, err
 		}
+		// If this project brought a database, auto-provision the Adminer console
+		// and refresh its picker (best-effort , never fail the create).
+		if _, _, hasDB := m.DatabaseService(); hasDB {
+			_ = e.EnsureAdminer(ctx)
+		}
 	}
 	return dir, nil
 }

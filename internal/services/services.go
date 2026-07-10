@@ -119,6 +119,14 @@ func (m *Manager) Add(ctx context.Context, engineName, version string) (string, 
 		}
 		plugin := strings.ReplaceAll(templates.AdminerPluginPath(m.HullHome), "\\", "/")
 		svc.Volumes = append(svc.Volumes, plugin+":/var/www/html/plugins-enabled/hull-login.php:ro")
+		// servers.json backs the login-page database picker. Ensure it exists so
+		// the bind mount resolves to a file (not a new dir); Hull regenerates it
+		// whenever databases change.
+		serversPath := strings.ReplaceAll(filepath.Join(m.HullHome, "system", "adminer", "servers.json"), "\\", "/")
+		if _, err := os.Stat(serversPath); err != nil {
+			_ = os.WriteFile(serversPath, []byte("[]"), 0o644)
+		}
+		svc.Volumes = append(svc.Volumes, serversPath+":/var/www/html/plugins-enabled/servers.json:ro")
 	}
 
 	// Primary port on a STABLE loopback host port: desktop tools
