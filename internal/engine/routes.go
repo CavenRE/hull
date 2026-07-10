@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"path/filepath"
 	"sort"
 	"strconv"
 
@@ -13,9 +12,12 @@ import (
 	"github.com/CavenRE/hull/internal/templates"
 )
 
-// PortLookup resolves the host port docker assigned to a published
-// container port (injectable for tests; dockerx.PublishedPort in prod).
-type PortLookup func(ctx context.Context, dir, service string, containerPort int) (int, error)
+// PortLookup resolves the host port docker assigned to a published container
+// port. It takes the whole project (not just a dir) so the lookup can use the
+// same pinned compose identity (-p/-f/--env-file) the project was brought up
+// with , a bare dir-only lookup re-derives a different project name and 502s
+// adopted clusters. Prod uses e.composeFor(p).Port; tests inject a fake.
+type PortLookup func(ctx context.Context, p *state.Project, service string, containerPort int) (int, error)
 
 // ComputeRoutes derives the router table from running projects: each
 // routed service's loopback-published port becomes an upstream (ADR 0007).
@@ -43,7 +45,7 @@ func ComputeRoutes(ctx context.Context, projects []state.Project, tld string, ru
 				if !rt.Served() {
 					continue
 				}
-				hostPort, err := ports(ctx, filepath.Join(p.Dir, m.ComposeRoot), rt.Service, rt.Port)
+				hostPort, err := ports(ctx, p, rt.Service, rt.Port)
 				if err != nil {
 					// Internal-only service (no published port): skip here, it
 					// falls through to a readable 502 down-route.
@@ -65,7 +67,7 @@ func ComputeRoutes(ctx context.Context, projects []state.Project, tld string, ru
 						upstream = def.UpstreamPort
 					}
 				}
-				if hostPort, err := ports(ctx, p.Dir, key, upstream); err == nil {
+				if hostPort, err := ports(ctx, p, key, upstream); err == nil {
 					routes = append(routes, router.Route{
 						Domain:   c.Domain + "." + tld,
 						Upstream: loopback(hostPort),
@@ -80,7 +82,7 @@ func ComputeRoutes(ctx context.Context, projects []state.Project, tld string, ru
 			if !ok {
 				continue
 			}
-			if hostPort, err := ports(ctx, p.Dir, "app", def.UpstreamPort); err == nil {
+			if hostPort, err := ports(ctx, p, "app", def.UpstreamPort); err == nil {
 				routes = append(routes, router.Route{
 					Domain:   m.Domain + "." + tld,
 					Upstream: loopback(hostPort),
@@ -149,5 +151,10 @@ func (e *Engine) Routes(ctx context.Context) []router.Route {
 			running[n] = true
 		}
 	}
-	return ComputeRoutes(ctx, projects, e.Config.TLD, running, dockerx.PublishedPort)
+	// Resolve each project's published port through the SAME compose driver
+	// (pinned -p/-f/--env-file) that Up used , see PortLookup / Compose.Port.
+	ports := func(ctx context.Context, p *state.Project, service string, containerPort int) (int, error) {
+		return e.composeFor(p).Port(ctx, service, containerPort)
+	}
+	return ComputeRoutes(ctx, projects, e.Config.TLD, running, ports)
 }

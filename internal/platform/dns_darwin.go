@@ -15,6 +15,11 @@ const resolverDir = "/etc/resolver"
 // the Linux signature; it's empty when supported.
 func DNSSupported() (bool, string) { return true, "" }
 
+// NeedsEmbeddedDNS reports whether Hull runs its own :53 resolver. On macOS the
+// /etc/resolver/<tld> file routes *.<tld> to 127.0.0.1:53 (Hull's server), so
+// it always does.
+func NeedsEmbeddedDNS() bool { return true }
+
 // RegisterDNS writes the /etc/resolver/<tld> file macOS uses for per-domain
 // resolvers. Root writes directly; otherwise it asks for admin rights via the
 // native macOS auth dialog (osascript), so the GUI wizard isn't reduced to

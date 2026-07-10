@@ -2,11 +2,13 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/CavenRE/hull/internal/config"
@@ -83,7 +85,11 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 			fp := fingerprint(routes)
 			if fp != lastFingerprint {
 				if err := router.Apply(routes, opts); err != nil {
-					logf("router: apply failed: %v", err)
+					if isBindPermissionErr(err) {
+						logf("router: CANNOT BIND %s:%d/%d , permission denied. The embedded router needs CAP_NET_BIND_SERVICE; run `hull setup` (grants it) or `sudo setcap cap_net_bind_service=+ep <hull binary>`. https://<name>.%s stays offline until then.", opts.BindHost, opts.HTTPPort, opts.HTTPSPort, cfg.TLD)
+					} else {
+						logf("router: apply failed: %v", err)
+					}
 				} else {
 					lastFingerprint = fp
 					logf("router: %d route(s) active (%d live)", len(routes), len(live))
@@ -182,6 +188,17 @@ func mergeDownRoutes(live []router.Route, allDomains []string) []router.Route {
 		routes = append(routes, router.Route{Domain: d}) // empty upstream → 502
 	}
 	return routes
+}
+
+// isBindPermissionErr reports whether err is a privileged-port bind denial.
+// Caddy wraps the underlying listen error as text, so we check both the errno
+// and the message.
+func isBindPermissionErr(err error) bool {
+	if errors.Is(err, syscall.EACCES) || errors.Is(err, syscall.EPERM) {
+		return true
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "permission denied") && (strings.Contains(s, "bind") || strings.Contains(s, "listen"))
 }
 
 func fingerprint(routes []router.Route) string {

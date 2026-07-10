@@ -9,7 +9,7 @@
 # add a pkgver() using `git describe`.
 
 pkgname=hull
-pkgver=0.9.5
+pkgver=0.12.0
 pkgrel=1
 pkgdesc='A local environment for your sites & apps , native router, DNS and services'
 arch=('x86_64' 'aarch64')
@@ -19,7 +19,7 @@ makedepends=('go' 'git')
 depends=('docker' 'docker-compose')
 install=hull.install
 source=("$pkgname-$pkgver.tar.gz::https://github.com/CavenRE/hull/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP') # run `updpkgsums` before publishing to pin the checksum
+sha256sums=('36114c42e6df5e6350f539f082529c0b2e05bc055713e00e6e5892677b7f05de')
 
 _srcdir="$pkgname-$pkgver"
 

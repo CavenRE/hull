@@ -1,6 +1,6 @@
 pkgbase = hull
 	pkgdesc = A local environment for your sites & apps , native router, DNS and services
-	pkgver = 0.9.5
+	pkgver = 0.12.0
 	pkgrel = 1
 	url = https://github.com/CavenRE/hull
 	install = hull.install
@@ -11,7 +11,7 @@ pkgbase = hull
 	makedepends = git
 	depends = docker
 	depends = docker-compose
-	source = hull-0.9.5.tar.gz::https://github.com/CavenRE/hull/archive/refs/tags/v0.9.5.tar.gz
-	sha256sums = SKIP
+	source = hull-0.12.0.tar.gz::https://github.com/CavenRE/hull/archive/refs/tags/v0.12.0.tar.gz
+	sha256sums = 36114c42e6df5e6350f539f082529c0b2e05bc055713e00e6e5892677b7f05de
 
 pkgname = hull

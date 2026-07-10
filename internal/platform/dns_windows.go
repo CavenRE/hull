@@ -12,6 +12,11 @@ import (
 // signature; it's empty when supported.
 func DNSSupported() (bool, string) { return true, "" }
 
+// NeedsEmbeddedDNS reports whether Hull runs its own :53 resolver. On Windows
+// the NRPT rule routes *.<tld> to 127.0.0.1:53 (Hull's server), so it always
+// does.
+func NeedsEmbeddedDNS() bool { return true }
+
 // RegisterDNS routes *.<tld> lookups to Hull's resolver via an NRPT rule.
 // Requires elevation , launched through a UAC prompt, like v1's hosts sync.
 func RegisterDNS(tld string, port int) error {

@@ -6,7 +6,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"time"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -109,23 +109,31 @@ func init() {
 				if ok, reason := platform.DNSSupported(); !ok {
 					fmt.Println("> Skipping OS DNS registration ,", reason)
 					fmt.Printf("  Keep resolving *.%s the way you do now; this machine is left as-is.\n", cfg.TLD)
-					fmt.Println("  (Pass --skip-dns to silence this, or switch the box to systemd-resolved.)")
+					fmt.Println("  (Pass --skip-dns to silence this.)")
 					skipDNS = true
 				}
 			}
 
 			fmt.Println("> Enabling embedded router and DNS in config")
 			cfg.Router.Enabled = true
-			cfg.DNS.Enabled = !skipDNS
+			// Hull runs its own :53 resolver only when the OS routes *.tld to it
+			// (systemd-resolved, macOS resolver file, Windows NRPT). With
+			// NetworkManager+dnsmasq the OS resolver answers *.tld directly, so
+			// Hull must not bind :53 , DNS still gets registered below, but the
+			// embedded server stays off.
+			cfg.DNS.Enabled = !skipDNS && platform.NeedsEmbeddedDNS()
 			if err := cfg.Save(); err != nil {
 				return err
 			}
 			if err := templates.EnsureSystemFiles(cfg.HullHome); err != nil {
 				return err
 			}
-			dnsState := fmt.Sprintf("dns :%d", cfg.DNS.Port)
-			if !cfg.DNS.Enabled {
-				dnsState = "dns off (resolve *." + cfg.TLD + " elsewhere)"
+			dnsState := "dns off (resolve *." + cfg.TLD + " elsewhere)"
+			switch {
+			case cfg.DNS.Enabled:
+				dnsState = fmt.Sprintf("dns :%d (embedded)", cfg.DNS.Port)
+			case !skipDNS:
+				dnsState = "dns via system resolver"
 			}
 			fmt.Printf("  ✔ %s updated (router :%d/:%d, %s)\n",
 				"config.yaml", cfg.Router.HTTPPort, cfg.Router.HTTPSPort, dnsState)
@@ -157,17 +165,51 @@ func init() {
 						fmt.Println("  !", err)
 						fmt.Println(indent(platform.DNSInstructions(cfg.TLD, cfg.DNS.Port), "    "))
 					}
+				} else if cfg.DNS.Enabled {
+					fmt.Printf("  ✔ *.%s routes to Hull's resolver (active once the daemon is running)\n", cfg.TLD)
 				} else {
-					fmt.Printf("  ✔ *.%s now resolves to 127.0.0.1 (once the daemon's DNS is running)\n", cfg.TLD)
+					fmt.Printf("  ✔ *.%s now resolves to 127.0.0.1 via the system resolver\n", cfg.TLD)
 				}
 			}
 
-			fmt.Println("> Checking router ports")
-			for _, port := range []int{cfg.Router.HTTPPort, cfg.Router.HTTPSPort} {
-				if portBusy(port) {
-					fmt.Printf("  ! Port %d is in use , stop the occupant (v1 hull-router? IIS?) or change router ports in config.yaml\n", port)
+			fmt.Println("> Checking ports & bind capability")
+			routerPorts := []int{cfg.Router.HTTPPort, cfg.Router.HTTPSPort}
+			// Grant CAP_NET_BIND_SERVICE up front for every privileged port the
+			// daemon must bind , otherwise the bind silently fails with EACCES
+			// and the router/DNS are dark. The embedded resolver needs :53, which
+			// is privileged on every kernel (53 < ip_unprivileged_port_start),
+			// so include it when DNS is enabled , the router's 80/443 may be
+			// unprivileged on a tuned box yet :53 still needs the capability.
+			// No-op (and no prompt) when nothing privileged is in play.
+			capPorts := append([]int(nil), routerPorts...)
+			if cfg.DNS.Enabled {
+				capPorts = append(capPorts, cfg.DNS.Port)
+			}
+			capGranted := true
+			if msg, err := platform.EnsurePortBind(capPorts); err != nil {
+				capGranted = false
+				var manual *platform.ManualStepsError
+				if errors.As(err, &manual) {
+					fmt.Println("  ! Privileged router ports need a capability , run:")
+					fmt.Println(indent(manual.Instructions, "    "))
 				} else {
-					fmt.Printf("  ✔ Port %d free\n", port)
+					fmt.Println("  ! could not grant port-bind capability:", err)
+				}
+			} else if msg != "" {
+				fmt.Println("  ✔", msg)
+			}
+			for _, port := range routerPorts {
+				switch bindProbe(cfg.Router.Loopback, port) {
+				case bindFree:
+					fmt.Printf("  ✔ Port %d bindable\n", port)
+				case bindInUse:
+					fmt.Printf("  ! Port %d is in use , stop the occupant (v1 hull-router? another web server?) or change router ports in config.yaml\n", port)
+				case bindDenied:
+					if capGranted {
+						fmt.Printf("  ✔ Port %d is privileged; the daemon binds it via CAP_NET_BIND_SERVICE\n", port)
+					} else {
+						fmt.Printf("  ! Port %d needs privilege , run: sudo setcap 'cap_net_bind_service=+ep' <hull binary>  (or lower net.ipv4.ip_unprivileged_port_start)\n", port)
+					}
 				}
 			}
 
@@ -181,13 +223,33 @@ func init() {
 	rootCmd.AddCommand(cmd)
 }
 
-func portBusy(port int) bool {
-	conn, err := net.DialTimeout("tcp", "127.0.0.1:"+strconv.Itoa(port), 400*time.Millisecond)
-	if err != nil {
-		return false
+type bindResult int
+
+const (
+	bindFree   bindResult = iota // nothing there and we can bind it
+	bindInUse                    // something is already bound (EADDRINUSE)
+	bindDenied                   // privilege required to bind (EACCES/EPERM)
+)
+
+// bindProbe actually attempts to bind host:port, unlike a dial (which only
+// reports whether something is already listening). This is what distinguishes a
+// free port from a privileged one the daemon can't bind without
+// CAP_NET_BIND_SERVICE , the exact case that silently broke the router on stock
+// Linux, where the old dial-only check reported the port "free".
+func bindProbe(host string, port int) bindResult {
+	if host == "" {
+		host = "127.0.0.1"
 	}
-	_ = conn.Close()
-	return true
+	ln, err := net.Listen("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+	if err == nil {
+		_ = ln.Close()
+		return bindFree
+	}
+	if errors.Is(err, syscall.EACCES) || errors.Is(err, syscall.EPERM) {
+		return bindDenied
+	}
+	// EADDRINUSE and anything else: treat as occupied so we surface a warning.
+	return bindInUse
 }
 
 func indent(s, prefix string) string {

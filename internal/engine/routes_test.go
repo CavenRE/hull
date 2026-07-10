@@ -44,7 +44,7 @@ containers:
 		t.Fatal(err)
 	}
 	running := map[string]bool{"site-a": true, "bigapp": true}
-	ports := func(ctx context.Context, dir, service string, containerPort int) (int, error) {
+	ports := func(ctx context.Context, p *state.Project, service string, containerPort int) (int, error) {
 		switch fmt.Sprintf("%s/%d", service, containerPort) {
 		case "app/8080":
 			return 50001, nil
@@ -123,7 +123,7 @@ routes:
 		t.Fatal(err)
 	}
 	running := map[string]bool{"served": true, "selfserved": true}
-	ports := func(ctx context.Context, dir, service string, containerPort int) (int, error) {
+	ports := func(ctx context.Context, p *state.Project, service string, containerPort int) (int, error) {
 		switch service {
 		case "management_api":
 			return 60001, nil

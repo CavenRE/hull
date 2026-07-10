@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -44,6 +45,20 @@ func runUninstall(o uninstallOpts) error {
 	stopHullProcesses(dir)
 	_ = runHull(dir, "trust", "--uninstall")
 
+	// Remove any *.tld DNS config Hull installed (systemd-resolved drop-in or
+	// the NetworkManager dnsmasq rule) , previously leaked because nothing ever
+	// called UnregisterDNS. Surface manual sudo steps when we aren't root.
+	tld := uninstallTLD()
+	if err := platform.UnregisterDNS(tld); err != nil {
+		var manual *platform.ManualStepsError
+		if errors.As(err, &manual) {
+			fmt.Println("DNS cleanup needs elevation , run:")
+			fmt.Println("  " + strings.ReplaceAll(manual.Instructions, "\n", "\n  "))
+		}
+	} else {
+		fmt.Printf("Removed *.%s DNS configuration.\n", tld)
+	}
+
 	fmt.Println("Removing desktop integration…")
 	platform.RemoveSystemdUserUnit()
 	platform.RemoveAutostartEntry()
@@ -71,15 +86,30 @@ func runUninstall(o uninstallOpts) error {
 	return nil
 }
 
-// looksLikeHullDir reports whether dir holds a Hull install (the daemon or the
-// GUI binary), guarding against ever wiping an unrelated directory.
+// looksLikeHullDir reports whether dir holds a Hull install, guarding against
+// ever wiping an unrelated directory. It accepts any of the Hull binaries:
+// source/AUR/release installs ship a single `hull`, while a GUI build also
+// drops `hull-gui`/`hulld`. Requiring the GUI binaries here made `hull
+// uninstall` abort on every real single-binary Linux install (it removed
+// nothing and left the trusted CA, PATH block, and unit behind). `hull` is
+// the running executable itself, so its presence is always valid evidence;
+// os.Remove below only ever targets these known names.
 func looksLikeHullDir(dir string) bool {
-	for _, b := range []string{"hull-gui", "hulld"} {
+	for _, b := range []string{"hull", "hull-gui", "hulld"} {
 		if _, err := os.Stat(filepath.Join(dir, b)); err == nil {
 			return true
 		}
 	}
 	return false
+}
+
+// uninstallTLD returns the configured TLD so DNS cleanup targets the right
+// files, falling back to the default when config can't be loaded.
+func uninstallTLD() string {
+	if a, err := loadApp(); err == nil {
+		return a.Config.TLD
+	}
+	return "test"
 }
 
 func stopHullProcesses(dir string) {

@@ -2,6 +2,8 @@ package dockerx
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -24,11 +26,11 @@ type Compose struct {
 	EnvFile string
 }
 
-func (c Compose) run(ctx context.Context, args ...string) error {
-	runner := c.Run
-	if runner == nil {
-		runner = Exec
-	}
+// args builds the full `compose …` argument list, prefixing this project's
+// identity flags (-p/-f/--env-file/--profile) before the given subcommand args.
+// Every compose invocation for a project MUST go through here so a lookup can
+// never resolve a different project name than the one `up` used.
+func (c Compose) args(sub ...string) []string {
 	full := []string{"compose"}
 	if c.Name != "" {
 		full = append(full, "-p", c.Name)
@@ -42,8 +44,45 @@ func (c Compose) run(ctx context.Context, args ...string) error {
 	for _, p := range c.Profiles {
 		full = append(full, "--profile", p)
 	}
-	full = append(full, args...)
-	return runner(ctx, c.Dir, "docker", full...)
+	return append(full, sub...)
+}
+
+func (c Compose) run(ctx context.Context, args ...string) error {
+	runner := c.Run
+	if runner == nil {
+		runner = Exec
+	}
+	return runner(ctx, c.Dir, "docker", c.args(args...)...)
+}
+
+// Port returns the host port docker published for a service's container port,
+// using the SAME project identity (-p/-f/--env-file/--profile) this project was
+// brought up with. A bare `docker compose port` in the directory would let
+// docker re-derive the project name from the dir basename , which diverges from
+// the pinned -p name for adopted clusters (underscores, compose-file `name:`,
+// ComposeRoot subdirs) and reports the service as "not running", silently 502ing
+// ingress: hull routes. Captures stdout (the streaming run() writes to os.Stdout).
+func (c Compose) Port(ctx context.Context, service string, containerPort int) (int, error) {
+	out, err := Output(ctx, c.Dir, "docker", c.args("port", service, strconv.Itoa(containerPort))...)
+	if err != nil {
+		return 0, err
+	}
+	return parsePublishedPort(out)
+}
+
+// parsePublishedPort extracts the host port from `docker compose port` output
+// like "127.0.0.1:55001" (first line wins).
+func parsePublishedPort(out string) (int, error) {
+	line, _, _ := strings.Cut(out, "\n")
+	idx := strings.LastIndex(strings.TrimSpace(line), ":")
+	if idx < 0 {
+		return 0, fmt.Errorf("unexpected docker compose port output %q", out)
+	}
+	var port int
+	if _, err := fmt.Sscanf(line[idx+1:], "%d", &port); err != nil || port == 0 {
+		return 0, fmt.Errorf("unexpected docker compose port output %q", out)
+	}
+	return port, nil
 }
 
 // Up starts the project detached.

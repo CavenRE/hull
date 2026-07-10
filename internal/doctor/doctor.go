@@ -59,7 +59,11 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 		dockerFound = true
 		add(OK, "docker CLI", "found")
 		if v, err := deps.Output(ctx, "", "docker", "version", "--format", "{{.Server.Version}}"); err != nil {
-			add(Fail, "container engine", "not responding , is it running?")
+			if isDockerPermissionErr(err) {
+				add(Fail, "container engine", "permission denied on the docker socket , add yourself to the 'docker' group: sudo usermod -aG docker $USER  (then log out and back in)")
+			} else {
+				add(Fail, "container engine", "not responding , is it running?")
+			}
 		} else {
 			add(OK, "container engine", "server "+v)
 		}
@@ -105,6 +109,11 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 	if cfg.Router.Enabled {
 		if portListening(cfg.Router.Loopback, cfg.Router.HTTPSPort) {
 			add(OK, "router (embedded)", fmt.Sprintf("listening on %s:%d", cfg.Router.Loopback, cfg.Router.HTTPSPort))
+		} else if deps.DaemonVersion != "" {
+			// Daemon is up but the port isn't bound , not a "start the daemon"
+			// problem. On stock Linux this is the silent CAP_NET_BIND_SERVICE
+			// failure; otherwise a port conflict.
+			add(Fail, "router (embedded)", fmt.Sprintf("daemon is running but %s:%d is not bound , likely missing CAP_NET_BIND_SERVICE (run `hull setup`, or `sudo setcap cap_net_bind_service=+ep <hull>`) or a port conflict", cfg.Router.Loopback, cfg.Router.HTTPSPort))
 		} else {
 			add(Warn, "router (embedded)", fmt.Sprintf("enabled but %s:%d not listening , start the daemon (hulld)", cfg.Router.Loopback, cfg.Router.HTTPSPort))
 		}
@@ -171,6 +180,15 @@ func portListening(host string, port int) bool {
 	}
 	_ = conn.Close()
 	return true
+}
+
+// isDockerPermissionErr reports whether a failed docker probe was a socket
+// permission denial (user not in the docker group) rather than the engine
+// being down , the two need very different fixes.
+func isDockerPermissionErr(err error) bool {
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "permission denied") &&
+		(strings.Contains(s, "docker.sock") || strings.Contains(s, "/var/run/docker") || strings.Contains(s, "dial unix"))
 }
 
 func containsLine(out, want string) bool {

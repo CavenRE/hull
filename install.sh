@@ -73,6 +73,14 @@ EOF
   systemctl --user daemon-reload 2>/dev/null || true
   if systemctl --user enable --now hulld.service 2>/dev/null; then
     ok "hulld running as a systemd --user service"
+    # Without linger a --user service is killed on logout and never starts at
+    # boot , enable it so the daemon behaves like the background service we
+    # just promised. Best-effort: may need polkit/root on some systems.
+    if loginctl enable-linger "$USER" 2>/dev/null; then
+      ok "linger enabled , hulld starts at boot and survives logout"
+    else
+      warn "enable boot-start/logout-survival with: sudo loginctl enable-linger $USER"
+    fi
   else
     warn "installed hulld.service , enable it with: systemctl --user enable --now hulld.service"
   fi
