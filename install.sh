@@ -161,14 +161,15 @@ mkdir -p "$PREFIX"
 go build -ldflags "$LDFLAGS" -o "$PREFIX/hull"  ./cmd/hull
 ok "installed hull → $PREFIX (version $VER)"
 
-# On Linux the daemon's embedded router binds 80/443 directly (no container),
-# which needs CAP_NET_BIND_SERVICE. macOS lets non-root bind low ports; on
-# Windows it's unrestricted. A fresh binary loses file caps, so re-apply here.
+# On Linux the daemon's embedded router and DNS bind 80/443/53 directly (no
+# container), which needs CAP_NET_BIND_SERVICE. macOS lets non-root bind low
+# ports; on Windows it's unrestricted. A fresh binary loses file caps, so
+# re-apply here , before setup, so the daemon that setup brings up can bind.
 if [ "$OS" = Linux ] && command -v setcap >/dev/null 2>&1; then
   if [ "$(getcap "$PREFIX/hull" 2>/dev/null)" = "" ]; then
-    if confirm "  Grant hull permission to bind ports 80/443 (sudo setcap)?"; then
+    if confirm "  Grant hull permission to bind ports 80/443/53 (sudo setcap)?"; then
       if sudo setcap 'cap_net_bind_service=+ep' "$PREFIX/hull"; then
-        ok "hull may now bind 80/443"
+        ok "hull may now bind 80/443/53"
       else
         warn "setcap failed , run: sudo setcap 'cap_net_bind_service=+ep' $PREFIX/hull"
       fi
@@ -176,19 +177,6 @@ if [ "$OS" = Linux ] && command -v setcap >/dev/null 2>&1; then
       warn "without it, run the daemon as root or lower net.ipv4.ip_unprivileged_port_start"
     fi
   fi
-fi
-
-# ── optional: run hulld as a systemd --user service (Linux) ──────────────────
-# Opt-in: --service forces it; otherwise we only ask in an interactive run, so
-# `--yes` automation never enables a background service behind the user's back.
-if [ "$OS" = Linux ] && command -v systemctl >/dev/null 2>&1; then
-  want_service=0
-  if [ "$SERVICE" = 1 ]; then
-    want_service=1
-  elif [ "$ASSUME_YES" = 0 ] && [ -t 0 ]; then
-    confirm "  Run the Hull daemon in the background as a systemd --user service?" && want_service=1
-  fi
-  [ "$want_service" = 1 ] && { step "Installing systemd --user service"; install_systemd_unit; }
 fi
 
 # ── PATH ────────────────────────────────────────────────────────────────────
@@ -207,15 +195,44 @@ case ":$PATH:" in
     fi ;;
 esac
 
-# ── hand off ────────────────────────────────────────────────────────────────
+# ── configure the machine (router, DNS, certificate) ─────────────────────────
+# Run the same `hull setup` a user would , enable the native router + DNS,
+# install the local CA into the trust store, and register *.tld with the OS
+# resolver. It prompts for sudo only where it must (cert + DNS). Done BEFORE the
+# daemon starts so the service comes up already configured , no manual restart.
+DID_SETUP=0
 if [ "$SKIP_SETUP" = 0 ] && [ "$DOCKER_OK" = 1 ]; then
-  step "Running diagnostics"
+  step "Configuring Hull (router, DNS, certificate)"
+  if "$PREFIX/hull" setup; then DID_SETUP=1; else warn "setup didn't finish , re-run: hull setup"; fi
+fi
+
+# ── run hulld as a systemd --user service (Linux) ────────────────────────────
+# Installed AFTER setup so the daemon starts on the configured router/DNS.
+# Opt-in: --service forces it; otherwise we only ask in an interactive run, so
+# `--yes` automation never enables a background service behind the user's back.
+want_service=0
+if [ "$OS" = Linux ] && command -v systemctl >/dev/null 2>&1; then
+  if [ "$SERVICE" = 1 ]; then
+    want_service=1
+  elif [ "$ASSUME_YES" = 0 ] && [ -t 0 ]; then
+    confirm "  Run the Hull daemon in the background as a systemd --user service?" && want_service=1
+  fi
+  if [ "$want_service" = 1 ]; then step "Installing systemd --user service"; install_systemd_unit; fi
+fi
+
+# ── hand off ────────────────────────────────────────────────────────────────
+if [ "$DID_SETUP" = 1 ]; then
+  step "Verifying"
   "$PREFIX/hull" doctor || true
   say ""
-  say "Next: ${B}hull setup${X}  (enables the native router + DNS; may prompt for sudo)"
-  say "Then: ${B}hull daemon run${X}  (start the daemon) and ${B}hull up${X}"
+  if [ "$want_service" = 1 ]; then
+    ok "Hull is ready , the daemon is running. Scaffold a site: ${B}hull new myapp laravel${X}"
+  else
+    say "Start the daemon (${B}hull daemon run${X}, or re-run with ${B}--service${X}), then ${B}hull new myapp laravel${X}"
+  fi
 else
   step "Done"
-  [ "$DOCKER_OK" = 0 ] && warn "install Docker, then run: hull doctor"
+  [ "$DOCKER_OK" = 0 ] && warn "install Docker, then run: hull setup"
+  [ "$SKIP_SETUP" = 1 ] && say "Next: ${B}hull setup${X}, then ${B}hull daemon run${X}"
 fi
 ok "Hull $VER installed."

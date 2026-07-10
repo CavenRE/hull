@@ -235,8 +235,22 @@ func init() {
 				}
 			}
 
-			fmt.Println("\nSetup complete. Start the daemon:  hull daemon run")
-			fmt.Println("Then verify with:                  hull doctor")
+			// If a daemon is already running, it's serving the OLD config until
+			// restarted , bounce it so the new router/DNS/loopback settings take
+			// effect. On a fresh install the daemon isn't up yet (install.sh
+			// starts it after setup), so this is a no-op there.
+			if daemonUp {
+				if restarted, err := platform.RestartDaemonService(); restarted && err == nil {
+					fmt.Println("\n> Restarted the Hull daemon to apply the new configuration")
+					fmt.Println("Setup complete. Verify with:  hull doctor")
+				} else {
+					fmt.Println("\nSetup complete. Restart the daemon to apply:  hull daemon stop && hull daemon run")
+					fmt.Println("Then verify with:                             hull doctor")
+				}
+			} else {
+				fmt.Println("\nSetup complete. Start the daemon:  hull daemon run")
+				fmt.Println("Then verify with:                  hull doctor")
+			}
 			return nil
 		},
 	}
