@@ -84,6 +84,35 @@ func TestSaveRoundTrip(t *testing.T) {
 	}
 }
 
+func TestProjectsRoundTrip(t *testing.T) {
+	home := t.TempDir()
+	proj := t.TempDir()
+	cfg := &Config{TLD: "dev", Roots: []string{t.TempDir()}, Projects: []string{proj}, HullHome: home}
+	if err := cfg.Save(); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Projects) != 1 || loaded.Projects[0] != filepath.Clean(proj) {
+		t.Errorf("projects round trip = %v, want [%s]", loaded.Projects, proj)
+	}
+}
+
+func TestSaveAllowsProjectsOnlyAndRejectsEmpty(t *testing.T) {
+	// A projects-only config (no parked roots) is valid.
+	only := &Config{Projects: []string{t.TempDir()}, HullHome: t.TempDir()}
+	if err := only.Save(); err != nil {
+		t.Errorf("projects-only config should save, got %v", err)
+	}
+	// Neither roots nor projects is rejected.
+	empty := &Config{HullHome: t.TempDir()}
+	if err := empty.Save(); err == nil {
+		t.Error("a config with no roots and no projects should be rejected")
+	}
+}
+
 func TestValidLoopback(t *testing.T) {
 	for _, s := range []string{"127.0.0.1", "127.0.0.3", "127.0.0.8"} {
 		if !ValidLoopback(s) {

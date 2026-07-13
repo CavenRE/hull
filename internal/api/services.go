@@ -28,7 +28,7 @@ func (s *Server) handleServicesList(w http.ResponseWriter, r *http.Request) {
 
 	// Which projects consume which instance (manifest scan).
 	linked := map[string][]string{}
-	if projects, err := state.Scan(s.Config.Roots); err == nil {
+	if projects, err := state.Scan(s.Config.Roots, s.Config.Projects...); err == nil {
 		for i := range projects {
 			m := projects[i].Manifest
 			if m == nil {
@@ -132,7 +132,7 @@ func (s *Server) handleServiceLink(w http.ResponseWriter, r *http.Request, insta
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	p, err := state.Find(s.Config.Roots, req.Project)
+	p, err := state.Find(s.Config.Roots, req.Project, s.Config.Projects...)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
@@ -165,7 +165,7 @@ func (s *Server) handleServiceLink(w http.ResponseWriter, r *http.Request, insta
 			return err
 		}
 		log("restarting " + req.Project + " to apply...")
-		fresh, err := state.Find(s.Config.Roots, req.Project)
+		fresh, err := state.Find(s.Config.Roots, req.Project, s.Config.Projects...)
 		if err != nil {
 			return err
 		}

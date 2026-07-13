@@ -141,7 +141,7 @@ func AllDomains(projects []state.Project, tld string) []string {
 
 // Routes computes the live route table for this engine's config.
 func (e *Engine) Routes(ctx context.Context) []router.Route {
-	projects, err := state.Scan(e.Config.Roots)
+	projects, err := state.Scan(e.Config.Roots, e.Config.Projects...)
 	if err != nil {
 		return nil
 	}

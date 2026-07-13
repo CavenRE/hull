@@ -215,14 +215,14 @@ func (a *app) currentProject() (*state.Project, bool) {
 	if err != nil {
 		return nil, false
 	}
-	return state.Current(a.Config.Roots, wd)
+	return state.Current(a.Config.Roots, wd, a.Config.Projects...)
 }
 
 // findProject resolves a project by name with a friendly error, falling back to
 // a ledger-known cluster whose directory is outside the configured roots (so an
 // adopted cluster stays operable after its root was removed).
 func (a *app) findProject(name string) (*state.Project, error) {
-	p, err := state.Find(a.Config.Roots, name)
+	p, err := state.Find(a.Config.Roots, name, a.Config.Projects...)
 	if err == nil {
 		return p, nil
 	}
@@ -247,6 +247,7 @@ func (a *app) configView(ctx context.Context) (api.ConfigInfo, error) {
 	var ci api.ConfigInfo
 	ci.TLD = a.Config.TLD
 	ci.Roots = a.Config.Roots
+	ci.Projects = a.Config.Projects
 	ci.Defaults.PHP = a.Config.Defaults.PHP
 	ci.Defaults.Editor = a.Config.Defaults.Editor
 	ci.Defaults.DBTool = a.Config.Defaults.DBTool
@@ -262,6 +263,7 @@ func (a *app) saveConfig(ctx context.Context, ci api.ConfigInfo) error {
 	}
 	a.Config.TLD = ci.TLD
 	a.Config.Roots = ci.Roots
+	a.Config.Projects = ci.Projects
 	a.Config.Defaults.PHP = ci.Defaults.PHP
 	a.Config.Defaults.Editor = ci.Defaults.Editor
 	a.Config.Defaults.DBTool = ci.Defaults.DBTool

@@ -34,7 +34,7 @@ func (s *Server) registerManageRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) handleDetect(w http.ResponseWriter, r *http.Request) {
-	p, err := state.Find(s.Config.Roots, r.URL.Query().Get("name"))
+	p, err := state.Find(s.Config.Roots, r.URL.Query().Get("name"), s.Config.Projects...)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
@@ -57,7 +57,7 @@ func (s *Server) handleDoctor(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) configInfo() ConfigInfo {
-	info := ConfigInfo{TLD: s.Config.TLD, Roots: s.Config.Roots, Loopback: s.Config.Router.Loopback}
+	info := ConfigInfo{TLD: s.Config.TLD, Roots: s.Config.Roots, Projects: s.Config.Projects, Loopback: s.Config.Router.Loopback}
 	info.Defaults.PHP = s.Config.Defaults.PHP
 	info.Defaults.Editor = s.Config.Defaults.Editor
 	info.Defaults.DBTool = s.Config.Defaults.DBTool
@@ -74,8 +74,14 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if len(req.Roots) == 0 {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("at least one root is required"))
+	// A nil projects field (e.g. a GUI PUT that never sends it) leaves the
+	// registered projects unchanged; an explicit list replaces them.
+	remainingProjects := s.Config.Projects
+	if req.Projects != nil {
+		remainingProjects = req.Projects
+	}
+	if len(req.Roots) == 0 && len(remainingProjects) == 0 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("at least one root or registered project is required"))
 		return
 	}
 
@@ -95,6 +101,9 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 		s.Config.Router.Loopback = req.Loopback
 	}
 	s.Config.Roots = req.Roots
+	if req.Projects != nil {
+		s.Config.Projects = req.Projects
+	}
 	s.Config.Defaults.PHP = req.Defaults.PHP
 	s.Config.Defaults.Editor = req.Defaults.Editor
 	s.Config.Defaults.DBTool = req.Defaults.DBTool
@@ -126,7 +135,7 @@ func (s *Server) handleProjectOpen(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	p, err := state.Find(s.Config.Roots, r.PathValue("name"))
+	p, err := state.Find(s.Config.Roots, r.PathValue("name"), s.Config.Projects...)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
@@ -172,7 +181,7 @@ func (s *Server) handleProjectPatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	p, err := state.Find(s.Config.Roots, r.PathValue("name"))
+	p, err := state.Find(s.Config.Roots, r.PathValue("name"), s.Config.Projects...)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
@@ -223,7 +232,7 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	var dir string
 	switch {
 	case q.Get("project") != "":
-		p, err := state.Find(s.Config.Roots, q.Get("project"))
+		p, err := state.Find(s.Config.Roots, q.Get("project"), s.Config.Projects...)
 		if err != nil {
 			writeError(w, http.StatusNotFound, err)
 			return

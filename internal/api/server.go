@@ -81,7 +81,7 @@ func (k *keyedMutex) lock(key string) func() {
 // cluster whose directory is outside the configured roots, so both the CLI and
 // the daemon resolve out-of-root clusters the same way.
 func (s *Server) findProject(name string) (*state.Project, error) {
-	p, err := state.Find(s.Config.Roots, name)
+	p, err := state.Find(s.Config.Roots, name, s.Config.Projects...)
 	if err == nil {
 		return p, nil
 	}
@@ -223,7 +223,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 // for reuse by the CLI's in-process fallback so both paths render the same
 // data.
 func ProjectList(ctx context.Context, cfg *config.Config, running func(context.Context) ([]string, error)) ([]ProjectInfo, error) {
-	projects, err := state.Scan(cfg.Roots)
+	projects, err := state.Scan(cfg.Roots, cfg.Projects...)
 	if err != nil {
 		return nil, err
 	}
@@ -311,7 +311,7 @@ func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
 // the configured roots are still listed. Exported so the CLI's in-process
 // fallback renders the same data as the daemon (core-first).
 func ClusterList(ctx context.Context, cfg *config.Config, running func(context.Context) ([]string, error)) ([]ClusterInfo, error) {
-	projects, err := state.Scan(cfg.Roots)
+	projects, err := state.Scan(cfg.Roots, cfg.Projects...)
 	if err != nil {
 		return nil, err
 	}
@@ -606,7 +606,7 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	p, err := state.Find(s.Config.Roots, req.Name)
+	p, err := state.Find(s.Config.Roots, req.Name, s.Config.Projects...)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return

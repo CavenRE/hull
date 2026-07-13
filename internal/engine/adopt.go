@@ -181,7 +181,7 @@ func (e *Engine) ImportExisting(ctx context.Context, p *state.Project, log func(
 		log("hull.yaml written, framework config patched (backups: *.hull-backup)")
 	}
 
-	fresh, err := state.Find(e.Config.Roots, p.Name)
+	fresh, err := state.Find(e.Config.Roots, p.Name, e.Config.Projects...)
 	if err != nil {
 		return err
 	}

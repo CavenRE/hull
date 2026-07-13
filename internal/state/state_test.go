@@ -107,6 +107,71 @@ func TestFindAndCurrent(t *testing.T) {
 	}
 }
 
+func TestScanRegisteredProjects(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "inroot", "hull.yaml"), "schema: 1\nname: inroot\ntemplate: plain\n")
+	// A project that lives OUTSIDE the root, registered individually.
+	outside := filepath.Join(t.TempDir(), "creative")
+	writeFile(t, filepath.Join(outside, "hull.yaml"), "schema: 1\nname: creative\ntemplate: plain\n")
+
+	projects, err := Scan([]string{root}, outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, p := range projects {
+		names = append(names, p.Name)
+	}
+	if strings.Join(names, ",") != "creative,inroot" {
+		t.Errorf("names = %v, want creative,inroot", names)
+	}
+
+	// Find and Current resolve the out-of-root project when it is registered.
+	p, err := Find([]string{root}, "creative", outside)
+	if err != nil || p.Dir != outside {
+		t.Fatalf("Find(creative) = %+v, %v", p, err)
+	}
+	if cur, ok := Current([]string{root}, outside, outside); !ok || cur.Name != "creative" {
+		t.Errorf("Current in registered dir = %+v, %v", cur, ok)
+	}
+	// Without the registration it is invisible.
+	if _, err := Find([]string{root}, "creative"); err == nil {
+		t.Error("Find should miss an unregistered out-of-root project")
+	}
+}
+
+func TestScanRegisteredSelfHeals(t *testing.T) {
+	root := t.TempDir()
+	gone := filepath.Join(t.TempDir(), "gone") // never created
+	bare := filepath.Join(t.TempDir(), "bare")
+	if err := os.MkdirAll(bare, 0o755); err != nil { // exists but has no manifest
+		t.Fatal(err)
+	}
+	projects, err := Scan([]string{root}, gone, bare, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 0 {
+		t.Errorf("stale or manifest-less registrations should be skipped, got %+v", projects)
+	}
+}
+
+func TestUnder(t *testing.T) {
+	root := t.TempDir()
+	if !Under(root, filepath.Join(root, "app")) {
+		t.Error("a child should be Under root")
+	}
+	if !Under(root, root) {
+		t.Error("root should be Under itself")
+	}
+	if Under(root, t.TempDir()) {
+		t.Error("an unrelated dir should not be Under root")
+	}
+	if Under(root, root+"app") {
+		t.Error("a prefix-sharing sibling should not be Under root")
+	}
+}
+
 func TestFindClusterFromLedger(t *testing.T) {
 	home := t.TempDir()
 	roots := []string{t.TempDir()} // deliberately does NOT contain the cluster dir

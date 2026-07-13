@@ -26,6 +26,11 @@ type Config struct {
 	TLD string `yaml:"tld"`
 	// Roots are the directories scanned for projects (Sites, Apps, ...).
 	Roots []string `yaml:"roots"`
+	// Projects are individually-registered project directories that live
+	// outside any root (imported in place with `hull import`). Each is a
+	// project directory itself, loaded directly rather than scanned as a
+	// parent of projects.
+	Projects []string `yaml:"projects,omitempty"`
 	// Router configures the embedded HTTPS router (Phase 4); disabled
 	// means the v1 caddy-docker-proxy stack keeps routing.
 	Router RouterConfig `yaml:"router,omitempty"`
@@ -160,6 +165,9 @@ func (c *Config) applyDefaults() {
 	for i, r := range c.Roots {
 		c.Roots[i] = expandPath(r)
 	}
+	for i, p := range c.Projects {
+		c.Projects[i] = expandPath(p)
+	}
 }
 
 // Save writes config.yaml into the Hull home directory. It expands and cleans
@@ -169,8 +177,11 @@ func (c *Config) Save() error {
 	for i, r := range c.Roots {
 		c.Roots[i] = expandPath(r)
 	}
-	if len(c.Roots) == 0 {
-		return fmt.Errorf("at least one project root is required")
+	for i, p := range c.Projects {
+		c.Projects[i] = expandPath(p)
+	}
+	if len(c.Roots) == 0 && len(c.Projects) == 0 {
+		return fmt.Errorf("at least one project root or registered project is required")
 	}
 	if err := os.MkdirAll(c.HullHome, 0o755); err != nil {
 		return err

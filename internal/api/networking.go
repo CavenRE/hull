@@ -75,7 +75,7 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 			// router vhosts , a stopped site keeps a vhost so it answers a
 			// readable 502 instead of an opaque TLS handshake failure.
 			var allDomains []string
-			if projects, err := state.Scan(cfg.Roots); err == nil {
+			if projects, err := state.Scan(cfg.Roots, cfg.Projects...); err == nil {
 				allDomains = append(engine.AllDomains(projects, cfg.TLD), svcDomains...)
 			} else {
 				allDomains = svcDomains

@@ -63,6 +63,43 @@ func TestConfigRoundTrip(t *testing.T) {
 	}
 }
 
+func TestConfigProjectsMerge(t *testing.T) {
+	_, client, _ := testServer(t)
+
+	var cfg ConfigInfo
+	if err := client.do(context.Background(), http.MethodGet, "/v1/config", nil, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	proj := t.TempDir()
+	cfg.Projects = []string{proj}
+	var resp ConfigInfo
+	if err := client.do(context.Background(), http.MethodPut, "/v1/config", cfg, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Projects) != 1 || resp.Projects[0] != filepath.Clean(proj) {
+		t.Fatalf("projects not set: %+v", resp.Projects)
+	}
+
+	// A PUT that omits projects (a GUI save, which never sends the field) must
+	// NOT wipe the registrations.
+	guiSave := map[string]any{"tld": resp.TLD, "roots": resp.Roots, "defaults": map[string]string{}}
+	if err := client.do(context.Background(), http.MethodPut, "/v1/config", guiSave, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Projects) != 1 {
+		t.Errorf("a projects-less PUT wiped registrations: %+v", resp.Projects)
+	}
+
+	// An explicit empty list clears them (how `forget` drops the last one).
+	clearReq := map[string]any{"tld": resp.TLD, "roots": resp.Roots, "projects": []string{}, "defaults": map[string]string{}}
+	if err := client.do(context.Background(), http.MethodPut, "/v1/config", clearReq, &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Projects) != 0 {
+		t.Errorf("an explicit empty projects list should clear them: %+v", resp.Projects)
+	}
+}
+
 func TestProjectOpen(t *testing.T) {
 	s, client, rec := testServer(t)
 	writeProject(t, s.Config.Roots[0], "alpha")

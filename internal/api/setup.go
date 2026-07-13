@@ -116,7 +116,7 @@ func (s *Server) handleProjectUnlink(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	p, err := state.Find(s.Config.Roots, r.PathValue("name"))
+	p, err := state.Find(s.Config.Roots, r.PathValue("name"), s.Config.Projects...)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return

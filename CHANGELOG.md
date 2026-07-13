@@ -4,6 +4,31 @@ All notable changes to Hull are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Hull follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.14.0] - 2026-07-13
+
+Current-directory project management, the way Herd's `park` works.
+
+### Added
+- **`hull park` / `hull unpark` / `hull parked`**: one-word management of the
+  folders Hull scans for projects (the friendly front end to `hull config roots`),
+  defaulting to the folder you are standing in.
+- **In-place import**: `hull import` now works on the current directory (no
+  argument) or any path (`hull import .\creative`), importing a project where it
+  lives instead of requiring you to move it under a root first. A project outside
+  every parked root is registered in a new `projects:` config list so it stays
+  listed, findable by name, and resolvable when you `cd` into it.
+- **`hull forget`**: stop managing a single imported project (brings it down and
+  drops the registration) without deleting files. `hull rm` is still the
+  destructive one.
+- **`hull new <name> --here`**: scaffold a new project in the current directory
+  instead of under your first root.
+
+### Changed
+- `hull import` no longer tells you to move your project into a root first; a
+  bare name that is not a local folder still falls back to the under-roots lookup.
+- The daemon `/v1/config` contract gains a `projects` field; a config PUT that
+  omits it leaves registrations unchanged, so a GUI save cannot wipe them.
+
 ## [0.13.0] - 2026-07
 
 A Linux/CachyOS hardening pass with a central database console.

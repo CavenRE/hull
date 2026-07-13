@@ -460,7 +460,7 @@ func (e *Engine) StopAll(ctx context.Context) (int, error) {
 	done := map[string]bool{}
 
 	// 1. Managed projects under the configured roots.
-	if projects, err := state.Scan(e.Config.Roots); err == nil {
+	if projects, err := state.Scan(e.Config.Roots, e.Config.Projects...); err == nil {
 		for i := range projects {
 			p := &projects[i]
 			if p.Manifest == nil {

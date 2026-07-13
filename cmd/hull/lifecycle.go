@@ -269,7 +269,7 @@ type candidateLister func(cmd *cobra.Command, a *app) ([]string, error)
 
 // availableProjects lists every startable project in the registry.
 func availableProjects(_ *cobra.Command, a *app) ([]string, error) {
-	projects, err := state.Scan(a.Config.Roots)
+	projects, err := state.Scan(a.Config.Roots, a.Config.Projects...)
 	if err != nil {
 		return nil, err
 	}
@@ -322,7 +322,7 @@ func resolveTargets(cmd *cobra.Command, a *app, names []string, all bool, pickTi
 	}
 
 	if all {
-		projects, err := state.Scan(a.Config.Roots)
+		projects, err := state.Scan(a.Config.Roots, a.Config.Projects...)
 		if err != nil {
 			return nil, err
 		}

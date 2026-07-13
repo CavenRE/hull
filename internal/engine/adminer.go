@@ -79,7 +79,7 @@ func (e *Engine) adminerServers(ctx context.Context) []adminerServer {
 	}
 
 	// Per-project dedicated DB containers (<project>-<service>-1).
-	if projects, err := state.Scan(e.Config.Roots); err == nil {
+	if projects, err := state.Scan(e.Config.Roots, e.Config.Projects...); err == nil {
 		for i := range projects {
 			p := &projects[i]
 			if p.Manifest == nil {

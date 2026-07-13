@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"slices"
 
 	"github.com/spf13/cobra"
@@ -26,6 +27,7 @@ func init() {
 		serve        bool
 		interactive  bool
 		noStart      bool
+		here         bool
 	)
 
 	cmd := &cobra.Command{
@@ -52,7 +54,8 @@ func init() {
 		Example: "  hull new myapp laravel\n" +
 			"  hull new shop laravel --db mysql --redis\n" +
 			"  hull new blog wordpress --version 6.4\n" +
-			"  hull new api laravel --no-db",
+			"  hull new api laravel --no-db\n" +
+			"  hull new site laravel --here    (create ./site here, not under a root)",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
@@ -110,7 +113,7 @@ func init() {
 
 			// The daemon's create endpoint does not (yet) carry extra services
 			// or the interactive picker, so those cases run in-process.
-			if client, ok := a.client(); ok && !interactive && len(extra) == 0 {
+			if client, ok := a.client(); ok && !interactive && len(extra) == 0 && !here {
 				job, err := client.CreateProject(cmd.Context(), api.CreateProjectRequest{
 					Name: name, Template: template, DB: db, DBVersion: dbVersion,
 					Redis: withRedis, PHP: php, Version: fwVersion, Serve: servePtr, SkipStart: noStart,
@@ -128,7 +131,7 @@ func init() {
 						return err
 					}
 				}
-				dir, err := a.Engine.NewProject(cmd.Context(), engine.NewOptions{
+				opts := engine.NewOptions{
 					Name:          name,
 					Template:      template,
 					DB:            db,
@@ -139,9 +142,24 @@ func init() {
 					ExtraServices: extra,
 					Serve:         servePtr,
 					SkipStart:     noStart,
-				})
+				}
+				if here {
+					wd, wderr := os.Getwd()
+					if wderr != nil {
+						return wderr
+					}
+					opts.Root = wd
+				}
+				dir, err := a.Engine.NewProject(cmd.Context(), opts)
 				if err != nil {
 					return err
+				}
+				// Register a project created outside any parked root so it stays
+				// findable afterwards.
+				if here {
+					if err := a.registerProject(cmd.Context(), dir); err != nil {
+						return err
+					}
 				}
 				fmt.Printf("✔ Project created at %s\n", dir)
 			}
@@ -167,6 +185,7 @@ func init() {
 	cmd.Flags().BoolVar(&serve, "serve", true, "give the project a routed domain (use --serve=false for headless)")
 	cmd.Flags().BoolVarP(&interactive, "interactive", "i", false, "pick infrastructure interactively")
 	cmd.Flags().BoolVar(&noStart, "no-start", false, "create without booting containers")
+	cmd.Flags().BoolVar(&here, "here", false, "create the project in the current directory instead of your first root")
 	rootCmd.AddCommand(cmd)
 }
 

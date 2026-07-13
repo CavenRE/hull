@@ -18,6 +18,7 @@ import (
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/engine"
 	"github.com/CavenRE/hull/internal/manifest"
+	"github.com/CavenRE/hull/internal/state"
 )
 
 func init() {
@@ -35,13 +36,16 @@ func init() {
 		Long: "Bring an existing application under Hull management with auto-discovery,\n" +
 			"or restore a hull-bundle.zip that was exported on another machine.\n" +
 			"\n" +
-			"For a directory import, move the code into one of your roots as\n" +
-			"<root>/<name> first, then run hull import <name>. Hull inspects\n" +
-			"composer.json, .env, and wp-config.php to detect the framework, PHP\n" +
-			"version, database engine, and whether Redis is used, then writes a\n" +
-			"hull.yaml and patches the framework config (originals are kept as\n" +
-			"*.hull-backup). Any of --template, --db, --php, or --redis overrides what\n" +
-			"was detected.\n" +
+			"A directory import works on the folder you point it at, wherever it\n" +
+			"lives, and never moves your code. With no argument it imports the folder\n" +
+			"you are in; `hull import <path>` imports that folder in place; a bare\n" +
+			"name that is not a local folder is looked up under your parked roots. A\n" +
+			"folder outside every root is registered so it stays managed (see also\n" +
+			"`hull park` and `hull forget`). Hull inspects composer.json, .env, and\n" +
+			"wp-config.php to detect the framework, PHP version, database engine, and\n" +
+			"whether Redis is used, then writes a hull.yaml and patches the framework\n" +
+			"config (originals are kept as *.hull-backup). Any of --template, --db,\n" +
+			"--php, or --redis overrides what was detected.\n" +
 			"\n" +
 			"For a bundle, pass the .zip path: Hull extracts it into a new directory\n" +
 			"under your first root and restores the project from the bundled manifest.\n" +
@@ -54,17 +58,52 @@ func init() {
 			"\n" +
 			"Routing: a plain name-based import with no overrides and no --no-start\n" +
 			"goes through the daemon (which adopts, starts, and reconciles routes),\n" +
-			"then the dump restore runs CLI-side. A .zip, any override flag, or\n" +
-			"--no-start forces the in-process path.",
-		Example: "  hull import my-old-app\n" +
+			"then the dump restore runs CLI-side. A .zip, any override flag,\n" +
+			"--no-start, or an in-place directory (or current-folder) import forces\n" +
+			"the in-process path.",
+		Example: "  hull import                 (import the current folder)\n" +
+			"  hull import .\\creative       (import a folder where it lives)\n" +
 			"  hull import my-old-app --db mysql --php 8.3\n" +
 			"  hull import myapp-bundle.zip\n" +
 			"  hull import legacy-site --no-start --skip-dumps",
-		Args: cobra.ExactArgs(1),
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
 				return err
+			}
+
+			arg := ""
+			if len(args) == 1 {
+				arg = args[0]
+			}
+			isZip := strings.HasSuffix(strings.ToLower(arg), ".zip")
+
+			// Resolve an in-place import: no argument (or ".") is the current
+			// directory; an argument that resolves to an existing directory is
+			// that folder, imported where it lives. A bare name that is not a
+			// local directory falls through to the classic under-roots lookup.
+			if !isZip {
+				inPlace := ""
+				if arg == "" || arg == "." {
+					wd, wderr := os.Getwd()
+					if wderr != nil {
+						return wderr
+					}
+					inPlace = wd
+				} else if cand, aerr := filepath.Abs(arg); aerr == nil {
+					if info, serr := os.Stat(cand); serr == nil && info.IsDir() {
+						inPlace = cand
+					}
+				}
+				if inPlace != "" {
+					return a.importInPlace(cmd.Context(), inPlace,
+						engine.NewOptions{Template: template, DB: db, PHP: php, Redis: redis},
+						noStart, skipDumps)
+				}
+			}
+			if arg == "" {
+				return fmt.Errorf("nothing to import here; run `hull import` inside a project, or pass a path or a bundle .zip")
 			}
 
 			// Daemon-first for the common name-based import so the running
@@ -73,20 +112,20 @@ func init() {
 			// imports, flag overrides, and --no-start stay in-process. The SQL
 			// dump restore still runs CLI-side against the started containers.
 			hasOverrides := template != "" || db != "" || php != "" || redis
-			if client, ok := a.client(); ok && !noStart && !hasOverrides && !strings.HasSuffix(args[0], ".zip") {
-				job, err := client.Import(cmd.Context(), api.ImportRequest{Name: args[0]})
+			if client, ok := a.client(); ok && !noStart && !hasOverrides && !isZip {
+				job, err := client.Import(cmd.Context(), api.ImportRequest{Name: arg})
 				if err != nil {
 					return err
 				}
 				if err := streamJob(cmd.Context(), client, job); err != nil {
 					return err
 				}
-				p, err := a.findProject(args[0])
+				p, err := a.findProject(arg)
 				if err != nil {
 					return err
 				}
 				if p.Manifest == nil {
-					return fmt.Errorf("import finished but %s is not managed by Hull", args[0])
+					return fmt.Errorf("import finished but %s is not managed by Hull", arg)
 				}
 				if !skipDumps {
 					if err := offerDumpImport(cmd.Context(), p.Manifest, p.Dir); err != nil {
@@ -103,11 +142,10 @@ func init() {
 				}
 			}
 
-			arg := args[0]
 			var dir string
 			var meta *bundle.Meta
 
-			if strings.HasSuffix(arg, ".zip") {
+			if isZip {
 				baseName := strings.TrimSuffix(strings.TrimSuffix(filepath.Base(arg), ".zip"), "-bundle")
 				dir = filepath.Join(a.Config.Roots[0], baseName)
 				if _, err := os.Stat(dir); err == nil {
@@ -127,10 +165,10 @@ func init() {
 			} else {
 				p, err := a.findProject(arg)
 				if err != nil {
-					return fmt.Errorf("move your project to %s first (%w)", filepath.Join(a.Config.Roots[0], arg), err)
+					return fmt.Errorf("no project named %q under your roots; if it lives elsewhere, cd into it and run `hull import` (or `hull import <path>`)", arg)
 				}
 				if p.Manifest != nil {
-					return fmt.Errorf("%s already has a hull.yaml , it is managed by Hull", arg)
+					return fmt.Errorf("%s already has a hull.yaml, it is managed by Hull", arg)
 				}
 				dir = p.Dir
 			}
@@ -170,7 +208,7 @@ func init() {
 						return err
 					}
 					if !ok {
-						return fmt.Errorf("import aborted , edit %s to remove the hooks, then re-run", filepath.Join(dir, manifest.Filename))
+						return fmt.Errorf("import aborted, edit %s to remove the hooks, then re-run", filepath.Join(dir, manifest.Filename))
 					}
 				}
 			}
@@ -204,6 +242,132 @@ func resolveImportManifest(name, dir string, meta *bundle.Meta, overrides engine
 	}
 	det := bundle.Detect(dir)
 	return engine.BuildImportManifest(name, det, overrides)
+}
+
+// importInPlace imports the project living at dir, wherever that is, without
+// moving it: it detects the framework, writes hull.yaml, registers the
+// directory when it is outside every parked root (so it stays findable by name,
+// in `hull list`, and when you cd into it), and starts it.
+func (a *app) importInPlace(ctx context.Context, dir string, overrides engine.NewOptions, noStart, skipDumps bool) error {
+	if looksLikeProjectFolder(dir) {
+		return fmt.Errorf("%s looks like a folder of projects, not a single project; park it with `hull park` (from inside it) so every project in it is served", dir)
+	}
+	name := filepath.Base(dir)
+
+	// Already a Hull project (for example a freshly cloned repo): just register
+	// and start it, do not re-adopt.
+	if fileExists(filepath.Join(dir, manifest.Filename)) {
+		m, err := manifest.Load(dir)
+		if err != nil {
+			return fmt.Errorf("%s has a hull.yaml but it failed to parse: %w", name, err)
+		}
+		if err := a.registerProject(ctx, dir); err != nil {
+			return err
+		}
+		fmt.Printf("✔ %s registered (%s)\n", m.Name, dir)
+		if noStart {
+			return nil
+		}
+		if err := dockerx.EngineCheck(ctx); err != nil {
+			return err
+		}
+		if err := a.Engine.Up(ctx, &state.Project{Name: m.Name, Dir: dir, Manifest: m}); err != nil {
+			return err
+		}
+		fmt.Printf("✔ %s is up at https://%s.%s\n", m.Name, m.Domain, a.Config.TLD)
+		return nil
+	}
+
+	if !noStart {
+		if err := dockerx.EngineCheck(ctx); err != nil {
+			return err
+		}
+	}
+	m, err := resolveImportManifest(name, dir, nil, overrides)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Importing %s as %s (db: %s) in place at %s\n", m.Name, m.Template, describeDB(m), dir)
+	if err := a.Engine.Adopt(m, dir); err != nil {
+		return err
+	}
+	fmt.Println("✔ hull.yaml written, framework config patched (backups: *.hull-backup)")
+	if err := a.registerProject(ctx, dir); err != nil {
+		return err
+	}
+	if noStart {
+		fmt.Println("Skipping start (--no-start).")
+		return nil
+	}
+	p := &state.Project{Name: m.Name, Dir: dir, Manifest: m}
+	if err := a.Engine.Up(ctx, p); err != nil {
+		return err
+	}
+	if !skipDumps {
+		if err := offerDumpImport(ctx, m, dir); err != nil {
+			return err
+		}
+	}
+	fmt.Printf("✔ %s is up at https://%s.%s\n", m.Name, m.Domain, a.Config.TLD)
+	return nil
+}
+
+// registerProject persists dir in the projects list (daemon-aware) unless it
+// already lives under a parked root or is already registered. It also updates
+// the in-memory config so a later lookup in this same process resolves it.
+func (a *app) registerProject(ctx context.Context, dir string) error {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	for _, r := range a.Config.Roots {
+		if state.Under(r, abs) {
+			return nil // already covered by a parked root
+		}
+	}
+	ci, err := a.configView(ctx)
+	if err != nil {
+		return err
+	}
+	for _, p := range ci.Projects {
+		if sameRoot(p, abs) {
+			return nil // already registered
+		}
+	}
+	ci.Projects = append(ci.Projects, abs)
+	a.Config.Projects = ci.Projects
+	return a.saveConfig(ctx, ci)
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+// looksLikeProjectFolder reports whether dir is a parent-of-projects (park
+// territory) rather than a single project (import territory): it has no app or
+// manifest markers of its own but contains child directories that do.
+func looksLikeProjectFolder(dir string) bool {
+	for _, f := range []string{manifest.Filename, "composer.json", "package.json", "index.php", "wp-config.php", "artisan", "Dockerfile", "compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"} {
+		if fileExists(filepath.Join(dir, f)) {
+			return false
+		}
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		for _, f := range []string{manifest.Filename, "compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml", "composer.json", "index.php"} {
+			if fileExists(filepath.Join(dir, e.Name(), f)) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // bundleHookSummary lists every lifecycle hook a manifest declares, as

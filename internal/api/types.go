@@ -33,10 +33,10 @@ type ProjectInfo struct {
 // ClusterInfo answers GET /v1/clusters , adopted/managed cluster projects,
 // reconciled with the started ledger so out-of-root clusters are included.
 type ClusterInfo struct {
-	Name        string             `json:"name"`
-	Dir         string             `json:"dir"`
-	ComposeRoot string             `json:"compose_root,omitempty"`
-	Running     bool               `json:"running"`
+	Name        string `json:"name"`
+	Dir         string `json:"dir"`
+	ComposeRoot string `json:"compose_root,omitempty"`
+	Running     bool   `json:"running"`
 	// BaseDomain is the domain routes nest under ("" = Hull's TLD).
 	BaseDomain string `json:"base_domain,omitempty"`
 	// Ingress is how Hull serves the URLs: "" (none), "delegate", or "hull".
@@ -60,8 +60,8 @@ type ClusterRouteInfo struct {
 
 // DetectInfo answers GET /v1/detect , file-based project detection.
 type DetectInfo struct {
-	Kind     string `json:"kind"`     // laravel|wordpress|plain|python|node|go|docker|static
-	Template string `json:"template"` // PHP site template (laravel|wordpress|plain)
+	Kind     string   `json:"kind"`     // laravel|wordpress|plain|python|node|go|docker|static
+	Template string   `json:"template"` // PHP site template (laravel|wordpress|plain)
 	PHP      string   `json:"php,omitempty"`
 	DB       string   `json:"db,omitempty"`
 	Database string   `json:"database,omitempty"`
@@ -201,8 +201,14 @@ type ServiceInfo struct {
 
 // ConfigInfo answers GET/PUT /v1/config.
 type ConfigInfo struct {
-	TLD      string   `json:"tld"`
-	Roots    []string `json:"roots"`
+	TLD   string   `json:"tld"`
+	Roots []string `json:"roots"`
+	// Projects are individually-registered project directories (imported in
+	// place, outside any root). Absent (a JSON null, e.g. a GUI PUT that never
+	// sends the field) leaves them unchanged; an explicit list (including an
+	// empty one) replaces them. No omitempty so an empty list round-trips as []
+	// rather than being dropped, which is how `forget` clears the last one.
+	Projects []string `json:"projects"`
 	// Loopback is the router/DNS bind address (127.0.0.x); editable in
 	// Settings › Local domain. Empty in a request leaves it unchanged.
 	Loopback string `json:"loopback,omitempty"`

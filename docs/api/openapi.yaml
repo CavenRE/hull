@@ -761,6 +761,10 @@ components:
       properties:
         tld: { type: string }
         roots: { type: array, items: { type: string } }
+        projects:
+          type: array
+          items: { type: string }
+          description: "Individually-registered project directories (imported in place, outside any root). Absent in a PUT leaves them unchanged; an explicit list (including empty) replaces them."
         loopback: { type: string }
         defaults:
           type: object
