@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -11,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CavenRE/hull/internal/certs"
+	"github.com/CavenRE/hull/internal/config"
 	"github.com/CavenRE/hull/internal/platform"
 	"github.com/CavenRE/hull/internal/router"
 	"github.com/CavenRE/hull/internal/templates"
@@ -68,20 +72,29 @@ func init() {
 	var (
 		skipTrust bool
 		skipDNS   bool
+		rootFlag  string
+		tldFlag   string
+		loopFlag  string
 	)
 	cmd := &cobra.Command{
 		Use:   "setup",
-		Short: "Enable Hull's native router and DNS on this machine",
+		Short: "Configure and enable Hull's native router and DNS on this machine",
 		Long: "One-time machine setup for v2-native networking (replaces the v1 setup\n" +
 			"pipeline). Run this once per machine before starting the daemon. It:\n\n" +
-			"  1. enables the embedded router (ports 80/443) and DNS in config.yaml\n" +
-			"  2. installs the local root certificate into the trust store\n" +
-			"  3. registers *.<tld> DNS with the operating system\n" +
-			"  4. provisions the shared system files\n\n" +
-			"It routes through the daemon when one is running, otherwise it applies\n" +
-			"the same changes in process. Steps 2 and 3 may prompt for elevation (a\n" +
-			"Windows dialog, or sudo on Linux/macOS); if a step needs manual action\n" +
-			"it prints the exact commands instead of failing the whole run.\n\n" +
+			"  1. asks where your projects live, the local domain, and the loopback\n" +
+			"     endpoint (127.0.0.1 to 127.0.0.8), defaulting to your current config\n" +
+			"  2. enables the embedded router (ports 80/443) and DNS in config.yaml\n" +
+			"  3. installs the local root certificate into the trust store\n" +
+			"  4. registers *.<tld> DNS with the operating system\n" +
+			"  5. provisions the shared system files\n\n" +
+			"The prompts in step 1 default to your current settings, so re-running\n" +
+			"setup and pressing enter changes nothing. Pass --root, --tld, and/or\n" +
+			"--loopback to set them without prompting, or --yes to accept the current\n" +
+			"values non-interactively. Off a terminal (installers, CI) it never\n" +
+			"prompts and uses the current/flag values.\n\n" +
+			"Steps 3 and 4 may prompt for elevation (a Windows dialog, or sudo on\n" +
+			"Linux/macOS); if a step needs manual action it prints the exact commands\n" +
+			"instead of failing the whole run.\n\n" +
 			"Use --skip-trust when the certificate is already installed, and\n" +
 			"--skip-dns when this machine already resolves *.<tld> another way (for\n" +
 			"example an existing dnsmasq or NetworkManager setup) so the daemon does\n" +
@@ -89,14 +102,23 @@ func init() {
 			"(hull daemon run) and every running project is served at\n" +
 			"https://<name>.<tld> with a trusted certificate. Verify with hull doctor.",
 		Example: "  hull setup\n" +
-			"  hull setup --skip-dns\n" +
-			"  hull setup --skip-trust --skip-dns",
+			"  hull setup --tld local --loopback 3 --root ~/Sites\n" +
+			"  hull setup --yes --skip-dns",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
 				return err
 			}
 			cfg := a.Config
+
+			// Collect the machine's core settings first: where projects live, the
+			// local domain, and the loopback endpoint. Prompts default to the
+			// current config (enter keeps them); --root/--tld/--loopback and --yes
+			// skip the prompts, and off a terminal it uses the current values so
+			// installers never hang.
+			if err := collectSetupConfig(cfg, setupChoices{root: rootFlag, tld: tldFlag, loopback: loopFlag, noPrompt: flagYes}); err != nil {
+				return err
+			}
 
 			// --skip-dns means this machine resolves *.tld another way (e.g. an
 			// existing dnsmasq/NetworkManager setup), so don't enable the
@@ -256,6 +278,9 @@ func init() {
 	}
 	cmd.Flags().BoolVar(&skipTrust, "skip-trust", false, "skip certificate trust installation")
 	cmd.Flags().BoolVar(&skipDNS, "skip-dns", false, "skip OS DNS registration")
+	cmd.Flags().StringVar(&rootFlag, "root", "", "projects folder to park (skips the prompt)")
+	cmd.Flags().StringVar(&tldFlag, "tld", "", "local domain suffix, e.g. test (skips the prompt)")
+	cmd.Flags().StringVar(&loopFlag, "loopback", "", "loopback endpoint: 127.0.0.1-8 or just the octet (skips the prompt)")
 	rootCmd.AddCommand(cmd)
 }
 
@@ -290,4 +315,116 @@ func bindProbe(host string, port int) bindResult {
 
 func indent(s, prefix string) string {
 	return prefix + strings.ReplaceAll(s, "\n", "\n"+prefix)
+}
+
+// setupChoices carries CLI-supplied setup values; an empty string means
+// "prompt for it (interactive), otherwise keep the current value".
+type setupChoices struct {
+	root     string
+	tld      string
+	loopback string
+	noPrompt bool
+}
+
+var tldLabelRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+
+// collectSetupConfig fills the projects folder, local domain, and loopback
+// endpoint on cfg. It prompts interactively (defaulting to the current values)
+// unless a flag supplies the value, --yes is set, or there is no terminal. The
+// chosen values are persisted by setup's own cfg.Save() further down.
+func collectSetupConfig(cfg *config.Config, ch setupChoices) error {
+	interactive := isInteractive() && !ch.noPrompt
+
+	// Projects folder (the first parked root). Create it if it does not exist.
+	defRoot := ""
+	if len(cfg.Roots) > 0 {
+		defRoot = cfg.Roots[0]
+	} else if home, err := os.UserHomeDir(); err == nil {
+		defRoot = filepath.Join(home, "Work", "Sites")
+	}
+	root := ch.root
+	if root == "" && interactive {
+		r, err := promptText("Projects folder", "Hull serves every project inside this folder.", defRoot)
+		if err != nil {
+			return err
+		}
+		root = r
+	}
+	if root == "" {
+		root = defRoot
+	}
+	if root = config.ExpandPath(root); root != "" {
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			return fmt.Errorf("creating projects folder %s: %w", root, err)
+		}
+		cfg.Roots = ensureFirstRoot(cfg.Roots, root)
+	}
+
+	// Local domain (TLD).
+	tld := ch.tld
+	if tld == "" && interactive {
+		t, err := promptText("Local domain", "Sites are served at <name>.<domain>.", cfg.TLD)
+		if err != nil {
+			return err
+		}
+		tld = t
+	}
+	if tld == "" {
+		tld = cfg.TLD
+	}
+	tld = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(tld)), ".")
+	if tld == "" {
+		tld = cfg.TLD
+	}
+	if !tldLabelRE.MatchString(tld) {
+		return fmt.Errorf("invalid domain %q; use a single label like test or local", tld)
+	}
+	cfg.TLD = tld
+
+	// Loopback endpoint (127.0.0.1 to 127.0.0.8).
+	defLoop := cfg.Router.Loopback
+	if defLoop == "" {
+		defLoop = "127.0.0.2"
+	}
+	loop := ch.loopback
+	if loop == "" && interactive {
+		opts := make([]string, 0, 8)
+		for i := 1; i <= 8; i++ {
+			opts = append(opts, fmt.Sprintf("127.0.0.%d", i))
+		}
+		sel, err := pickOneDefault("Local endpoint  (.1 shares the standard loopback, .2 to .8 keep Hull on its own)", opts, defLoop)
+		if err != nil {
+			return err
+		}
+		loop = sel
+	}
+	if loop == "" {
+		loop = defLoop
+	}
+	loop = normalizeLoopback(loop)
+	if !config.ValidLoopback(loop) {
+		return fmt.Errorf("invalid loopback %q; use 127.0.0.1 through 127.0.0.8", loop)
+	}
+	cfg.Router.Loopback = loop
+	return nil
+}
+
+// ensureFirstRoot returns roots with root at the front, deduped.
+func ensureFirstRoot(roots []string, root string) []string {
+	out := []string{root}
+	for _, r := range roots {
+		if !sameRoot(r, root) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// normalizeLoopback accepts a full 127.0.0.x address or just the octet (1 to 8).
+func normalizeLoopback(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) == 1 && s[0] >= '1' && s[0] <= '8' {
+		return "127.0.0." + s
+	}
+	return s
 }

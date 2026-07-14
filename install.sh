@@ -203,7 +203,9 @@ esac
 DID_SETUP=0
 if [ "$SKIP_SETUP" = 0 ] && [ "$DOCKER_OK" = 1 ]; then
   step "Configuring Hull (router, DNS, certificate)"
-  if "$PREFIX/hull" setup; then DID_SETUP=1; else warn "setup didn't finish , re-run: hull setup"; fi
+  setup_flags=""
+  [ "$ASSUME_YES" = 1 ] && setup_flags="--yes"
+  if "$PREFIX/hull" setup $setup_flags; then DID_SETUP=1; else warn "setup didn't finish , re-run: hull setup"; fi
 fi
 
 # ── run hulld as a systemd --user service (Linux) ────────────────────────────

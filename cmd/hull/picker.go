@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/charmbracelet/huh"
 	"golang.org/x/term"
@@ -58,6 +59,45 @@ func pickOne(title string, options []string) (string, error) {
 			Title(title).
 			Options(huh.NewOptions(options...)...).
 			Value(&selected),
+	))
+	if err := form.Run(); err != nil {
+		return "", err
+	}
+	return selected, nil
+}
+
+// promptText asks for a line of text, pre-filled with def (which is also used
+// when the user submits nothing). Off a terminal it returns def without
+// prompting, so scripts never hang.
+func promptText(title, description, def string) (string, error) {
+	if !isInteractive() {
+		return def, nil
+	}
+	val := def
+	form := huh.NewForm(huh.NewGroup(
+		huh.NewInput().Title(title).Description(description).Value(&val),
+	))
+	if err := form.Run(); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(val) == "" {
+		return def, nil
+	}
+	return val, nil
+}
+
+// pickOneDefault is pickOne with a preselected default. Off a terminal it
+// returns def without prompting.
+func pickOneDefault(title string, options []string, def string) (string, error) {
+	if len(options) == 0 {
+		return "", errors.New("nothing to select")
+	}
+	if !isInteractive() {
+		return def, nil
+	}
+	selected := def
+	form := huh.NewForm(huh.NewGroup(
+		huh.NewSelect[string]().Title(title).Options(huh.NewOptions(options...)...).Value(&selected),
 	))
 	if err := form.Run(); err != nil {
 		return "", err

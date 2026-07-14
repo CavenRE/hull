@@ -4,6 +4,29 @@ All notable changes to Hull are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Hull follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.14.1] - 2026-07-13
+
+Polish for the import and setup flows from 0.14.0.
+
+### Added
+- **`hull setup` now configures the machine's core settings** before it
+  provisions: it prompts for the projects folder, the local domain, and the
+  loopback endpoint (127.0.0.1 to 127.0.0.8), each defaulting to your current
+  config so enter keeps it. New `--root`, `--tld`, and `--loopback` flags set
+  them without prompting, `--yes` accepts the current values, and off a terminal
+  it never prompts so installers do not hang. `install.sh --yes` forwards
+  `--yes` to setup.
+- **`hull import` without `--template` now offers a type picker** (plain,
+  laravel, wordpress), defaulting to what detection found, so you choose what to
+  import as. `--yes` and non-terminals fall back to detection.
+
+### Changed
+- **`hull import` on a folder that looks like it holds several projects now
+  warns and asks to confirm** instead of refusing outright, since that check is
+  only a heuristic (a multi-site PHP layout trips it). On confirmation it imports
+  the whole folder as one project. `--template` or `--yes` skips the prompt; off
+  a terminal it fails closed with an actionable hint.
+
 ## [0.14.0] - 2026-07-13
 
 Current-directory project management, the way Herd's `park` works.

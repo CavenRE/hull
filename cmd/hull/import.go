@@ -249,9 +249,6 @@ func resolveImportManifest(name, dir string, meta *bundle.Meta, overrides engine
 // directory when it is outside every parked root (so it stays findable by name,
 // in `hull list`, and when you cd into it), and starts it.
 func (a *app) importInPlace(ctx context.Context, dir string, overrides engine.NewOptions, noStart, skipDumps bool) error {
-	if looksLikeProjectFolder(dir) {
-		return fmt.Errorf("%s looks like a folder of projects, not a single project; park it with `hull park` (from inside it) so every project in it is served", dir)
-	}
 	name := filepath.Base(dir)
 
 	// Already a Hull project (for example a freshly cloned repo): just register
@@ -276,6 +273,32 @@ func (a *app) importInPlace(ctx context.Context, dir string, overrides engine.Ne
 		}
 		fmt.Printf("✔ %s is up at https://%s.%s\n", m.Name, m.Domain, a.Config.TLD)
 		return nil
+	}
+
+	// The folder looks like it holds several projects. This is only a heuristic
+	// (an unusual single-project layout, e.g. a multi-site PHP app, can trip it),
+	// so warn and ask rather than refuse. On confirmation the whole folder is
+	// imported as one project.
+	if looksLikeProjectFolder(dir) {
+		fmt.Printf("! %s looks like it contains multiple projects; parking it with `hull park` usually fits better.\n", dir)
+		ok, cerr := confirm("Import the whole folder as a single project anyway?")
+		if cerr != nil {
+			return fmt.Errorf("%s looks like a folder of projects; park it with `hull park` (from inside it), or re-run with --yes to import it as one project", dir)
+		}
+		if !ok {
+			return fmt.Errorf("import cancelled; park %s with `hull park` instead", dir)
+		}
+	}
+
+	// When no template was pinned with --template, let the user choose the type
+	// to import as (defaulting to what detection found). Off a terminal this
+	// falls back to detection so scripts are unaffected.
+	if overrides.Template == "" {
+		t, terr := chooseImportTemplate(dir)
+		if terr != nil {
+			return terr
+		}
+		overrides.Template = t
 	}
 
 	if !noStart {
@@ -368,6 +391,42 @@ func looksLikeProjectFolder(dir string) bool {
 		}
 	}
 	return false
+}
+
+// chooseImportTemplate returns the PHP site template to import a folder as. It
+// prompts interactively (defaulting to what detection found) but falls back to
+// detection when --yes is set or there is no terminal, so scripts never hang.
+func chooseImportTemplate(dir string) (string, error) {
+	detected := bundle.Detect(dir).Template
+	if detected == "" {
+		detected = "plain"
+	}
+	if flagYes || !isInteractive() {
+		return detected, nil
+	}
+	return pickOne("Import as which type?", orderedTemplates(detected))
+}
+
+// orderedTemplates lists the PHP site templates with the detected one first, so
+// pressing enter in the picker accepts the detection.
+func orderedTemplates(detected string) []string {
+	all := []string{"plain", "laravel", "wordpress"}
+	known := false
+	for _, t := range all {
+		if t == detected {
+			known = true
+		}
+	}
+	if !known {
+		return all
+	}
+	out := []string{detected}
+	for _, t := range all {
+		if t != detected {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // bundleHookSummary lists every lifecycle hook a manifest declares, as
