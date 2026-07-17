@@ -122,7 +122,23 @@ func ConfigJSON(routes []Route, o Options) ([]byte, error) {
 				"automation": map[string]any{
 					"policies": []map[string]any{{
 						"subjects": subjects,
-						"issuers":  []map[string]any{{"module": "internal", "ca": "local"}},
+						"issuers": []map[string]any{{
+							"module": "internal",
+							"ca":     "local",
+							// Caddy's internal issuer defaults to 12-hour leaf
+							// certificates. Those expire overnight (or across any
+							// stop/start or sleep longer than the renewal window)
+							// while the daemon is not running to renew them, which
+							// surfaces as ERR_CERT_DATE_INVALID and, with HSTS, no
+							// way to click through. Sign leaves directly with the
+							// 10-year root (mkcert's model) and give them a 1-year
+							// lifetime so a trusted cert stays valid across
+							// restarts and sleeps. 365 days also stays under the
+							// 398-day browser cap, and a locally-installed root is
+							// exempt from it anyway.
+							"lifetime":       "8760h",
+							"sign_with_root": true,
+						}},
 					}},
 				},
 			},

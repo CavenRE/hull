@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
@@ -31,9 +29,14 @@ func init() {
 			"start/stop (control an instance without losing its data), and rm\n" +
 			"(destroy an instance and every database in it). Use hull link to point a\n" +
 			"project at an instance once it exists.",
-		Example: "  hull services list\n" +
+		Example: "  hull services\n" +
 			"  hull services add postgres@16\n" +
 			"  hull services stop postgres-16",
+		Args: cobra.NoArgs,
+		// Bare `hull services` lists the instances; the description above is only
+		// shown on `hull services --help`, not on every run. A subcommand still
+		// routes to that subcommand.
+		RunE: func(cmd *cobra.Command, args []string) error { return listServices(cmd) },
 	}
 
 	svc.AddCommand(&cobra.Command{
@@ -51,55 +54,7 @@ func init() {
 			"When no instances exist, a hint shows how to add one.",
 		Example: "  hull services list\n" +
 			"  hull services list --json",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := loadApp()
-			if err != nil {
-				return err
-			}
-			instances, err := services.NewManager(a.Config).List(cmd.Context())
-			if err != nil {
-				return err
-			}
-			if flagJSON {
-				return printJSON(instances)
-			}
-			if len(instances) == 0 {
-				fmt.Println("No shared instances. Add one with: hull services add postgres@16")
-				return nil
-			}
-			w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(w, "NAME\tSTATE\tCONNECT\tWEB UI\tCONTAINER")
-			hasDB := false
-			for _, in := range instances {
-				stateStr := "stopped"
-				if in.Running {
-					stateStr = "running"
-				}
-				connect := "-"
-				if in.HostPort > 0 {
-					connect = fmt.Sprintf("127.0.0.1:%d", in.HostPort)
-					switch in.Engine {
-					case "postgres":
-						connect, hasDB = "postgres@"+connect, true
-					case "mysql", "mariadb":
-						connect, hasDB = "root@"+connect, true
-					}
-				}
-				webUI := "-"
-				if def, ok := templates.Engine(in.Engine); ok && def.UISubdomain != "" {
-					webUI = fmt.Sprintf("https://%s.%s", def.UISubdomain, a.Config.TLD)
-				}
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", in.Name, stateStr, connect, webUI, in.Container)
-			}
-			if err := w.Flush(); err != nil {
-				return err
-			}
-			if hasDB {
-				fmt.Println("\nDatabases use trust auth, no password (postgres: user postgres, mysql/mariadb: user root).")
-				fmt.Println("Point a desktop client at the CONNECT address, or `hull services add adminer` for a browser UI.")
-			}
-			return nil
-		},
+		RunE: func(cmd *cobra.Command, args []string) error { return listServices(cmd) },
 	})
 
 	svc.AddCommand(&cobra.Command{

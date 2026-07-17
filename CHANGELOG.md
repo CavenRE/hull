@@ -4,6 +4,26 @@ All notable changes to Hull are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Hull follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.14.2] - 2026-07-17
+
+Certificate and shared-service fixes.
+
+### Fixed
+- **Local certificates no longer expire overnight.** Caddy's internal issuer
+  defaulted to 12-hour leaf certificates, so a site could show
+  `ERR_CERT_DATE_INVALID` (with no HSTS click-through) whenever the daemon was
+  not running to renew them. Leaves are now signed directly by the 10-year root
+  and valid for a year, so a trusted cert survives restarts and sleeps.
+- **`hull services list` no longer reports a running instance as stopped.**
+  Docker normalizes compose project names (dropping characters like the dot in
+  `mysql-8.4`), so the running-state lookup missed any dotted-version instance.
+  Detection now matches Docker's normalization.
+
+### Changed
+- **Bare `hull services` now lists the instances** (grouped running first, then
+  stopped) instead of printing the full command help. The description moves to
+  `hull services --help`, keeping the everyday output uncluttered.
+
 ## [0.14.1] - 2026-07-13
 
 Polish for the import and setup flows from 0.14.0.

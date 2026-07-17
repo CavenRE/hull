@@ -69,9 +69,18 @@ func (m *Manager) Dir(instance string) string {
 	return filepath.Join(m.servicesDir(), instance)
 }
 
-// composeProject is the compose project name for an instance.
+// projectNameInvalid matches characters Docker strips from a compose project
+// name (it normalizes to lowercase [a-z0-9_-]).
+var projectNameInvalid = regexp.MustCompile(`[^a-z0-9_-]`)
+
+// composeProject is the compose project name for an instance, normalized the
+// same way Docker normalizes it: lowercase with characters outside [a-z0-9_-]
+// removed. So instance "mysql-8.4" runs under project "hull-mysql-84" (the dot
+// dropped). Matching Docker's normalization here is what makes running-detection
+// in List line up with what Docker actually reports; the previous "hull-"+name
+// never matched a dotted version, so those instances always showed as stopped.
 func composeProject(instance string) string {
-	return "hull-" + instance
+	return projectNameInvalid.ReplaceAllString(strings.ToLower("hull-"+instance), "")
 }
 
 // Resolve parses "engine" or "engine@version" into an engine def and
