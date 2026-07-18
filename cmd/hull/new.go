@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CavenRE/hull/internal/api"
-	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/engine"
 	"github.com/CavenRE/hull/internal/manifest"
 	"github.com/CavenRE/hull/internal/services"
@@ -127,7 +126,7 @@ func init() {
 				fmt.Printf("✔ Project %q created.\n", name)
 			} else {
 				if !noStart {
-					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+					if err := ensureDocker(cmd.Context()); err != nil {
 						return err
 					}
 				}

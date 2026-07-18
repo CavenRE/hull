@@ -15,6 +15,7 @@ import (
 
 	"github.com/CavenRE/hull/internal/certs"
 	"github.com/CavenRE/hull/internal/config"
+	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/platform"
 	"github.com/CavenRE/hull/internal/router"
 	"github.com/CavenRE/hull/internal/templates"
@@ -71,11 +72,12 @@ func init() {
 
 func init() {
 	var (
-		skipTrust bool
-		skipDNS   bool
-		rootFlag  string
-		tldFlag   string
-		loopFlag  string
+		skipTrust   bool
+		skipDNS     bool
+		noAutostart bool
+		rootFlag    string
+		tldFlag     string
+		loopFlag    string
 	)
 	cmd := &cobra.Command{
 		Use:   "setup",
@@ -87,7 +89,9 @@ func init() {
 			"  2. enables the embedded router (ports 80/443) and DNS in config.yaml\n" +
 			"  3. installs the local root certificate into the trust store\n" +
 			"  4. registers *.<tld> DNS with the operating system\n" +
-			"  5. provisions the shared system files\n\n" +
+			"  5. provisions the shared system files\n" +
+			"  6. starts Hull and registers it to start at login (--no-autostart\n" +
+			"     skips the login part)\n\n" +
 			"The prompts in step 1 default to your current settings, so re-running\n" +
 			"setup and pressing enter changes nothing. Pass --root, --tld, and/or\n" +
 			"--loopback to set them without prompting, or --yes to accept the current\n" +
@@ -99,9 +103,10 @@ func init() {
 			"Use --skip-trust when the certificate is already installed, and\n" +
 			"--skip-dns when this machine already resolves *.<tld> another way (for\n" +
 			"example an existing dnsmasq or NetworkManager setup) so the daemon does\n" +
-			"not try to bind port 53 and collide with it. Afterwards start the daemon\n" +
-			"(hull daemon run) and every running project is served at\n" +
-			"https://<name>.<tld> with a trusted certificate. Verify with hull doctor.",
+			"not try to bind port 53 and collide with it.\n\n" +
+			"When it finishes Hull is already running, so every started project is\n" +
+			"served at https://<name>.<tld> with a trusted certificate. Verify with\n" +
+			"hull doctor.",
 		Example: "  hull setup\n" +
 			"  hull setup --tld local --loopback 3 --root ~/Sites\n" +
 			"  hull setup --yes --skip-dns",
@@ -258,27 +263,64 @@ func init() {
 				}
 			}
 
-			// If a daemon is already running, it's serving the OLD config until
-			// restarted , bounce it so the new router/DNS/loopback settings take
-			// effect. On a fresh install the daemon isn't up yet (install.sh
-			// starts it after setup), so this is a no-op there.
-			if daemonUp {
-				if restarted, err := platform.RestartDaemonService(); restarted && err == nil {
-					fmt.Println("\n> Restarted the Hull daemon to apply the new configuration")
-					fmt.Println("Setup complete. Verify with:  hull doctor")
-				} else {
-					fmt.Println("\nSetup complete. Restart the daemon to apply:  hull daemon stop && hull daemon run")
-					fmt.Println("Then verify with:                             hull doctor")
-				}
+			// Docker is what actually runs your projects. Check it here (starting it
+			// if it is merely closed) so the first `hull up` cannot fail on it. Not
+			// fatal: Hull can be configured before Docker is installed.
+			fmt.Println("\n> Checking Docker")
+			if err := dockerx.EnsureEngine(cmd.Context(), func(msg string) { fmt.Println("  " + msg) }); err != nil {
+				fmt.Println("  !", err)
+				fmt.Println("    Hull is configured, but projects cannot start until Docker is running.")
 			} else {
-				fmt.Println("\nSetup complete. Start the daemon:  hull daemon run")
-				fmt.Println("Then verify with:                  hull doctor")
+				fmt.Println("  ✔ Docker is running")
 			}
+
+			// Leave the machine in a WORKING state. Setup used to stop here and tell
+			// you to start the daemon yourself, which meant a fresh install served
+			// nothing: no router, no hosts block, connection refused.
+			fmt.Println("\n> Starting Hull")
+
+			// Register login autostart first: on Linux/macOS the service manager
+			// also brings the daemon up, so doing this first avoids racing our own
+			// spawn and ending up fighting the single-daemon lock.
+			if !noAutostart {
+				if exe, eerr := os.Executable(); eerr == nil {
+					if _, aerr := platform.EnableDaemonAutostart(exe); aerr != nil {
+						fmt.Println("  ! could not register Hull to start at login:", aerr)
+					} else {
+						fmt.Println("  ✔ Hull will start at login (turn off with: hull autostart disable)")
+					}
+				}
+			}
+
+			// A daemon that was already up is serving the OLD config; bounce it so
+			// the new router/DNS/loopback settings take effect.
+			if daemonUp {
+				if restarted, rerr := platform.RestartDaemonService(); !restarted || rerr != nil {
+					if c, ok := a.client(); ok {
+						_ = c.Shutdown(cmd.Context())
+						waitDaemonGone(cfg.HullHome)
+					}
+					_ = startDaemonDetached(cmd.Context(), cfg.HullHome)
+				}
+			}
+			// Whatever happened above, make sure a daemon is actually answering.
+			if _, up := a.client(); !up {
+				if err := startDaemonDetached(cmd.Context(), cfg.HullHome); err != nil {
+					fmt.Println("  ! could not start Hull:", err)
+					fmt.Println("    Start it by hand with: hull start")
+				}
+			}
+			if _, up := a.client(); up {
+				fmt.Println("  ✔ Hull is running")
+			}
+
+			fmt.Println("\nSetup complete. Verify with:  hull doctor")
 			return nil
 		},
 	}
 	cmd.Flags().BoolVar(&skipTrust, "skip-trust", false, "skip certificate trust installation")
 	cmd.Flags().BoolVar(&skipDNS, "skip-dns", false, "skip OS DNS registration")
+	cmd.Flags().BoolVar(&noAutostart, "no-autostart", false, "do not register Hull to start at login")
 	cmd.Flags().StringVar(&rootFlag, "root", "", "projects folder to park (skips the prompt)")
 	cmd.Flags().StringVar(&tldFlag, "tld", "", "local domain suffix, e.g. test (skips the prompt)")
 	cmd.Flags().StringVar(&loopFlag, "loopback", "", "loopback endpoint: 127.0.0.1-8 or just the octet (skips the prompt)")

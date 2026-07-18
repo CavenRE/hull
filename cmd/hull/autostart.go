@@ -17,28 +17,62 @@ import (
 func init() {
 	autostart := &cobra.Command{
 		Use:   "autostart",
-		Short: "Choose what starts when Hull starts",
-		Long: "Choose which projects and shared instances Hull brings up when the daemon\n" +
-			"starts, so your usual setup is running after a reboot without starting each\n" +
-			"thing by hand.\n" +
+		Short: "Start Hull at login, and choose what comes up with it",
+		Long: "Control what starts automatically: Hull itself at login, and which\n" +
+			"projects and shared instances come up with it.\n" +
 			"\n" +
-			"`hull autostart add <name>` marks a project or a shared instance; `rm`\n" +
-			"unmarks it; running it with no subcommand lists what is currently marked. A\n" +
-			"project stores the flag in its own hull.yaml (autostart: true); a shared\n" +
-			"instance is stored in config.\n" +
+			"`hull autostart enable` registers Hull to start when you log in (and starts\n" +
+			"it now); `hull autostart disable` turns that off. Each platform uses its\n" +
+			"native, no-elevation mechanism: a systemd --user unit on Linux (with\n" +
+			"lingering, so it survives logout), a LaunchAgent on macOS, and a per-user\n" +
+			"Run entry on Windows that launches the daemon with its console hidden.\n" +
 			"\n" +
-			"On daemon start Hull brings these up WITHOUT re-running a project's setup\n" +
-			"hooks (a boot is a resume, not a re-provision; run `hull up` for that). For\n" +
-			"the items to actually be reachable, Hull itself must start at login too, so\n" +
-			"pair this with `hull daemon enable`. A full reboot also needs Docker to\n" +
-			"start at login (Docker Desktop's setting, or `systemctl enable docker`).",
+			"`hull autostart add <name>` then marks a project or shared instance to come\n" +
+			"up with Hull; `rm` unmarks it. A project stores the flag in its own\n" +
+			"hull.yaml (autostart: true); a shared instance is stored in config. Running\n" +
+			"it with no subcommand shows the current state.\n" +
+			"\n" +
+			"On daemon start Hull brings marked items up WITHOUT re-running a project's\n" +
+			"setup hooks (a boot is a resume, not a re-provision; run `hull up` for\n" +
+			"that). A full reboot also needs Docker to start at login (Docker Desktop's\n" +
+			"setting, or `systemctl enable docker`).",
 		Example: "  hull autostart\n" +
+			"  hull autostart enable\n" +
 			"  hull autostart add my-blog\n" +
-			"  hull autostart add mysql-8.4\n" +
-			"  hull autostart rm mysql-8.4",
+			"  hull autostart disable",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error { return listAutostart() },
 	}
+
+	autostart.AddCommand(&cobra.Command{
+		Use:   "enable",
+		Short: "Start Hull automatically at login (and start it now)",
+		Long: "Register Hull to start automatically when you log in, so your sites are\n" +
+			"served without running `hull start` by hand. If Hull is not already\n" +
+			"running, this starts it now too.\n\n" +
+			"Linux uses a systemd --user unit with lingering, macOS a per-user\n" +
+			"LaunchAgent, and Windows a per-user Run entry that launches the daemon\n" +
+			"with its console hidden. None of them need administrator rights.\n\n" +
+			"For containers to come back after a reboot, Docker itself must also start\n" +
+			"at login (Docker Desktop's setting, or `systemctl enable docker`).",
+		Example: "  hull autostart enable",
+		Args:    cobra.NoArgs,
+		RunE:    func(cmd *cobra.Command, args []string) error { return enableHullAtLogin(cmd) },
+	})
+
+	autostart.AddCommand(&cobra.Command{
+		Use:     "disable",
+		Aliases: []string{"stop", "off"},
+		Short:   "Stop Hull from starting at login",
+		Long: "Unregister Hull from launch-at-login (the systemd --user unit, the\n" +
+			"LaunchAgent, or the Run entry, depending on the platform).\n\n" +
+			"This only removes the autostart entry; it does not stop a running daemon.\n" +
+			"Use `hull daemon stop` to stop it now, or `hull stop` to bring everything\n" +
+			"down.",
+		Example: "  hull autostart disable",
+		Args:    cobra.NoArgs,
+		RunE:    func(cmd *cobra.Command, args []string) error { return disableHullAtLogin() },
+	})
 
 	autostart.AddCommand(&cobra.Command{
 		Use:     "add <name>",
@@ -127,16 +161,28 @@ func listAutostart() error {
 	instances := append([]string{}, a.Config.Services.Autostart...)
 	sort.Strings(projects)
 	sort.Strings(instances)
+	atLogin := platform.DaemonAutostartEnabled()
 	if flagJSON {
 		return printJSON(struct {
-			Projects []string `json:"projects"`
-			Services []string `json:"services"`
-		}{projects, instances})
+			HullAtLogin bool     `json:"hull_at_login"`
+			Projects    []string `json:"projects"`
+			Services    []string `json:"services"`
+		}{atLogin, projects, instances})
 	}
+
+	// The headline is whether Hull itself comes back at login; the marked items
+	// are meaningless without it.
+	if atLogin {
+		fmt.Println("Hull at login: enabled")
+	} else {
+		fmt.Println("Hull at login: disabled  (enable with: hull autostart enable)")
+	}
+
 	if len(projects) == 0 && len(instances) == 0 {
-		fmt.Println("Nothing set to autostart. Mark something with: hull autostart add <name>")
+		fmt.Println("\nNothing marked to start with Hull. Mark something with: hull autostart add <name>")
 		return nil
 	}
+	fmt.Println()
 	if len(projects) > 0 {
 		fmt.Println("Projects:")
 		for _, n := range projects {
@@ -148,9 +194,6 @@ func listAutostart() error {
 		for _, n := range instances {
 			fmt.Printf("  %s\n", n)
 		}
-	}
-	if !platform.DaemonAutostartEnabled() {
-		fmt.Println("\nNot starting at login. Enable with: hull daemon enable")
 	}
 	return nil
 }
@@ -167,6 +210,6 @@ func reportAutostart(name, kind string, on bool) {
 // autostarted items are not actually served.
 func warnDaemonAutostart(on bool) {
 	if on && !platform.DaemonAutostartEnabled() {
-		fmt.Println("  Not starting at login yet. Enable with: hull daemon enable")
+		fmt.Println("  Hull does not start at login yet. Enable with: hull autostart enable")
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CavenRE/hull/internal/api"
-	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/services"
 	"github.com/CavenRE/hull/internal/templates"
 )
@@ -98,7 +97,7 @@ func init() {
 					return streamJob(cmd.Context(), c, job)
 				},
 				func() error {
-					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+					if err := ensureDocker(cmd.Context()); err != nil {
 						return err
 					}
 					_, err := services.NewManager(a.Config).Add(cmd.Context(), def.Name, version)
@@ -146,7 +145,7 @@ func init() {
 			return a.withDaemon(
 				func(c *api.Client) error { return c.ServiceAction(cmd.Context(), name, "start") },
 				func() error {
-					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+					if err := ensureDocker(cmd.Context()); err != nil {
 						return err
 					}
 					return services.NewManager(a.Config).Start(cmd.Context(), name)
@@ -180,7 +179,7 @@ func init() {
 			return a.withDaemon(
 				func(c *api.Client) error { return c.ServiceAction(cmd.Context(), name, "stop") },
 				func() error {
-					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+					if err := ensureDocker(cmd.Context()); err != nil {
 						return err
 					}
 					return services.NewManager(a.Config).Stop(cmd.Context(), name)
@@ -227,7 +226,7 @@ func init() {
 			if err := a.withDaemon(
 				func(c *api.Client) error { return c.RemoveService(cmd.Context(), name) },
 				func() error {
-					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+					if err := ensureDocker(cmd.Context()); err != nil {
 						return err
 					}
 					return services.NewManager(a.Config).Remove(cmd.Context(), name)

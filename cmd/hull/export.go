@@ -69,7 +69,7 @@ func init() {
 					}
 				}
 				if len(dumpKeys) > 0 {
-					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+					if err := ensureDocker(cmd.Context()); err != nil {
 						return fmt.Errorf("database dump needs the engine (or pass --skip-db): %w", err)
 					}
 				}

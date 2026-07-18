@@ -104,71 +104,64 @@ func init() {
 		},
 	})
 
+	// Deprecated spellings; the real home is `hull autostart enable|disable`.
 	daemon.AddCommand(&cobra.Command{
-		Use:   "enable",
-		Short: "Start Hull automatically at login",
-		Long: "Register the Hull daemon to start automatically when you log in, so your\n" +
-			"sites are served without running `hull start` by hand.\n\n" +
-			"Each platform uses its native, no-elevation mechanism: Linux a systemd\n" +
-			"--user unit (with lingering, so it also starts at boot and survives\n" +
-			"logout); macOS a per-user LaunchAgent; Windows a per-user Run entry that\n" +
-			"launches the daemon with its console hidden. If the daemon is not\n" +
-			"already running, this starts it now too.\n\n" +
-			"For containers to actually come back after a reboot, Docker itself must\n" +
-			"also start at login (Docker Desktop's setting on macOS/Windows, or\n" +
-			"`systemctl enable docker` on Linux). Undo with `hull daemon disable`.",
-		Example: "  hull daemon enable",
-		Args:    cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := loadApp()
-			if err != nil {
-				return err
-			}
-			exe, err := os.Executable()
-			if err != nil {
-				return err
-			}
-			startedNow, err := platform.EnableDaemonAutostart(exe)
-			if err != nil {
-				return err
-			}
-			fmt.Println("✔ Hull will start automatically at login.")
-			// Windows' logon task does not fire until the next login, so bring the
-			// daemon up now; Linux/macOS already started it via their service.
-			if !startedNow {
-				if _, ok := api.Connect(a.Config.HullHome); !ok {
-					fmt.Println("Starting Hull now...")
-					if err := startDaemonDetached(cmd.Context(), a.Config.HullHome); err != nil {
-						return err
-					}
-					fmt.Println("Hull is running.")
-				}
-			}
-			return nil
-		},
+		Use:    "enable",
+		Short:  "Deprecated: use `hull autostart enable`",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		RunE:   func(cmd *cobra.Command, args []string) error { return enableHullAtLogin(cmd) },
 	})
-
 	daemon.AddCommand(&cobra.Command{
-		Use:   "disable",
-		Short: "Stop Hull from starting at login",
-		Long: "Unregister the Hull daemon from launch-at-login (the systemd --user\n" +
-			"unit, the LaunchAgent, or the logon Scheduled Task, depending on the\n" +
-			"platform).\n\n" +
-			"This only removes the autostart entry; it does not stop a running\n" +
-			"daemon. Use `hull daemon stop` to stop it now, or `hull stop` to bring\n" +
-			"everything down.",
-		Example: "  hull daemon disable",
-		Args:    cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := platform.DisableDaemonAutostart(); err != nil {
-				return err
-			}
-			fmt.Println("✔ Hull will no longer start at login.")
-			return nil
-		},
+		Use:    "disable",
+		Short:  "Deprecated: use `hull autostart disable`",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		RunE:   func(cmd *cobra.Command, args []string) error { return disableHullAtLogin() },
 	})
 
 	rootCmd.AddCommand(daemon)
+}
+
+// enableHullAtLogin registers the daemon to start at login and makes sure it is
+// running now. Shared by `hull autostart enable`, the deprecated
+// `hull daemon enable`, and `hull setup`.
+func enableHullAtLogin(cmd *cobra.Command) error {
+	a, err := loadApp()
+	if err != nil {
+		return err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	startedNow, err := platform.EnableDaemonAutostart(exe)
+	if err != nil {
+		return err
+	}
+	fmt.Println("✔ Hull will start automatically at login.")
+	// Windows' Run entry does not fire until the next login, so bring the daemon
+	// up now; Linux/macOS already started it via their service manager.
+	if !startedNow {
+		if _, ok := api.Connect(a.Config.HullHome); !ok {
+			fmt.Println("Starting Hull now...")
+			if err := startDaemonDetached(cmd.Context(), a.Config.HullHome); err != nil {
+				return err
+			}
+			fmt.Println("✔ Hull is running.")
+		}
+	}
+	return nil
+}
+
+// disableHullAtLogin unregisters the daemon from launch-at-login. It does not
+// stop a running daemon.
+func disableHullAtLogin() error {
+	if err := platform.DisableDaemonAutostart(); err != nil {
+		return err
+	}
+	fmt.Println("✔ Hull will no longer start at login.")
+	return nil
 }
 
 // runDaemonStatus reports whether a daemon is running plus the autostart state.

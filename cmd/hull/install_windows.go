@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -107,9 +108,21 @@ func runInstall(dir string) error {
 	if err := writeUninstallEntry(dir); err != nil {
 		return fmt.Errorf("registry: %w", err)
 	}
-	fmt.Println("\nHull installed. Open a NEW terminal and run:")
-	fmt.Println("  hull setup       # enable the router + DNS, trust the local CA")
-	fmt.Println("  hull daemon run  # start the daemon, then: hull new demo laravel")
+
+	// Actually finish the job. Printing "now go run setup" left fresh installs
+	// with no router, no hosts block, and no daemon, so nothing was ever served.
+	// Setup itself provisions the CA/DNS, starts the daemon, and enables
+	// start-at-login, so hand off to the copy we just installed.
+	fmt.Println("\nRunning setup (this may prompt for elevation)...")
+	setup := exec.Command(target, "setup")
+	setup.Stdin, setup.Stdout, setup.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := setup.Run(); err != nil {
+		fmt.Println("\n! Setup did not finish:", err)
+		fmt.Println("  Open a NEW terminal and run: hull setup")
+		return nil
+	}
+	fmt.Println("\nHull is installed and running. In a NEW terminal try:")
+	fmt.Println("  hull new demo laravel")
 	return nil
 }
 

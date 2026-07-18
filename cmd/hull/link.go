@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CavenRE/hull/internal/api"
-	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/services"
 	"github.com/CavenRE/hull/internal/state"
 	"github.com/CavenRE/hull/internal/templates"
@@ -113,7 +112,7 @@ func init() {
 					return streamJob(cmd.Context(), c, job)
 				},
 				func() error {
-					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+					if err := ensureDocker(cmd.Context()); err != nil {
 						return err
 					}
 					name, err := a.Engine.Link(cmd.Context(), p, spec, services.NewManager(a.Config))

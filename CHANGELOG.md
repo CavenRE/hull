@@ -4,6 +4,41 @@ All notable changes to Hull are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Hull follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.15.1] - 2026-07-19
+
+First-run fixes. A fresh Windows install used to finish with nothing running and
+nothing served; installing now actually finishes the job.
+
+### Fixed
+- **Installing on Windows now runs setup.** `get.ps1` and `hull install` copied
+  the binary, edited PATH, and then just printed "next steps: run hull setup, run
+  hull daemon run". Nobody ran them, so a fresh install had no router, no hosts
+  block, and no daemon: every site gave connection refused. Both paths now run
+  setup, exactly as `install.sh` has always done on Linux and macOS.
+- **`hull setup` leaves Hull running.** It used to end by telling you to start
+  the daemon yourself. It now registers Hull to start at login, starts (or
+  restarts) the daemon, and verifies something actually answers before reporting
+  success. `--no-autostart` skips the login part.
+- **Docker gets started instead of erroring.** Every command that needs the
+  container engine (up, down, restart, repair, logs, new, import, link, services,
+  rebuild, reset, rm, export, cluster create) now starts Docker when it is merely
+  closed and waits for it, rather than failing with "the container engine is not
+  responding". Windows launches Docker Desktop windowless, macOS uses `open -a
+  Docker`, and Linux tries the user-scoped services before the system one so it
+  never needs root. A missing Docker install is still a hard error.
+- **The daemon starts Docker at boot too**, so items marked with `hull autostart`
+  actually come up after a reboot even when Docker is not set to launch at login.
+  Previously the daemon only waited, then gave up silently.
+- **`hull setup` checks Docker** as an explicit step, so the first `hull up`
+  cannot fail on a closed engine.
+
+### Changed
+- **`hull daemon enable` is now `hull autostart enable`.** Everything about what
+  starts automatically lives under one command: `hull autostart` (status),
+  `enable` / `disable` (also `stop`, `off`), and `add` / `rm` for the projects and
+  shared instances that come up with Hull. The old `hull daemon enable|disable`
+  still work but are hidden.
+
 ## [0.15.0] - 2026-07-18
 
 Autostart and shared-instance aliases.

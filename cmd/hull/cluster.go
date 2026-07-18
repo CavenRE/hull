@@ -258,7 +258,7 @@ func init() {
 					return err
 				}
 			} else {
-				if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+				if err := ensureDocker(cmd.Context()); err != nil {
 					return err
 				}
 				if _, err := a.Engine.NewCluster(cmd.Context(), engine.NewClusterOptions{

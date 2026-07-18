@@ -13,22 +13,6 @@ import (
 	"github.com/CavenRE/hull/internal/dockerx"
 )
 
-// waitForDocker polls the Docker engine until it is reachable, so a cold-boot
-// autostart (daemon up before Docker Desktop finishes starting) is not skipped.
-// Bounded to ~60s; returns false on timeout or when ctx is canceled (shutdown).
-func waitForDocker(ctx context.Context) bool {
-	for i := 0; i < 30; i++ {
-		if dockerx.EngineCheck(ctx) == nil {
-			return true
-		}
-		select {
-		case <-ctx.Done():
-			return false
-		case <-time.After(2 * time.Second):
-		}
-	}
-	return false
-}
 
 // Serve runs the daemon on 127.0.0.1 with a fresh token, records the
 // discovery file, and blocks until ctx is canceled or a client requests
@@ -88,11 +72,11 @@ func Serve(ctx context.Context, cfg *config.Config, logf func(format string, a .
 	// marked) never pays the wait-for-Docker cost.
 	if server.Engine.HasAutostart() {
 		go func() {
-			// Docker Desktop may still be starting at login; wait for it so a
-			// cold-boot autostart is not skipped. Bounded, and unblocks on
-			// shutdown.
-			if !waitForDocker(ctx) {
-				logf("autostart: Docker did not become ready, skipping")
+			// Docker may be closed, or still starting at login. Start it if needed
+			// and wait, otherwise the marked items silently never come up after a
+			// reboot. Bounded, and unblocks on shutdown.
+			if err := dockerx.EnsureEngine(ctx, func(msg string) { logf("autostart: %s", msg) }); err != nil {
+				logf("autostart: %v", err)
 				return
 			}
 			if n, err := server.Engine.StartEnabled(ctx); err != nil {

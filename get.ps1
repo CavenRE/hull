@@ -93,11 +93,21 @@ try {
 
   Add-ToUserPath $Prefix
 
+  # Finish the job rather than printing homework. install.sh has always run
+  # setup for Linux/macOS users; Windows used to stop here, which left a fresh
+  # install with no router, no hosts block, and no daemon: nothing was served.
+  # Setup provisions the CA and DNS, starts the daemon, and enables it at login.
+  $hullExe = Join-Path $Prefix 'hull.exe'
   Write-Host ''
-  Info 'Next steps:'
-  Write-Host '  hull setup     # enable the router + DNS and trust the local CA (may prompt for elevation)'
-  Write-Host '  hull doctor    # verify Docker, ports, DNS, certs'
-  Write-Host '  hull daemon run # start the daemon, then: hull new demo laravel'
+  Info 'Running setup (this may prompt for elevation)...'
+  & $hullExe setup
+  if ($LASTEXITCODE -ne 0) {
+    Warn 'setup did not finish. Open a new terminal and run: hull setup'
+  } else {
+    & $hullExe doctor
+    Write-Host ''
+    Ok 'Hull is installed and running. In a NEW terminal try: hull new demo laravel'
+  }
 } finally {
   Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 }

@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CavenRE/hull/internal/api"
-	"github.com/CavenRE/hull/internal/dockerx"
 )
 
 func init() {
@@ -51,7 +50,7 @@ func init() {
 					return streamJob(cmd.Context(), c, job)
 				},
 				func() error {
-					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+					if err := ensureDocker(cmd.Context()); err != nil {
 						return err
 					}
 					return a.Engine.Rebuild(cmd.Context(), p, noCache)
@@ -128,7 +127,7 @@ func init() {
 					return streamJob(cmd.Context(), c, job)
 				},
 				func() error {
-					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+					if err := ensureDocker(cmd.Context()); err != nil {
 						return err
 					}
 					return a.Engine.Reset(cmd.Context(), p)

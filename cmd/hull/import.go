@@ -137,7 +137,7 @@ func init() {
 			}
 
 			if !noStart {
-				if err := dockerx.EngineCheck(cmd.Context()); err != nil {
+				if err := ensureDocker(cmd.Context()); err != nil {
 					return err
 				}
 			}
@@ -267,7 +267,7 @@ func (a *app) importInPlace(ctx context.Context, dir string, overrides engine.Ne
 		if noStart {
 			return nil
 		}
-		if err := dockerx.EngineCheck(ctx); err != nil {
+		if err := ensureDocker(ctx); err != nil {
 			return err
 		}
 		if err := a.Engine.Up(ctx, &state.Project{Name: m.Name, Dir: dir, Manifest: m}); err != nil {
@@ -304,7 +304,7 @@ func (a *app) importInPlace(ctx context.Context, dir string, overrides engine.Ne
 	}
 
 	if !noStart {
-		if err := dockerx.EngineCheck(ctx); err != nil {
+		if err := ensureDocker(ctx); err != nil {
 			return err
 		}
 	}
