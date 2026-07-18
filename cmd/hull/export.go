@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 
 	"github.com/CavenRE/hull/internal/bundle"
 	"github.com/CavenRE/hull/internal/dockerx"
+	"github.com/CavenRE/hull/internal/manifest"
 	"github.com/CavenRE/hull/internal/version"
 )
 
@@ -55,7 +57,7 @@ func init() {
 				return err
 			}
 			if p.Manifest == nil {
-				return fmt.Errorf("%s is a legacy v1 project , adopt it first with: hull migrate %s", p.Name, p.Name)
+				return fmt.Errorf("%s is a legacy v1 project: adopt it first with: hull migrate %s", p.Name, p.Name)
 			}
 			m := p.Manifest
 
@@ -73,7 +75,7 @@ func init() {
 				}
 			}
 
-			manifestData, err := os.ReadFile(p.Dir + "/hull.yaml")
+			manifestData, err := os.ReadFile(filepath.Join(p.Dir, manifest.Filename))
 			if err != nil {
 				return err
 			}

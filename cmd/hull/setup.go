@@ -38,6 +38,7 @@ func init() {
 			"or with --uninstall to remove Hull's certificate from the trust stores.",
 		Example: "  hull trust\n" +
 			"  hull trust --uninstall",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
@@ -104,6 +105,7 @@ func init() {
 		Example: "  hull setup\n" +
 			"  hull setup --tld local --loopback 3 --root ~/Sites\n" +
 			"  hull setup --yes --skip-dns",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
@@ -129,9 +131,8 @@ func init() {
 			// than enabling a resolver that can't take effect.
 			if !skipDNS {
 				if ok, reason := platform.DNSSupported(); !ok {
-					fmt.Println("> Skipping OS DNS registration ,", reason)
+					fmt.Println("> Skipping OS DNS registration:", reason)
 					fmt.Printf("  Keep resolving *.%s the way you do now; this machine is left as-is.\n", cfg.TLD)
-					fmt.Println("  (Pass --skip-dns to silence this.)")
 					skipDNS = true
 				}
 			}
@@ -181,7 +182,7 @@ func init() {
 				if err := platform.RegisterDNS(cfg.TLD, cfg.Router.Loopback, cfg.DNS.Port); err != nil {
 					var manual *platform.ManualStepsError
 					if errors.As(err, &manual) {
-						fmt.Println("  ! Needs elevation , run these manually:")
+						fmt.Println("  ! Needs elevation. Run these manually:")
 						fmt.Println(indent(manual.Instructions, "    "))
 					} else {
 						fmt.Println("  !", err)
@@ -201,7 +202,7 @@ func init() {
 			if err := platform.EnsureLoopbackAlias(cfg.Router.Loopback); err != nil {
 				var manual *platform.ManualStepsError
 				if errors.As(err, &manual) {
-					fmt.Printf("  ! %s needs a loopback alias , run:\n", cfg.Router.Loopback)
+					fmt.Printf("  ! %s needs a loopback alias. Run:\n", cfg.Router.Loopback)
 					fmt.Println(indent(manual.Instructions, "    "))
 				} else {
 					fmt.Printf("  ! could not alias %s: %v\n", cfg.Router.Loopback, err)
@@ -226,7 +227,7 @@ func init() {
 				capGranted = false
 				var manual *platform.ManualStepsError
 				if errors.As(err, &manual) {
-					fmt.Println("  ! Privileged router ports need a capability , run:")
+					fmt.Println("  ! Privileged router ports need a capability. Run:")
 					fmt.Println(indent(manual.Instructions, "    "))
 				} else {
 					fmt.Println("  ! could not grant port-bind capability:", err)
@@ -246,13 +247,13 @@ func init() {
 					if daemonUp {
 						fmt.Printf("  ✔ Port %d already served by the running Hull daemon\n", port)
 					} else {
-						fmt.Printf("  ! Port %d is in use , stop the occupant (v1 hull-router? another web server?) or change router ports in config.yaml\n", port)
+						fmt.Printf("  ! Port %d is in use. Stop the occupant (v1 hull-router? another web server?) or change router ports in config.yaml\n", port)
 					}
 				case bindDenied:
 					if capGranted {
 						fmt.Printf("  ✔ Port %d is privileged; the daemon binds it via CAP_NET_BIND_SERVICE\n", port)
 					} else {
-						fmt.Printf("  ! Port %d needs privilege , run: sudo setcap 'cap_net_bind_service=+ep' <hull binary>  (or lower net.ipv4.ip_unprivileged_port_start)\n", port)
+						fmt.Printf("  ! Port %d needs privilege. Run: sudo setcap 'cap_net_bind_service=+ep' <hull binary>  (or lower net.ipv4.ip_unprivileged_port_start)\n", port)
 					}
 				}
 			}

@@ -15,7 +15,7 @@ Runs on **Windows · macOS · Linux** (Arch & Debian/Ubuntu).
 
 ## What is Hull?
 
-Hull provisions Docker-based local development environments and serves each project at a trusted `https://<name>.test` address , no port juggling, no manual nginx/Caddy config, no `/etc/hosts` editing.
+Hull provisions Docker-based local development environments and serves each project at a trusted `https://<name>.test` address: no port juggling, no manual nginx/Caddy config, no `/etc/hosts` editing.
 
 It scaffolds Laravel, WordPress, and plain-PHP projects in one command, runs shared database instances multiple projects can share, and routes everything through an embedded HTTPS reverse proxy with a locally-trusted certificate authority.
 
@@ -198,18 +198,20 @@ Run `hull <command> --help` for full flags on any command, `hull help routing` f
 |---|---|
 | `hull new <name> <template>` | Scaffold a project (`laravel`, `wordpress`, `plain`). Flags: `--db`, `--db-version`, `--redis`, `--php`, `--version`, `--service eng[@ver]` (repeatable), `--serve`, `-i/--interactive`, `--no-db`, `--no-start`. |
 | `hull up [name...]` | Start the current project, named ones, `--all`, or pick interactively. |
-| `hull down [name...]` | Stop environments (data preserved). |
+| `hull down [name...]` | Stop projects (data preserved). |
 | `hull restart [name]` | Restart a project's containers. |
 | `hull rebuild [name]` | Rebuild images and bring the project back up (`--no-cache`). |
 | `hull reset [name]` | Wipe the project's data volumes and start fresh. |
 | `hull repair [name]` | Recreate a project from a clean slate to fix a wedged or detached state (keeps data). |
-| `hull rm <name>` | Destroy an environment and its data. |
+| `hull rm <name>` | Destroy a project and its data. |
 | `hull logs [name]` | Tail a project's container logs. |
 | `hull status` | Show running containers and their ports. |
 | `hull list` | List registered projects and their state. |
 | `hull render` | Regenerate `compose.yaml` from a project's `hull.yaml`. |
 | `hull start` | Start Hull (the daemon) in the background, so your sites are served. |
 | `hull stop` | Bring down every project, shared service, and the daemon. |
+
+Scope, at a glance: `up`/`down` act on **projects**; `start`/`stop` act on **Hull itself** (`start` brings the daemon up, `stop` brings everything, daemon included, down). Most parent commands with a list (`config`, `cluster`, `group`, `daemon`, `services`) do the useful thing when run bare (print or list); the full explanation is under `-h`.
 
 ### Project settings
 
@@ -226,8 +228,13 @@ Run `hull <command> --help` for full flags on any command, `hull help routing` f
 |---|---|
 | `hull services add <eng[@ver]>` | Create & start a shared instance (e.g. `postgres@16`). Aliases: `svc`, `service`. |
 | `hull services list` / `start` / `stop` / `rm` | Manage shared instances (`rm` destroys all its databases). |
+| `hull services alias <name> <inst>` | Name an instance (e.g. `mysql` -> `mysql-8.4`); bare lists, `--rm` removes. |
 | `hull link <project> <eng[@ver]>` | Link a project to a shared instance (creates its database, wires the framework env). |
 | `hull unlink <project> <key>` | Remove a linked service (e.g. `db`, `redis`) from a project. |
+
+`start` / `stop` / `rm` / `link` accept an alias, or just the engine name when you
+run a single version of it (`hull services stop mariadb` finds your sole
+`mariadb-*` instance).
 
 **Accessing your databases.** Your apps connect automatically (Hull wires
 `DB_HOST` and friends). To browse them yourself, open the console at
@@ -263,10 +270,12 @@ auto-provisioning with `services: { auto_adminer: false }` in `config.yaml`.
 | `hull trust` | Install/remove Hull's local root certificate in the OS trust store (`--uninstall`). |
 | `hull doctor` | Diagnose the environment (Docker, ports, DNS, certs, daemon). |
 | `hull daemon run` / `status` / `stop` | Manage the daemon (`hull daemon run` starts it in the foreground). |
+| `hull daemon enable` / `disable` | Start Hull automatically at login, or stop doing so (systemd/LaunchAgent/Run entry). |
+| `hull autostart add` / `rm` / (bare) | Choose which projects and shared instances come up when Hull starts. |
 | `hull deps` | Show dependency status (Docker + embedded components). |
 | `hull completion <shell>` | Generate a shell autocompletion script. |
 | `hull install` | Install this hull binary onto the system (copy to a stable location + PATH). |
-| `hull update` | Update Hull to the latest, rebuilt from source (`--check`, `--branch`, `--force`). |
+| `hull update` | Update Hull to the latest, rebuilt from source (`--check`, `--branch`, `--reinstall`). |
 | `hull uninstall` | Remove Hull from this machine (`--purge-data` also clears `~/.hull`). |
 
 ---
@@ -355,7 +364,7 @@ hull update            # rebuild + install the latest, in place
 hull update --check    # just see whether a newer version is available
 ```
 
-Since there are no prebuilt CLI releases yet, `hull update` clones the latest source and rebuilds `hull` where it already lives (it needs Go and git, the same as installing). Installed from a package manager? Update it there instead, for example `yay -Syu hull`. Your running daemon keeps serving the old version until you restart it, so after updating, restart the daemon to pick up the change. Flags: `--check` (report only), `--branch <name>`, `--force`.
+Since there are no prebuilt CLI releases yet, `hull update` clones the latest source and rebuilds `hull` where it already lives (it needs Go and git, the same as installing). Installed from a package manager? Update it there instead, for example `yay -Syu hull`. Your running daemon keeps serving the old version until you restart it, so after updating, restart the daemon to pick up the change. Flags: `--check` (report only), `--branch <name>`, `--reinstall` (rebuild even if up to date).
 
 ---
 

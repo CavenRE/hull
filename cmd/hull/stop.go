@@ -30,6 +30,7 @@ func init() {
 			"the machine is clear or flag a straggler. Project files and data volumes\n" +
 			"are left untouched.",
 		Example: "  hull stop",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {

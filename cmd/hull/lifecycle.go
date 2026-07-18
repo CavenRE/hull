@@ -16,7 +16,7 @@ func init() {
 	var all bool
 	up := &cobra.Command{
 		Use:   "up [name...]",
-		Short: "Start environments",
+		Short: "Start projects",
 		Long: "Start one or more Hull projects.\n\n" +
 			"Targets are resolved in priority order: explicit names on the command\n" +
 			"line, then --all (every registered project), then the current directory's\n" +
@@ -69,7 +69,7 @@ func init() {
 	var all bool
 	down := &cobra.Command{
 		Use:   "down [name...]",
-		Short: "Stop environments",
+		Short: "Stop projects",
 		Long: "Stop one or more running Hull projects.\n\n" +
 			"Uses the same targeting as up (explicit names, then --all, then the\n" +
 			"current project, then an interactive picker), except the picker lists\n" +

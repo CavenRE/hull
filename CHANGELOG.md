@@ -4,6 +4,71 @@ All notable changes to Hull are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Hull follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.15.0] - 2026-07-18
+
+Autostart and shared-instance aliases.
+
+### Added
+- **`hull daemon enable` / `hull daemon disable`**: register (or unregister) the
+  Hull daemon to start at login, so your sites are served after a reboot without
+  running `hull start` by hand. Each platform uses its native, no-elevation
+  mechanism: a systemd --user unit with lingering on Linux, a per-user
+  LaunchAgent on macOS, and a per-user Run entry on Windows that launches the
+  daemon with its console hidden. `hull daemon status` reports the state.
+- **`hull autostart add|rm <name>`**: choose which projects and shared instances
+  Hull brings up when the daemon starts. A project stores the choice in its own
+  `hull.yaml` (`autostart: true`); a shared instance is stored in config. On
+  daemon start these are brought up **without** re-running a project's `pre_up`/
+  `post_up` hooks: a boot is a resume, not a re-provision (use `hull up` for
+  that). Bare `hull autostart` lists what is marked and warns when the daemon
+  itself is not set to start at login.
+- **Shared-instance aliases**: `hull services alias mysql mysql-8.4` lets a short
+  name work everywhere an instance name is accepted (`start`, `stop`, `rm`, and
+  `link`). You often need no alias at all: if you run only one version of an
+  engine, the engine name resolves to it (`hull services stop mariadb` finds your
+  sole mariadb instance). Aliases are stored in config and resolved by the CLI,
+  so a running daemon never needs to know about a new one.
+
+### Changed
+- **CLI cleanup: help stays at `-h`.** Parent commands with an obvious default
+  now do it when run bare instead of printing their help essay: `hull config`
+  prints the config, `hull config roots` / `hull group` / `hull cluster` list,
+  and `hull daemon` reports status. Standing explanatory footnotes were removed
+  from normal output (the `hull services` trust-auth blurb, the `cluster urls`
+  ingress note, the `autostart` and `setup` notes) and now live under `-h`.
+- **More intuitive and consistent.** Projects are called "projects" everywhere
+  (not "environments"); `services rm`, `rebuild`, and `reset` print a success
+  confirmation; commands that take no arguments now reject stray ones instead of
+  silently ignoring them; `hull npm` works in non-TTY shells (CI); and
+  `hull autostart` plus the alias list gained `--json`.
+- **Clearer flag names** (old spellings still work, hidden, for one release):
+  `hull update --reinstall` (was `--force`), `hull cluster add --compose-root`
+  (was `--root`), and `hull import --skip-db` (matches `hull export`, was
+  `--skip-dumps`). `hull services alias rm <name>` replaces the `--rm` flag, and
+  `hull unlink` now also accepts the engine you linked with (`hull unlink app
+  mysql`).
+
+### Fixed
+- A daemon config PUT (from the GUI or `hull config`) no longer clobbers
+  file-only Services settings (`auto_adminer`, and now aliases/autostart) written
+  to `config.yaml` while the daemon was running.
+
+## [0.14.3] - 2026-07-18
+
+Adminer console fixes.
+
+### Fixed
+- **The database console no longer spawns a duplicate Adminer.** The
+  auto-provisioner asked for version `latest`, which produced a second
+  `adminer-latest` instance that fought the one `hull services add adminer`
+  creates for the `db.<tld>` route. Both paths now resolve to the same instance
+  (`adminer`), so the console stays single and stable.
+- **`hull services add adminer` now populates the connection picker itself.**
+  Previously the `db.<tld>` dropdown only refreshed when a database was attached
+  (add a DB engine, `hull link`, `hull new --db`), so adding Adminer on its own
+  left an empty list. Adding Adminer now regenerates the list from every
+  reachable database immediately.
+
 ## [0.14.2] - 2026-07-17
 
 Certificate and shared-service fixes.

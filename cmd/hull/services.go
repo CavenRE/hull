@@ -28,7 +28,11 @@ func init() {
 			"Subcommands: list (show every instance), add (create and start one),\n" +
 			"start/stop (control an instance without losing its data), and rm\n" +
 			"(destroy an instance and every database in it). Use hull link to point a\n" +
-			"project at an instance once it exists.",
+			"project at an instance once it exists.\n" +
+			"\n" +
+			"Databases use trust auth (no password: postgres uses user postgres,\n" +
+			"mysql/mariadb use root). Browse them at https://db.<tld>, or point a\n" +
+			"desktop client at the CONNECT address in the list.",
 		Example: "  hull services\n" +
 			"  hull services add postgres@16\n" +
 			"  hull services stop postgres-16",
@@ -103,9 +107,10 @@ func init() {
 			); err != nil {
 				return err
 			}
-			if def.IsDatabase {
-				// Auto-provision the Adminer console for the new database instance
-				// and refresh its picker (best-effort , the instance is already up).
+			if def.IsDatabase || def.Name == "adminer" {
+				// Refresh the Adminer picker (and auto-provision the console) so a
+				// newly added database, or Adminer itself, shows the current set of
+				// connections. Best-effort; the instance is already up.
 				_ = a.Engine.EnsureAdminer(cmd.Context())
 			}
 			fmt.Printf("✔ Shared instance %s is up. Link a project with: hull link <project> %s\n", templates.InstanceName(def.Name, version), args[0])
@@ -134,13 +139,17 @@ func init() {
 			if err != nil {
 				return err
 			}
+			// Resolve an alias/shorthand to the canonical instance name CLI-side,
+			// so a running daemon (which may not know a freshly-added alias) is
+			// handed the real name.
+			name := services.NewManager(a.Config).Canonical(args[0])
 			return a.withDaemon(
-				func(c *api.Client) error { return c.ServiceAction(cmd.Context(), args[0], "start") },
+				func(c *api.Client) error { return c.ServiceAction(cmd.Context(), name, "start") },
 				func() error {
 					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
 						return err
 					}
-					return services.NewManager(a.Config).Start(cmd.Context(), args[0])
+					return services.NewManager(a.Config).Start(cmd.Context(), name)
 				},
 			)
 		},
@@ -167,13 +176,14 @@ func init() {
 			if err != nil {
 				return err
 			}
+			name := services.NewManager(a.Config).Canonical(args[0])
 			return a.withDaemon(
-				func(c *api.Client) error { return c.ServiceAction(cmd.Context(), args[0], "stop") },
+				func(c *api.Client) error { return c.ServiceAction(cmd.Context(), name, "stop") },
 				func() error {
 					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
 						return err
 					}
-					return services.NewManager(a.Config).Stop(cmd.Context(), args[0])
+					return services.NewManager(a.Config).Stop(cmd.Context(), name)
 				},
 			)
 		},
@@ -203,8 +213,9 @@ func init() {
 			if err != nil {
 				return err
 			}
+			name := services.NewManager(a.Config).Canonical(args[0])
 			if !force {
-				ok, err := confirm(fmt.Sprintf("Destroy instance %q and every database in it?", args[0]))
+				ok, err := confirm(fmt.Sprintf("Destroy instance %q and every database in it?", name))
 				if err != nil {
 					return err
 				}
@@ -213,19 +224,27 @@ func init() {
 					return nil
 				}
 			}
-			return a.withDaemon(
-				func(c *api.Client) error { return c.RemoveService(cmd.Context(), args[0]) },
+			if err := a.withDaemon(
+				func(c *api.Client) error { return c.RemoveService(cmd.Context(), name) },
 				func() error {
 					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
 						return err
 					}
-					return services.NewManager(a.Config).Remove(cmd.Context(), args[0])
+					return services.NewManager(a.Config).Remove(cmd.Context(), name)
 				},
-			)
+			); err != nil {
+				return err
+			}
+			// Drop any aliases that pointed at the destroyed instance.
+			pruneAliasesFor(a, name)
+			fmt.Printf("✔ Destroyed instance %q.\n", name)
+			return nil
 		},
 	}
 	rm.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt (alias of --yes)")
 	svc.AddCommand(rm)
+
+	svc.AddCommand(newServicesAliasCommand())
 
 	rootCmd.AddCommand(svc)
 }

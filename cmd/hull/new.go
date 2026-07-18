@@ -76,7 +76,7 @@ func init() {
 			// is an extra service. Explicit services suppress the smart db.
 			var extra []engine.ServiceSpec
 			for _, spec := range serviceFlags {
-				def, version, err := services.Resolve(spec)
+				def, version, err := services.Resolve(aliasSpec(a, spec))
 				if err != nil {
 					return err
 				}

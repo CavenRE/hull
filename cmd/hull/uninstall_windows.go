@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sys/windows/registry"
 
 	"github.com/CavenRE/hull/internal/api"
+	"github.com/CavenRE/hull/internal/platform"
 )
 
 const uninstallRegKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\Hull`
@@ -169,7 +170,7 @@ func removeAutostart(dir string) {
 	want := strings.ToLower(dir)
 	for _, n := range names {
 		val, _, _ := k.GetStringValue(n)
-		if strings.EqualFold(n, "Hull") || strings.EqualFold(n, "hull-gui") || strings.Contains(strings.ToLower(val), want) {
+		if strings.EqualFold(n, "Hull") || strings.EqualFold(n, "hull-gui") || strings.EqualFold(n, platform.RunValueName) || strings.Contains(strings.ToLower(val), want) {
 			_ = k.DeleteValue(n)
 		}
 	}

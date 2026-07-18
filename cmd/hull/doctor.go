@@ -25,6 +25,7 @@ func init() {
 			"failure the command exits non-zero, so it is safe to use in scripts as a\n" +
 			"health gate. Warnings do not fail the run.",
 		Example: "  hull doctor",
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {

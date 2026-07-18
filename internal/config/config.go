@@ -50,6 +50,15 @@ type ServicesConfig struct {
 	// first time a database is attached to anything. Defaults to on; set to
 	// false to opt out.
 	AutoAdminer *bool `yaml:"auto_adminer,omitempty"`
+	// Aliases maps a short name to a canonical on-disk instance name so
+	// `hull services start mysql` can resolve to instance "mysql-8.4". Managed
+	// with `hull services alias`. Resolved CLI-side, so a running daemon does
+	// not need to be told about a freshly-added alias.
+	Aliases map[string]string `yaml:"aliases,omitempty"`
+	// Autostart lists shared-service instances to bring up when the daemon
+	// starts (projects opt in via their own hull.yaml). Managed with
+	// `hull autostart`.
+	Autostart []string `yaml:"autostart,omitempty"`
 }
 
 // AutoAdminerEnabled reports whether Adminer should be auto-provisioned when a
@@ -194,7 +203,7 @@ func (c *Config) Save() error {
 }
 
 // ValidLoopback reports whether s is a 127.0.0.x address with a last octet
-// in 1–8 , the range Hull's UI and DNS support for the router bind address.
+// in 1-8, the range Hull's UI and DNS support for the router bind address.
 func ValidLoopback(s string) bool {
 	ip := net.ParseIP(s)
 	if ip == nil {

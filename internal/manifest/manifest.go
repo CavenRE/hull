@@ -51,6 +51,9 @@ type Manifest struct {
 	// Serve controls whether Hull gives this project a routed domain (vhost
 	// + cert + DNS). nil = heuristic default; explicit wins. (Wired in J1.)
 	Serve *bool `yaml:"serve,omitempty"`
+	// Autostart controls whether Hull brings this project up when the daemon
+	// starts. nil/false = not auto-started (opt-in); set with `hull autostart`.
+	Autostart *bool `yaml:"autostart,omitempty"`
 
 	Containers map[string]*Container `yaml:"containers,omitempty"` // apps only
 	Services   map[string]*Service   `yaml:"services,omitempty"`
@@ -268,6 +271,12 @@ func (m *Manifest) Served() bool {
 		return *m.Serve
 	}
 	return true
+}
+
+// Autostarts reports whether Hull should bring this project up when the daemon
+// starts. Opt-in: the default is false.
+func (m *Manifest) Autostarts() bool {
+	return m.Autostart != nil && *m.Autostart
 }
 
 // Load reads, normalizes, and validates the manifest at path, which may be a

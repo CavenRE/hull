@@ -40,7 +40,7 @@ func init() {
 			return a.Engine.ExecIn(cmd.Context(), p, service, args...)
 		},
 	}
-	cmd.Flags().StringVar(&service, "service", "app", "compose service to exec into")
+	cmd.Flags().StringVar(&service, "service", "app", "compose service to run in (e.g. a queue worker)")
 	// Stop parsing hull's flags once the command begins, so they belong to the
 	// executed command: `hull exec php --version` passes --version to php, not hull.
 	cmd.Flags().SetInterspersed(false)
@@ -76,7 +76,7 @@ func init() {
 			return a.Engine.ExecIn(cmd.Context(), p, service, append([]string{"php", "artisan"}, args...)...)
 		},
 	}
-	cmd.Flags().StringVar(&service, "service", "app", "compose service to run artisan in (e.g. a queue worker)")
+	cmd.Flags().StringVar(&service, "service", "app", "compose service to run in (e.g. a queue worker)")
 	cmd.Flags().SetInterspersed(false) // flags after the subcommand pass through (hull artisan migrate --force)
 	rootCmd.AddCommand(cmd)
 }
@@ -106,7 +106,12 @@ func init() {
 			if err != nil {
 				return err
 			}
-			dockerArgs := []string{"run", "--rm", "-it"}
+			// -it needs a real terminal; allocating it in a non-TTY shell (CI,
+			// `hull npm ci` in a pipe) fails with "the input device is not a TTY".
+			dockerArgs := []string{"run", "--rm"}
+			if isInteractive() {
+				dockerArgs = append(dockerArgs, "-it")
+			}
 			if uid, gid := os.Getuid(), os.Getgid(); uid >= 0 && gid >= 0 {
 				dockerArgs = append(dockerArgs, "--user", fmt.Sprintf("%d:%d", uid, gid))
 			}

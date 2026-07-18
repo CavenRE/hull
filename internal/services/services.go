@@ -35,6 +35,9 @@ type Instance struct {
 // the shared (caddy) network, addressed by a fixed container name.
 type Manager struct {
 	HullHome string
+	// Aliases maps a short name to a canonical instance name (from config), so
+	// Canonical lets start/stop/rm accept a friendly name like "mysql".
+	Aliases map[string]string
 	// Run executes attached commands (compose up/down); dockerx.Exec default.
 	Run dockerx.Runner
 	// Output captures command output (database creation); dockerx.Output default.
@@ -49,6 +52,7 @@ type Manager struct {
 func NewManager(cfg *config.Config) *Manager {
 	return &Manager{
 		HullHome:        cfg.HullHome,
+		Aliases:         cfg.Services.Aliases,
 		Run:             dockerx.Exec,
 		Output:          dockerx.Output,
 		EnsureNet:       dockerx.EnsureNetwork,
@@ -223,6 +227,7 @@ func (m *Manager) List(ctx context.Context) ([]Instance, error) {
 
 // Start boots an existing instance.
 func (m *Manager) Start(ctx context.Context, instance string) error {
+	instance = m.Canonical(instance)
 	if err := m.exists(instance); err != nil {
 		return err
 	}
@@ -231,6 +236,7 @@ func (m *Manager) Start(ctx context.Context, instance string) error {
 
 // Stop stops an instance (data preserved).
 func (m *Manager) Stop(ctx context.Context, instance string) error {
+	instance = m.Canonical(instance)
 	if err := m.exists(instance); err != nil {
 		return err
 	}
@@ -239,6 +245,7 @@ func (m *Manager) Stop(ctx context.Context, instance string) error {
 
 // Remove destroys an instance and its data volume.
 func (m *Manager) Remove(ctx context.Context, instance string) error {
+	instance = m.Canonical(instance)
 	if err := m.exists(instance); err != nil {
 		return err
 	}
@@ -305,6 +312,68 @@ func (m *Manager) exists(instance string) error {
 		return fmt.Errorf("no shared instance %q (add one with: hull services add <engine>[@version])", instance)
 	}
 	return nil
+}
+
+// Canonical resolves a user-supplied token to the canonical on-disk instance
+// name. Precedence: an existing instance directory of that exact name always
+// wins (a real instance can never be shadowed by an alias); then a configured
+// alias; then engine-only shorthand (the single instance of that engine);
+// otherwise the token is returned unchanged so callers surface the usual
+// not-found error. It is idempotent: a canonical name resolves to itself, so
+// resolving CLI-side and again in the daemon is safe.
+func (m *Manager) Canonical(token string) string {
+	if token == "" {
+		return token
+	}
+	if _, err := os.Stat(m.Dir(token)); err == nil {
+		return token
+	}
+	if target, ok := m.Aliases[token]; ok {
+		return target
+	}
+	if only, ok := m.soleInstanceOfEngine(token); ok {
+		return only
+	}
+	return token
+}
+
+// soleInstanceOfEngine returns the single instance whose engine equals name,
+// if exactly one exists on disk. It lets `hull services stop mariadb` find the
+// lone mariadb-* instance without an explicit alias; with zero or several
+// matches it reports no match so the caller falls back to the literal token.
+func (m *Manager) soleInstanceOfEngine(name string) (string, bool) {
+	entries, err := os.ReadDir(m.servicesDir())
+	if err != nil {
+		return "", false
+	}
+	var match string
+	var count int
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		engineName, _, _ := strings.Cut(e.Name(), "-")
+		if engineName == name {
+			match = e.Name()
+			count++
+		}
+	}
+	if count == 1 {
+		return match, true
+	}
+	return "", false
+}
+
+// InstanceToSpec converts a canonical instance name (mysql-8.4) into the engine
+// spec (mysql@8.4) that Resolve accepts, so an alias that resolves to an
+// instance can feed link/new. A bare-engine instance (adminer) returns
+// unchanged.
+func InstanceToSpec(instance string) string {
+	engineName, version, found := strings.Cut(instance, "-")
+	if !found || version == "" {
+		return instance
+	}
+	return engineName + "@" + version
 }
 
 // CreateDatabase idempotently creates a database in a running instance.

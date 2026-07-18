@@ -2,14 +2,37 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/CavenRE/hull/internal/api"
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/services"
+	"github.com/CavenRE/hull/internal/state"
 	"github.com/CavenRE/hull/internal/templates"
 )
+
+// resolveUnlinkKey maps an unlink token to a hull.yaml service key. An exact
+// key (db, redis) is used as-is; otherwise the token is treated as the engine
+// spec used at link time (mysql, postgres@16) and matched to the service whose
+// engine it names, so a link can be undone with the token it was created with.
+func resolveUnlinkKey(p *state.Project, token string) string {
+	if p.Manifest == nil {
+		return token
+	}
+	if _, ok := p.Manifest.Services[token]; ok {
+		return token
+	}
+	engineName, _, _ := strings.Cut(token, "@")
+	engineName = strings.ToLower(engineName)
+	for _, key := range p.Manifest.ServiceKeys() {
+		if s := p.Manifest.Services[key]; s != nil && s.Engine == engineName {
+			return key
+		}
+	}
+	return token
+}
 
 func init() {
 	rootCmd.AddCommand(&cobra.Command{
@@ -46,7 +69,10 @@ func init() {
 			if err != nil {
 				return err
 			}
-			def, version, err := services.Resolve(args[1])
+			// An explicit alias (e.g. `hull link app mysql`) resolves to the
+			// instance's engine@version so it links to that specific instance.
+			spec := aliasSpec(a, args[1])
+			def, version, err := services.Resolve(spec)
 			if err != nil {
 				return err
 			}
@@ -90,7 +116,7 @@ func init() {
 					if err := dockerx.EngineCheck(cmd.Context()); err != nil {
 						return err
 					}
-					name, err := a.Engine.Link(cmd.Context(), p, args[1], services.NewManager(a.Config))
+					name, err := a.Engine.Link(cmd.Context(), p, spec, services.NewManager(a.Config))
 					if err != nil {
 						return err
 					}
@@ -113,13 +139,15 @@ func init() {
 
 func init() {
 	rootCmd.AddCommand(&cobra.Command{
-		Use:   "unlink <project> <service-key>",
+		Use:   "unlink <project> <service-key|engine>",
 		Short: "Remove a service (e.g. db, redis) from a project",
-		Long: "Remove a service from a project by its key in hull.yaml.\n" +
+		Long: "Remove a service from a project by its key in hull.yaml, or by the same\n" +
+			"engine spec you linked it with.\n" +
 			"\n" +
-			"Pass the project name and the service key as it appears under services\n" +
-			"in the project's hull.yaml (commonly db or redis, not the instance\n" +
-			"name). Hull deletes that entry and regenerates compose.yaml so the\n" +
+			"Pass the project name and either the service key as it appears under\n" +
+			"services in the project's hull.yaml (commonly db or redis), or the engine\n" +
+			"you linked (for example `hull unlink app mysql` undoes `hull link app\n" +
+			"mysql`). Hull deletes that entry and regenerates compose.yaml so the\n" +
 			"service is no longer wired into the project.\n" +
 			"\n" +
 			"When a daemon is running the unlink routes through it; otherwise it runs\n" +
@@ -138,13 +166,16 @@ func init() {
 			if err != nil {
 				return err
 			}
+			// Accept the engine spec you linked with (mysql, postgres@16), not
+			// only the hull.yaml key (db, redis).
+			key := resolveUnlinkKey(p, args[1])
 			if err := a.withDaemon(
-				func(c *api.Client) error { return c.Unlink(cmd.Context(), p.Name, api.UnlinkRequest{Key: args[1]}) },
-				func() error { return a.Engine.Unlink(cmd.Context(), p, args[1]) },
+				func(c *api.Client) error { return c.Unlink(cmd.Context(), p.Name, api.UnlinkRequest{Key: key}) },
+				func() error { return a.Engine.Unlink(cmd.Context(), p, key) },
 			); err != nil {
 				return err
 			}
-			fmt.Printf("✔ %s unlinked from %q. Restart with: hull up %s\n", p.Name, args[1], p.Name)
+			fmt.Printf("✔ %s unlinked from %q. Restart with: hull up %s\n", p.Name, key, p.Name)
 			return nil
 		},
 	})

@@ -45,10 +45,12 @@ func init() {
 			"apply live to the running router and DNS), and falls back to editing the\n" +
 			"config.yaml file in your Hull home directory when no daemon is reachable.\n\n" +
 			"Use the subcommands to inspect (get, roots list) or change (tld, defaults,\n" +
-			"roots add/rm) settings. Run without a subcommand to see this help.",
+			"roots add/rm) settings. With no subcommand it prints the current config.",
 		Example: "  hull config get\n" +
 			"  hull config tld test\n" +
 			"  hull config roots add ~/Sites",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error { return runConfigGet(cmd) },
 	}
 
 	cfg.AddCommand(&cobra.Command{
@@ -65,28 +67,7 @@ func init() {
 		Example: "  hull config get\n" +
 			"  hull config get --json",
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := loadApp()
-			if err != nil {
-				return err
-			}
-			ci, err := a.configView(cmd.Context())
-			if err != nil {
-				return err
-			}
-			if flagJSON {
-				return printJSON(ci)
-			}
-			w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintf(w, "tld\t%s\n", ci.TLD)
-			_, _ = fmt.Fprintf(w, "defaults.php\t%s\n", dash(ci.Defaults.PHP))
-			_, _ = fmt.Fprintf(w, "defaults.editor\t%s\n", dash(ci.Defaults.Editor))
-			_, _ = fmt.Fprintf(w, "defaults.db_tool\t%s\n", dash(ci.Defaults.DBTool))
-			for i, r := range ci.Roots {
-				_, _ = fmt.Fprintf(w, "roots[%d]\t%s\n", i, r)
-			}
-			return w.Flush()
-		},
+		RunE: func(cmd *cobra.Command, args []string) error { return runConfigGet(cmd) },
 	})
 
 	cfg.AddCommand(&cobra.Command{
@@ -156,10 +137,12 @@ func init() {
 			"hull group operate per root.\n\n" +
 			"Use the subcommands to inspect (list) or change (add, rm) the set of roots.\n" +
 			"All three route through a running daemon when one is up, otherwise they\n" +
-			"read or write config.yaml directly.",
+			"read or write config.yaml directly. With no subcommand it lists the roots.",
 		Example: "  hull config roots list\n" +
 			"  hull config roots add ~/Sites\n" +
 			"  hull config roots rm ~/old-projects",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error { return runRootsList(cmd) },
 	}
 	roots.AddCommand(&cobra.Command{
 		Use:     "list",
@@ -174,23 +157,7 @@ func init() {
 		Example: "  hull config roots list\n" +
 			"  hull config roots list --json",
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := loadApp()
-			if err != nil {
-				return err
-			}
-			ci, err := a.configView(cmd.Context())
-			if err != nil {
-				return err
-			}
-			if flagJSON {
-				return printJSON(ci.Roots)
-			}
-			for _, r := range ci.Roots {
-				fmt.Println(r)
-			}
-			return nil
-		},
+		RunE: func(cmd *cobra.Command, args []string) error { return runRootsList(cmd) },
 	})
 	roots.AddCommand(&cobra.Command{
 		Use:   "add <path>",
@@ -245,6 +212,51 @@ func init() {
 	cfg.AddCommand(roots)
 
 	rootCmd.AddCommand(cfg)
+}
+
+// runConfigGet prints the effective config, shared by `config get` and a bare
+// `hull config`.
+func runConfigGet(cmd *cobra.Command) error {
+	a, err := loadApp()
+	if err != nil {
+		return err
+	}
+	ci, err := a.configView(cmd.Context())
+	if err != nil {
+		return err
+	}
+	if flagJSON {
+		return printJSON(ci)
+	}
+	w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
+	_, _ = fmt.Fprintf(w, "tld\t%s\n", ci.TLD)
+	_, _ = fmt.Fprintf(w, "defaults.php\t%s\n", dash(ci.Defaults.PHP))
+	_, _ = fmt.Fprintf(w, "defaults.editor\t%s\n", dash(ci.Defaults.Editor))
+	_, _ = fmt.Fprintf(w, "defaults.db_tool\t%s\n", dash(ci.Defaults.DBTool))
+	for i, r := range ci.Roots {
+		_, _ = fmt.Fprintf(w, "roots[%d]\t%s\n", i, r)
+	}
+	return w.Flush()
+}
+
+// runRootsList prints the configured roots, shared by `config roots list` and a
+// bare `hull config roots`.
+func runRootsList(cmd *cobra.Command) error {
+	a, err := loadApp()
+	if err != nil {
+		return err
+	}
+	ci, err := a.configView(cmd.Context())
+	if err != nil {
+		return err
+	}
+	if flagJSON {
+		return printJSON(ci.Roots)
+	}
+	for _, r := range ci.Roots {
+		fmt.Println(r)
+	}
+	return nil
 }
 
 func dash(s string) string {

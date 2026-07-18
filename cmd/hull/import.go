@@ -54,7 +54,7 @@ func init() {
 			"imported bundle's hooks.\n" +
 			"\n" +
 			"SQL dumps found in the project (or bundle) can be restored into the\n" +
-			"provisioned database; you are offered a picker unless --skip-dumps.\n" +
+			"provisioned database; you are offered a picker unless --skip-db.\n" +
 			"\n" +
 			"Routing: a plain name-based import with no overrides and no --no-start\n" +
 			"goes through the daemon (which adopts, starts, and reconciles routes),\n" +
@@ -65,7 +65,7 @@ func init() {
 			"  hull import .\\creative       (import a folder where it lives)\n" +
 			"  hull import my-old-app --db mysql --php 8.3\n" +
 			"  hull import myapp-bundle.zip\n" +
-			"  hull import legacy-site --no-start --skip-dumps",
+			"  hull import legacy-site --no-start --skip-db",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
@@ -230,7 +230,9 @@ func init() {
 	cmd.Flags().StringVar(&php, "php", "", "override detected PHP version")
 	cmd.Flags().BoolVar(&redis, "redis", false, "add Redis even if not detected")
 	cmd.Flags().BoolVar(&noStart, "no-start", false, "import without booting")
-	cmd.Flags().BoolVar(&skipDumps, "skip-dumps", false, "do not offer SQL dump restore")
+	cmd.Flags().BoolVar(&skipDumps, "skip-db", false, "do not offer SQL dump restore")
+	cmd.Flags().BoolVar(&skipDumps, "skip-dumps", false, "deprecated alias for --skip-db")
+	_ = cmd.Flags().MarkHidden("skip-dumps")
 	rootCmd.AddCommand(cmd)
 }
 

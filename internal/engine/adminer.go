@@ -146,6 +146,11 @@ func (e *Engine) EnsureAdminer(ctx context.Context) error {
 	}
 	m := services.NewManager(e.Config)
 	m.Run = e.Run
-	_, err := m.EnsureUp(ctx, "adminer", "latest")
+	// Empty version (not "latest") so the instance name matches what
+	// `hull services add adminer` creates: "adminer", container hull-adminer.
+	// The image is still adminer:latest via the template's defaultTag; passing
+	// "latest" here spun up a second "adminer-latest" instance that fought the
+	// manual one for the db.<tld> route.
+	_, err := m.EnsureUp(ctx, "adminer", "")
 	return err
 }

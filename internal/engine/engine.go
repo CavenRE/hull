@@ -540,12 +540,92 @@ func (e *Engine) StopAll(ctx context.Context) (int, error) {
 	return stopped, errors.Join(errs...)
 }
 
+// StartEnabled brings up every project and shared instance marked for
+// autostart when the daemon starts. It deliberately does NOT run project
+// pre_up/post_up hooks: a boot resume should not re-run migrations or build
+// steps every time. Best-effort, mirroring StopAll: one failure never blocks
+// the rest. Returns the number of items started.
+func (e *Engine) StartEnabled(ctx context.Context) (int, error) {
+	started := 0
+	var errs []error
+
+	// Projects that opted in via `autostart: true` in their manifest.
+	if projects, err := state.Scan(e.Config.Roots, e.Config.Projects...); err == nil {
+		for i := range projects {
+			p := &projects[i]
+			if p.Manifest == nil || !p.Manifest.Autostarts() {
+				continue
+			}
+			if err := e.upNoHooks(ctx, p); err != nil {
+				errs = append(errs, fmt.Errorf("%s: %w", projectName(p), err))
+			} else {
+				started++
+			}
+		}
+	}
+
+	// Shared instances listed in config (services.autostart).
+	m := services.NewManager(e.Config)
+	m.Run = e.Run
+	for _, name := range e.Config.Services.Autostart {
+		if err := m.Start(ctx, name); err != nil {
+			errs = append(errs, fmt.Errorf("service %s: %w", name, err))
+		} else {
+			started++
+		}
+	}
+
+	return started, errors.Join(errs...)
+}
+
+// HasAutostart reports whether anything is marked to start on daemon boot (a
+// shared instance in config or a project manifest). Cheap and Docker-free, so
+// the daemon can skip the boot bring-up (and its wait-for-Docker) entirely when
+// nothing is marked, which is the default.
+func (e *Engine) HasAutostart() bool {
+	if len(e.Config.Services.Autostart) > 0 {
+		return true
+	}
+	if projects, err := state.Scan(e.Config.Roots, e.Config.Projects...); err == nil {
+		for i := range projects {
+			if projects[i].Manifest != nil && projects[i].Manifest.Autostarts() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// upNoHooks brings a project's containers up without running pre_up/post_up
+// hooks, the hook-free counterpart to Up used by boot-time StartEnabled so a
+// resume never re-runs a project's setup/migration steps.
+func (e *Engine) upNoHooks(ctx context.Context, p *state.Project) error {
+	if isCluster(p) {
+		if err := e.preflightPorts(ctx, p); err != nil {
+			return err
+		}
+		if err := e.composeFor(p).Up(ctx); err != nil {
+			return err
+		}
+	} else {
+		if err := e.renderForUp(ctx, p); err != nil {
+			return err
+		}
+		if err := e.compose(p.Dir).Up(ctx); err != nil {
+			return err
+		}
+	}
+	e.recordStarted(p)
+	return nil
+}
+
 // PatchOptions are the project fields `hull set` / PATCH /v1/projects can
 // change. A nil pointer means "leave unchanged".
 type PatchOptions struct {
-	PHP    *string
-	Domain *string
-	Serve  *bool
+	PHP       *string
+	Domain    *string
+	Serve     *bool
+	Autostart *bool
 }
 
 // SetProjectFields mutates a managed project's manifest, validates, and
@@ -565,6 +645,9 @@ func (e *Engine) SetProjectFields(p *state.Project, opts PatchOptions) error {
 	}
 	if opts.Serve != nil {
 		m.Serve = opts.Serve
+	}
+	if opts.Autostart != nil {
+		m.Autostart = opts.Autostart
 	}
 	if err := m.Validate(); err != nil {
 		*m = old

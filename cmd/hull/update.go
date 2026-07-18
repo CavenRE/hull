@@ -39,18 +39,18 @@ func init() {
 			"install you already have.\n\n" +
 			"How it decides: it reads the latest commit on the branch (default master)\n" +
 			"with `git ls-remote` and compares it to the version this binary was built\n" +
-			"from. If they match it does nothing unless you pass --force. Use --check to\n" +
-			"see whether an update is available without installing it.\n\n" +
+			"from. If they match it does nothing unless you pass --reinstall. Use --check\n" +
+			"to see whether an update is available without installing it.\n\n" +
 			"The daemon: your running daemon keeps serving until you restart it, so the\n" +
 			"new version takes effect on the next daemon restart. On Windows the daemon\n" +
 			"holds a lock on hull.exe, so if replacing it needs the file free Hull stops\n" +
 			"the daemon first, then tells you to start it again.\n\n" +
 			"If Hull was installed from a package manager (pacman, dpkg), this defers to\n" +
 			"it instead of overwriting managed files.",
-		Example: "  hull update            # rebuild + install the latest\n" +
-			"  hull update --check    # only report whether an update is available\n" +
+		Example: "  hull update              # rebuild + install the latest\n" +
+			"  hull update --check      # only report whether an update is available\n" +
 			"  hull update --branch master\n" +
-			"  hull update --force    # reinstall even if already up to date",
+			"  hull update --reinstall  # reinstall even if already up to date",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runUpdate(cmd.Context(), o)
@@ -58,7 +58,9 @@ func init() {
 	}
 	cmd.Flags().StringVar(&o.branch, "branch", "master", "branch to build from")
 	cmd.Flags().BoolVar(&o.check, "check", false, "only check whether an update is available; don't install")
-	cmd.Flags().BoolVarP(&o.force, "force", "f", false, "reinstall even if already up to date")
+	cmd.Flags().BoolVar(&o.force, "reinstall", false, "reinstall even if already up to date")
+	cmd.Flags().BoolVarP(&o.force, "force", "f", false, "deprecated alias for --reinstall")
+	_ = cmd.Flags().MarkHidden("force")
 	rootCmd.AddCommand(cmd)
 }
 
@@ -110,7 +112,7 @@ func runUpdate(ctx context.Context, o updateOpts) error {
 	}
 
 	if upToDate && !o.force {
-		fmt.Printf("Already up to date (%s). Use --force to rebuild anyway.\n", version.String())
+		fmt.Printf("Already up to date (%s). Use --reinstall to rebuild anyway.\n", version.String())
 		return nil
 	}
 

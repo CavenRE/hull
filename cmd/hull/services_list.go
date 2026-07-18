@@ -38,16 +38,11 @@ func listServices(cmd *cobra.Command) error {
 			stopped = append(stopped, in)
 		}
 	}
-	hasDB := serviceSection(a, "RUNNING", running)
+	_ = serviceSection(a, "RUNNING", running)
 	if len(running) > 0 && len(stopped) > 0 {
 		fmt.Println()
 	}
-	hasDB = serviceSection(a, "STOPPED", stopped) || hasDB
-	if hasDB {
-		fmt.Println()
-		fmt.Println("Databases use trust auth, no password (postgres: user postgres, mysql/mariadb: user root).")
-		fmt.Println("Point a desktop client at the CONNECT address, or `hull services add adminer` for a browser UI.")
-	}
+	_ = serviceSection(a, "STOPPED", stopped)
 	return nil
 }
 

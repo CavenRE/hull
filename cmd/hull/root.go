@@ -63,6 +63,7 @@ func init() {
 			Short:  short,
 			Long:   long,
 			Hidden: true, // keep the main command list focused; `hull help <topic>` still works
+			Args:   cobra.NoArgs,
 			RunE:   func(cmd *cobra.Command, args []string) error { fmt.Println(long); return nil },
 		})
 	}
@@ -287,6 +288,15 @@ func (a *app) saveGroups(ctx context.Context, s *groups.Store) error {
 }
 
 func main() {
+	// Autostart launches `hull daemon run --background`; hide the console the OS
+	// allocated for this console binary as early as possible (before cobra even
+	// parses) so the logon launch does not leave a window. No-op off Windows.
+	for _, a := range os.Args[1:] {
+		if a == "--background" {
+			hideConsole()
+			break
+		}
+	}
 	// Double-clicked from Explorer with no arguments? Act as an installer, so
 	// the user does not have to open a terminal (a console app would otherwise
 	// just flash its help and vanish).

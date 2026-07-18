@@ -3,10 +3,50 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 )
+
+// listGroups prints every group and membership, sorted for stable output.
+// Shared by `hull group list` and a bare `hull group`.
+func listGroups(cmd *cobra.Command) error {
+	a, err := loadApp()
+	if err != nil {
+		return err
+	}
+	store, err := a.groupsView(cmd.Context())
+	if err != nil {
+		return err
+	}
+	if flagJSON {
+		return printJSON(store)
+	}
+	roots := make([]string, 0, len(store.Roots))
+	for root := range store.Roots {
+		roots = append(roots, root)
+	}
+	sort.Strings(roots)
+	for _, root := range roots {
+		fmt.Printf("%s\n", root)
+		for _, g := range store.Roots[root].Groups {
+			fmt.Printf("  %s\n", g)
+		}
+	}
+	if len(store.Members) > 0 {
+		dirs := make([]string, 0, len(store.Members))
+		for dir := range store.Members {
+			dirs = append(dirs, dir)
+		}
+		sort.Strings(dirs)
+		fmt.Println("members:")
+		for _, dir := range dirs {
+			fmt.Printf("  %s -> %s\n", dir, store.Members[dir])
+		}
+	}
+	return nil
+}
 
 func init() {
 	grp := &cobra.Command{
@@ -20,11 +60,14 @@ func init() {
 			"are scoped per root; project membership is tracked per project directory.\n\n" +
 			"Use the subcommands to inspect (list) or change (add, rm, order, mv)\n" +
 			"grouping. All of them route through a running daemon when one is up,\n" +
-			"otherwise they read or write groups.yaml directly.",
+			"otherwise they read or write groups.yaml directly. With no subcommand it\n" +
+			"lists the groups.",
 		Example: "  hull group list\n" +
 			"  hull group add ~/Sites backend\n" +
 			"  hull group mv shop backend\n" +
 			"  hull group rm ~/Sites backend",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error { return listGroups(cmd) },
 	}
 
 	grp.AddCommand(&cobra.Command{
@@ -41,32 +84,7 @@ func init() {
 		Example: "  hull group list\n" +
 			"  hull group list --json",
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := loadApp()
-			if err != nil {
-				return err
-			}
-			store, err := a.groupsView(cmd.Context())
-			if err != nil {
-				return err
-			}
-			if flagJSON {
-				return printJSON(store)
-			}
-			for root, rg := range store.Roots {
-				fmt.Printf("%s\n", root)
-				for _, g := range rg.Groups {
-					fmt.Printf("  %s\n", g)
-				}
-			}
-			if len(store.Members) > 0 {
-				fmt.Println("members:")
-				for dir, g := range store.Members {
-					fmt.Printf("  %s → %s\n", dir, g)
-				}
-			}
-			return nil
-		},
+		RunE: func(cmd *cobra.Command, args []string) error { return listGroups(cmd) },
 	})
 
 	grp.AddCommand(&cobra.Command{

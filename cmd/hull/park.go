@@ -179,7 +179,9 @@ func init() {
 			}
 			// Bring it down first so nothing is orphaned, then drop the
 			// registration. Files stay on disk.
-			_ = a.Engine.Down(cmd.Context(), p)
+			if derr := a.Engine.Down(cmd.Context(), p); derr != nil {
+				fmt.Printf("  note: could not fully stop %s (%v); forgetting anyway.\n", p.Name, derr)
+			}
 			if err := editConfig(cmd, func(ci *configInfoT) {
 				ci.Projects = slices.DeleteFunc(ci.Projects, func(d string) bool { return sameRoot(d, abs) })
 			}); err != nil {

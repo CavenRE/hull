@@ -42,7 +42,7 @@ func init() {
 				return err
 			}
 			fmt.Printf("Rebuilding %s%s...\n", p.Name, map[bool]string{true: " (no cache)"}[noCache])
-			return a.withDaemon(
+			if err := a.withDaemon(
 				func(c *api.Client) error {
 					job, err := c.RebuildProject(cmd.Context(), p.Name, noCache)
 					if err != nil {
@@ -56,7 +56,11 @@ func init() {
 					}
 					return a.Engine.Rebuild(cmd.Context(), p, noCache)
 				},
-			)
+			); err != nil {
+				return err
+			}
+			fmt.Printf("✔ %s rebuilt.\n", p.Name)
+			return nil
 		},
 	}
 	rebuild.Flags().BoolVar(&noCache, "no-cache", false, "build images from scratch (ignore layer cache)")
@@ -96,7 +100,7 @@ func init() {
 			if !force {
 				vols, verr := a.projectVolumes(cmd.Context(), p)
 				if verr != nil {
-					fmt.Printf("Warning: could not list volumes for %s (%v) , reset will still run `down -v`.\n", p.Name, verr)
+					fmt.Printf("Warning: could not list volumes for %s (%v); the reset will still wipe its named volumes.\n", p.Name, verr)
 				} else if len(vols) > 0 {
 					fmt.Printf("This deletes %d named volume(s) for %s:\n", len(vols), p.Name)
 					for _, v := range vols {
@@ -115,7 +119,7 @@ func init() {
 				}
 			}
 			fmt.Printf("Resetting %s...\n", p.Name)
-			return a.withDaemon(
+			if err := a.withDaemon(
 				func(c *api.Client) error {
 					job, err := c.ResetProject(cmd.Context(), p.Name)
 					if err != nil {
@@ -129,7 +133,11 @@ func init() {
 					}
 					return a.Engine.Reset(cmd.Context(), p)
 				},
-			)
+			); err != nil {
+				return err
+			}
+			fmt.Printf("✔ %s reset.\n", p.Name)
+			return nil
 		},
 	}
 	reset.Flags().BoolVarP(&force, "force", "f", false, "skip the confirmation prompt (alias of --yes)")

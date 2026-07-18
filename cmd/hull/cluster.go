@@ -53,10 +53,13 @@ func init() {
 			"new one (create), inspecting it (list, urls), configuring its addressing\n" +
 			"(set, ingress), and mapping subdomains to services (route).\n\n" +
 			"Most subcommands route through the daemon when one is reachable and fall\n" +
-			"back to the in-process engine otherwise, so they work with no daemon running.",
-		Example: "  hull cluster add ./my-stack --root core\n" +
+			"back to the in-process engine otherwise, so they work with no daemon running.\n" +
+			"With no subcommand it lists clusters.",
+		Example: "  hull cluster add ./my-stack --compose-root core\n" +
 			"  hull cluster list\n" +
 			"  hull cluster urls my-stack",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error { return listClusters(cmd) },
 	}
 
 	var (
@@ -73,8 +76,8 @@ func init() {
 			"alongside the stack recording where the compose file lives and which routes\n" +
 			"it serves; your compose files are never modified.\n\n" +
 			"The directory must exist, contain a compose file (compose.yaml, compose.yml,\n" +
-			"docker-compose.*, or one under --root), and not already have a hull.yaml.\n" +
-			"Use --root when the compose file lives in a subfolder (e.g. core). Pass extra\n" +
+			"docker-compose.*, or one under --compose-root), and not already have a hull.yaml.\n" +
+			"Use --compose-root when the compose file lives in a subfolder (e.g. core). Pass extra\n" +
 			"compose files with repeatable --compose (added as -f overlays) and active\n" +
 			"profiles with repeatable --profile. --name overrides the default, which is the\n" +
 			"slugified folder name.\n\n" +
@@ -85,7 +88,7 @@ func init() {
 			"urls and adjust with hull cluster route add/rm. Routes through the daemon when\n" +
 			"reachable, else the in-process engine.",
 		Args: cobra.ExactArgs(1),
-		Example: "  hull cluster add ./my-stack --root core\n" +
+		Example: "  hull cluster add ./my-stack --compose-root core\n" +
 			"  hull cluster add . --profile dev\n" +
 			"  hull cluster add ./legacy --name shop --compose compose.override.yml",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -111,7 +114,9 @@ func init() {
 			return nil
 		},
 	}
-	add.Flags().StringVar(&root, "root", "", "compose root within the cluster (e.g. core)")
+	add.Flags().StringVar(&root, "compose-root", "", "compose root within the cluster (e.g. core)")
+	add.Flags().StringVar(&root, "root", "", "deprecated alias for --compose-root")
+	_ = add.Flags().MarkHidden("root")
 	add.Flags().StringVar(&name, "name", "", "cluster name (default: folder name)")
 	add.Flags().StringArrayVar(&files, "compose", nil, "extra -f compose file (repeatable)")
 	add.Flags().StringArrayVar(&profiles, "profile", nil, "active compose profile (repeatable)")
@@ -134,38 +139,7 @@ func init() {
 		Example: "  hull cluster list\n" +
 			"  hull cluster ls\n" +
 			"  hull cluster list --json",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := loadApp()
-			if err != nil {
-				return err
-			}
-			var clusters []api.ClusterInfo
-			if client, ok := a.client(); ok {
-				clusters, err = client.Clusters(cmd.Context())
-			} else {
-				clusters, err = api.ClusterList(cmd.Context(), a.Config, dockerx.RunningComposeProjects)
-			}
-			if err != nil {
-				return err
-			}
-			if flagJSON {
-				return printJSON(clusters)
-			}
-			if len(clusters) == 0 {
-				fmt.Println("No clusters. Adopt one with: hull cluster add <dir> --root <subdir>")
-				return nil
-			}
-			w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
-			_, _ = fmt.Fprintln(w, "NAME\tSTATE\tROOT\tROUTES\tDIR")
-			for _, c := range clusters {
-				stateStr := "stopped"
-				if c.Running {
-					stateStr = "running"
-				}
-				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n", c.Name, stateStr, dash(c.ComposeRoot), len(c.Routes), c.Dir)
-			}
-			return w.Flush()
-		},
+		RunE: func(cmd *cobra.Command, args []string) error { return listClusters(cmd) },
 	})
 
 	cluster.AddCommand(&cobra.Command{
@@ -217,7 +191,7 @@ func init() {
 			case "delegate", "hull":
 				fmt.Printf("\ningress: %s\n", c.Ingress)
 			default:
-				fmt.Println("\ningress: none , Hull lists these; the cluster's own proxy serves them until ingress is enabled")
+				fmt.Println("\ningress: none")
 			}
 			return nil
 		},
@@ -347,7 +321,7 @@ func init() {
 				ing = &v
 			}
 			if bd == nil && ing == nil {
-				return fmt.Errorf("nothing to change , pass --base-domain or --ingress")
+				return fmt.Errorf("nothing to change: pass --base-domain or --ingress")
 			}
 			if err := a.withDaemon(
 				func(c *api.Client) error {
@@ -444,6 +418,9 @@ func init() {
 		Example: "  hull cluster route add tapkit api --service management_api --port 8081\n" +
 			"  hull cluster route list tapkit\n" +
 			"  hull cluster route rm tapkit api",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return fmt.Errorf("usage: hull cluster route <add|rm|list> <cluster> ... (see: hull cluster route -h)")
+		},
 	}
 
 	var (
@@ -603,6 +580,41 @@ func init() {
 	cluster.AddCommand(route)
 
 	rootCmd.AddCommand(cluster)
+}
+
+// listClusters prints the cluster table, shared by `hull cluster list` and a
+// bare `hull cluster`.
+func listClusters(cmd *cobra.Command) error {
+	a, err := loadApp()
+	if err != nil {
+		return err
+	}
+	var clusters []api.ClusterInfo
+	if client, ok := a.client(); ok {
+		clusters, err = client.Clusters(cmd.Context())
+	} else {
+		clusters, err = api.ClusterList(cmd.Context(), a.Config, dockerx.RunningComposeProjects)
+	}
+	if err != nil {
+		return err
+	}
+	if flagJSON {
+		return printJSON(clusters)
+	}
+	if len(clusters) == 0 {
+		fmt.Println("No clusters. Adopt one with: hull cluster add <dir> --compose-root <subdir>")
+		return nil
+	}
+	w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "NAME\tSTATE\tROOT\tROUTES\tDIR")
+	for _, c := range clusters {
+		stateStr := "stopped"
+		if c.Running {
+			stateStr = "running"
+		}
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n", c.Name, stateStr, dash(c.ComposeRoot), len(c.Routes), c.Dir)
+	}
+	return w.Flush()
 }
 
 // parseContainerSpecs turns repeatable --container "name=web,template=laravel,

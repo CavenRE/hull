@@ -13,7 +13,7 @@ func init() {
 	var force bool
 	cmd := &cobra.Command{
 		Use:   "rm <name>",
-		Short: "Destroy an environment and its data",
+		Short: "Destroy a project and its data",
 		Long: "Stop and remove a project's containers and named volumes, then delete\n" +
 			"its directory from disk.\n" +
 			"\n" +
@@ -61,7 +61,7 @@ func init() {
 			); err != nil {
 				return err
 			}
-			fmt.Printf("✔ Environment %q removed.\n", p.Name)
+			fmt.Printf("✔ Project %q removed.\n", p.Name)
 			return nil
 		},
 	}

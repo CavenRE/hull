@@ -69,7 +69,7 @@ func init() {
 				if _, db, ok := m.DatabaseService(); ok {
 					fmt.Printf(", db: %s", db.Engine)
 				}
-				fmt.Println(") , old compose saved as *.v1-backup")
+				fmt.Println("); old compose saved as *.v1-backup")
 			}
 			fmt.Println("Restart migrated projects with: hull up <name>")
 			return nil

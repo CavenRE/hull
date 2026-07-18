@@ -117,6 +117,13 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 		restart = append(restart, "router")
 	}
 
+	// Preserve file-only Services settings (aliases, autostart, auto_adminer)
+	// that this API does not manage: reload them from disk so a config PUT
+	// never clobbers a value the CLI wrote to the file after this daemon
+	// started (this daemon never mutates Services in memory).
+	if onDisk, err := config.Load(s.Config.HullHome); err == nil {
+		s.Config.Services = onDisk.Services
+	}
 	if err := s.Config.Save(); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
