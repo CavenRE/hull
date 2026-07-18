@@ -366,6 +366,8 @@ hull update --check    # just see whether a newer version is available
 
 Since there are no prebuilt CLI releases yet, `hull update` clones the latest source and rebuilds `hull` where it already lives (it needs Go and git, the same as installing). Installed from a package manager? Update it there instead, for example `yay -Syu hull`. Your running daemon keeps serving the old version until you restart it, so after updating, restart the daemon to pick up the change. Flags: `--check` (report only), `--branch <name>`, `--reinstall` (rebuild even if up to date).
 
+Hull also checks for a new release on its own, at most once a day, and offers the update the next time you run a command interactively. Decline once and it will not ask again for that version. Set `HULL_NO_UPDATE_CHECK=1` to disable the check entirely.
+
 ---
 
 ## Uninstalling

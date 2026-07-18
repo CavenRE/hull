@@ -4,6 +4,24 @@ All notable changes to Hull are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Hull follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.15.2] - 2026-07-19
+
+### Added
+- **Hull tells you when there is a new version.** It asks GitHub for the newest
+  release at most once a day, caches the answer, and on your next interactive
+  command offers the update:
+
+      Hull v0.15.3 is available (you are on v0.15.2).
+      Update now? [y/N]
+
+  Answering yes runs `hull update` and stops so you can re-run your command
+  against the new binary; answering no remembers that version and does not ask
+  again. It stays quiet off a terminal, under `--yes` or `--json`, on dev builds,
+  and for commands where it would recurse or corrupt output (`update`,
+  `completion`, `daemon run`, `install`, `uninstall`). Set
+  `HULL_NO_UPDATE_CHECK=1` to turn it off entirely. Every failure path is silent,
+  so a flaky network never blocks the command you actually ran.
+
 ## [0.15.1] - 2026-07-19
 
 First-run fixes. A fresh Windows install used to finish with nothing running and
