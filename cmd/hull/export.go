@@ -68,11 +68,6 @@ func init() {
 						dumpKeys = append(dumpKeys, key)
 					}
 				}
-				if len(dumpKeys) > 0 {
-					if err := ensureDocker(cmd.Context()); err != nil {
-						return fmt.Errorf("database dump needs the engine (or pass --skip-db): %w", err)
-					}
-				}
 			}
 
 			manifestData, err := os.ReadFile(filepath.Join(p.Dir, manifest.Filename))

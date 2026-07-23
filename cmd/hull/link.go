@@ -112,9 +112,6 @@ func init() {
 					return streamJob(cmd.Context(), c, job)
 				},
 				func() error {
-					if err := ensureDocker(cmd.Context()); err != nil {
-						return err
-					}
 					name, err := a.Engine.Link(cmd.Context(), p, spec, services.NewManager(a.Config))
 					if err != nil {
 						return err

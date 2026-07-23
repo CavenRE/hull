@@ -8,6 +8,11 @@ type StatusInfo struct {
 	TLD      string   `json:"tld"`
 	Roots    []string `json:"roots"`
 	HullHome string   `json:"hull_home"`
+	// Engine is the container engine state: "ok", "stopped", or "missing". The
+	// daemon can be perfectly healthy while Docker is down, so callers (the CLI
+	// and the desktop app) need to tell those two apart rather than reporting
+	// "Hull is running" and leaving the user to discover the truth later.
+	Engine string `json:"engine,omitempty"`
 }
 
 // ProjectInfo answers GET /v1/projects.

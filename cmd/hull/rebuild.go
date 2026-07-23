@@ -50,9 +50,6 @@ func init() {
 					return streamJob(cmd.Context(), c, job)
 				},
 				func() error {
-					if err := ensureDocker(cmd.Context()); err != nil {
-						return err
-					}
 					return a.Engine.Rebuild(cmd.Context(), p, noCache)
 				},
 			); err != nil {
@@ -127,9 +124,6 @@ func init() {
 					return streamJob(cmd.Context(), c, job)
 				},
 				func() error {
-					if err := ensureDocker(cmd.Context()); err != nil {
-						return err
-					}
 					return a.Engine.Reset(cmd.Context(), p)
 				},
 			); err != nil {

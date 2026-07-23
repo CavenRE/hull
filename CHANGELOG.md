@@ -4,6 +4,52 @@ All notable changes to Hull are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Hull follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.15.3] - 2026-07-19
+
+Docker handling, done properly. v0.15.1 taught Hull to start a closed Docker but
+only upgraded the places that already checked, so plenty of paths still dumped a
+raw transport error or, worse, quietly reported the wrong thing.
+
+### Fixed
+- **No command leaks a raw Docker error any more.** `hull status` used to print
+  `failed to connect to the docker API at npipe:////./pipe/... The system cannot
+  find the file specified.` It now says the engine is not running and what to do
+  about it. Detection moved into one classifier in the Docker layer, plus a
+  pre-flight probe in the two primitives that hand their output straight to your
+  terminal, so a transport dump is now structurally unreachable rather than
+  patched away command by command.
+- **Every command declares what it needs from the engine**, enforced in one
+  place before the daemon/in-process fork. This closes the real hole: a dozen
+  commands (restart, repair, logs, rebuild, reset, rm, services, link, cluster
+  create, import) had their guard inside the in-process branch, so with a daemon
+  running (the normal case) they reached Docker completely unguarded. A test
+  fails the build if a new command forgets to declare.
+- **The daemon refuses container work when the engine is down**, returning a
+  clean 503 instead of relaying a compose error, so the desktop app gets a real
+  message too. Writes that only touch YAML (project fields, config, groups,
+  cluster routes) keep working with Docker closed, and `shutdown` is exempt so a
+  broken Docker can never leave you unable to stop Hull.
+- **`hull start` stops claiming everything is fine.** It reported "Hull is
+  running." while Docker was dead. It now says so, and the daemon probes the
+  engine at boot instead of only when autostart items exist.
+- **The listers no longer give a confident wrong answer.** `hull list`,
+  `hull services`, and `hull cluster list` swallowed the failure and reported
+  every project and instance as *stopped*. They now show state as **unknown**
+  with a one-line note, and still list everything, since the names, paths, and
+  URLs come from disk and stay useful.
+- **`hull doctor` and `hull deps` keep working with the engine down**, which is
+  precisely when you need them. A guard there would have aborted the diagnostic
+  before it could report the failure you ran it to find.
+- **No 2-minute stalls in CI.** Hull never launches Docker without an
+  interactive session, and honours `CI=true` and `HULL_NO_ENGINE_START=1`,
+  failing in under a second instead of trying to boot Docker Desktop on every
+  command. The engine probe is also bounded and cached, so a wedged socket can
+  no longer hang a command forever.
+- The reconcile loop logs when Docker goes away and comes back instead of
+  silently retrying dozens of times a minute, and `docker compose config
+  --volumes` now carries the project's own `-p`/`-f`/`--profile` flags, so the
+  reset preview on an adopted cluster reads the right project.
+
 ## [0.15.2] - 2026-07-19
 
 ### Added

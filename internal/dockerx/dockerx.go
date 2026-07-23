@@ -3,7 +3,6 @@ package dockerx
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,6 +18,13 @@ type Runner func(ctx context.Context, dir string, name string, args ...string) e
 
 // Exec runs a command with stdio attached, in dir (empty = inherit cwd).
 func Exec(ctx context.Context, dir string, name string, args ...string) error {
+	// This hands docker the user's own stderr, so a transport failure is printed
+	// before any error value exists and no return-value wrapper can clean it up.
+	// Probe first (cached, so a compose sequence pays for it once) and fail with
+	// the actionable message instead.
+	if name == "docker" && !engineReachable(ctx) {
+		return fmt.Errorf("%w: %s", ErrEngineDown, EngineDownHint)
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	cmd.Stdin = os.Stdin
@@ -62,23 +68,22 @@ func Output(ctx context.Context, dir string, name string, args ...string) (strin
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
 	if err := cmd.Run(); err != nil {
-		msg := strings.TrimSpace(errBuf.String())
-		if msg == "" {
-			msg = err.Error()
-		}
-		return "", fmt.Errorf("%s %s: %s", name, strings.Join(args, " "), msg)
+		return "", commandError(name, args, errBuf.String(), err)
 	}
 	return strings.TrimRight(out.String(), "\r\n"), nil
 }
 
-// EngineCheck verifies the container engine is reachable, with an error
-// message that says what to do rather than how the probe failed.
+// EngineCheck verifies the container engine is reachable WITHOUT starting it,
+// with an error that says what to do rather than how the probe failed. This is
+// the read-only guard: use it for commands that report on the engine (status,
+// the listers, doctor) where silently launching Docker Desktop would be both
+// surprising and, for a diagnostic, wrong.
 func EngineCheck(ctx context.Context) error {
 	if _, err := exec.LookPath("docker"); err != nil {
-		return errors.New("the 'docker' command was not found in PATH: install Docker (or Podman with docker compatibility) and try again")
+		return fmt.Errorf("%w: install Docker (or Podman with docker compatibility) and try again", ErrEngineMissing)
 	}
-	if !engineResponds(ctx) {
-		return errors.New("the container engine is not responding: is Docker (or your Docker-compatible engine) running?")
+	if !engineReachable(ctx) {
+		return fmt.Errorf("%w: %s", ErrEngineDown, EngineDownHint)
 	}
 	return nil
 }

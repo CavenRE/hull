@@ -258,9 +258,6 @@ func init() {
 					return err
 				}
 			} else {
-				if err := ensureDocker(cmd.Context()); err != nil {
-					return err
-				}
 				if _, err := a.Engine.NewCluster(cmd.Context(), engine.NewClusterOptions{
 					Name: req.Name, Root: req.Root, ComposeRoot: req.ComposeRoot,
 					Managed: req.Managed, Containers: toEngineContainers(containers), SkipStart: createNoStart,
@@ -605,6 +602,10 @@ func listClusters(cmd *cobra.Command) error {
 		fmt.Println("No clusters. Adopt one with: hull cluster add <dir> --compose-root <subdir>")
 		return nil
 	}
+	// See listProjects: a down engine makes every cluster look stopped, so report
+	// the state as unknown rather than asserting it.
+	engineDown := dockerx.EngineCheck(cmd.Context()) != nil
+
 	w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "NAME\tSTATE\tROOT\tROUTES\tDIR")
 	for _, c := range clusters {
@@ -612,9 +613,18 @@ func listClusters(cmd *cobra.Command) error {
 		if c.Running {
 			stateStr = "running"
 		}
+		if engineDown {
+			stateStr = "unknown"
+		}
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\n", c.Name, stateStr, dash(c.ComposeRoot), len(c.Routes), c.Dir)
 	}
-	return w.Flush()
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	if engineDown {
+		fmt.Println("\nDocker is not running, so the state column is unknown.")
+	}
+	return nil
 }
 
 // parseContainerSpecs turns repeatable --container "name=web,template=laravel,

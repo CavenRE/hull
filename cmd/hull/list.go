@@ -52,12 +52,20 @@ func init() {
 				return nil
 			}
 
+			// With the engine down every project reports Running=false, which used
+			// to render as a confident "stopped" for everything. That is a wrong
+			// answer, not a missing one, so say the state is unknown instead.
+			engineDown := dockerx.EngineCheck(cmd.Context()) != nil
+
 			w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
 			_, _ = fmt.Fprintln(w, "NAME\tSTATE\tKIND\tURL\tDIR") // surfaced by Flush
 			for _, p := range infos {
 				stateStr := "stopped"
 				if p.Running {
 					stateStr = "running"
+				}
+				if engineDown {
+					stateStr = "unknown"
 				}
 				if p.Error != "" {
 					stateStr = "broken"
@@ -68,7 +76,13 @@ func init() {
 				}
 				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", p.Name, stateStr, p.Kind, url, p.Dir)
 			}
-			return w.Flush()
+			if err := w.Flush(); err != nil {
+				return err
+			}
+			if engineDown {
+				fmt.Println("\nDocker is not running, so the state column is unknown.")
+			}
+			return nil
 		},
 	})
 }

@@ -52,9 +52,6 @@ func init() {
 					return streamJob(cmd.Context(), c, job)
 				},
 				func() error {
-					if err := ensureDocker(cmd.Context()); err != nil {
-						return err
-					}
 					return a.Engine.Destroy(cmd.Context(), p)
 				},
 			); err != nil {

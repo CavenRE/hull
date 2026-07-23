@@ -125,11 +125,6 @@ func init() {
 				}
 				fmt.Printf("✔ Project %q created.\n", name)
 			} else {
-				if !noStart {
-					if err := ensureDocker(cmd.Context()); err != nil {
-						return err
-					}
-				}
 				opts := engine.NewOptions{
 					Name:          name,
 					Template:      template,

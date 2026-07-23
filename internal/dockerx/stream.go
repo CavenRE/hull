@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"strings"
 )
 
 // ExecCapture runs a command with stdout streamed to w (database dumps).
@@ -42,6 +41,12 @@ func ExecStdin(ctx context.Context, dir string, r io.Reader, name string, args .
 // StreamLines runs a command and delivers each stdout line to onLine until
 // the command exits or ctx is canceled (container log following).
 func StreamLines(ctx context.Context, dir string, onLine func(string), name string, args ...string) error {
+	// stderr is interleaved into the caller's line stream below, so a transport
+	// failure would be delivered as log output (into a terminal, or the GUI's log
+	// pane) with no error. Probe first and fail cleanly instead.
+	if name == "docker" && !engineReachable(ctx) {
+		return fmt.Errorf("%w: %s", ErrEngineDown, EngineDownHint)
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	noWindow(cmd)
@@ -65,13 +70,3 @@ func StreamLines(ctx context.Context, dir string, onLine func(string), name stri
 	return err
 }
 
-func commandError(name string, args []string, stderr string, err error) error {
-	msg := strings.TrimSpace(stderr)
-	if msg == "" {
-		msg = err.Error()
-	}
-	if len(msg) > 800 {
-		msg = msg[:800] + "..."
-	}
-	return fmt.Errorf("%s %s: %s", name, strings.Join(args, " "), msg)
-}

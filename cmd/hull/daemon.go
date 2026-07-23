@@ -151,6 +151,7 @@ func enableHullAtLogin(cmd *cobra.Command) error {
 			fmt.Println("✔ Hull is running.")
 		}
 	}
+	reportEngineState(cmd.Context())
 	return nil
 }
 

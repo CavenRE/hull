@@ -35,9 +35,6 @@ func init() {
 			if err != nil {
 				return err
 			}
-			if err := ensureDocker(cmd.Context()); err != nil {
-				return err
-			}
 			targets, err := resolveTargets(cmd, a, args, all, "Select projects to start", availableProjects)
 			if err != nil {
 				return err
@@ -85,9 +82,6 @@ func init() {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := loadApp()
 			if err != nil {
-				return err
-			}
-			if err := ensureDocker(cmd.Context()); err != nil {
 				return err
 			}
 			targets, err := resolveTargets(cmd, a, args, all, "Select projects to stop", runningProjects)
@@ -143,9 +137,6 @@ func init() {
 			if client, viaDaemon := a.client(); viaDaemon {
 				return client.ProjectAction(cmd.Context(), p.Name, "restart")
 			}
-			if err := ensureDocker(cmd.Context()); err != nil {
-				return err
-			}
 			return a.Engine.Restart(cmd.Context(), p)
 		},
 	})
@@ -181,9 +172,6 @@ func init() {
 			}
 			if client, viaDaemon := a.client(); viaDaemon {
 				return client.ProjectAction(cmd.Context(), p.Name, "repair")
-			}
-			if err := ensureDocker(cmd.Context()); err != nil {
-				return err
 			}
 			return a.Engine.Repair(cmd.Context(), p)
 		},
@@ -234,9 +222,6 @@ func init() {
 					return c.Logs(cmd.Context(), p.Name, "", 200, func(l string) { fmt.Println(l) })
 				},
 				func() error {
-					if err := ensureDocker(cmd.Context()); err != nil {
-						return err
-					}
 					return a.Engine.Logs(cmd.Context(), p, true)
 				},
 			)
@@ -249,9 +234,6 @@ func init() {
 // serviceLogs tails a shared instance's container logs in-process (the
 // headless fallback for `hull logs --service`).
 func serviceLogs(ctx context.Context, a *app, name string) error {
-	if err := ensureDocker(ctx); err != nil {
-		return err
-	}
 	instances, err := services.NewManager(a.Config).List(ctx)
 	if err != nil {
 		return err

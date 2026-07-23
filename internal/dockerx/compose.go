@@ -123,7 +123,11 @@ func (c Compose) Recreate(ctx context.Context) error {
 
 // Volumes lists the project's named volumes (for a destructive-reset preview).
 func (c Compose) Volumes(ctx context.Context) ([]string, error) {
-	out, err := Output(ctx, c.Dir, "docker", "compose", "config", "--volumes")
+	// Must go through args() like every other compose call: a bare invocation
+	// drops -p/-f/--env-file/--profile, so for an adopted cluster (whose compose
+	// lives in a subdir behind extra -f files) it resolved the wrong project and
+	// previewed the wrong volumes right before a destructive reset.
+	out, err := Output(ctx, c.Dir, "docker", c.args("config", "--volumes")...)
 	if err != nil {
 		return nil, err
 	}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/services"
 	"github.com/CavenRE/hull/internal/templates"
 )
@@ -30,6 +31,15 @@ func listServices(cmd *cobra.Command) error {
 		fmt.Println("No shared instances. Add one with: hull services add postgres@16")
 		return nil
 	}
+	// With the engine down every instance reports Running=false, which used to
+	// render as a confident "STOPPED" list. Show them under UNKNOWN instead of
+	// asserting something we cannot know.
+	if dockerx.EngineCheck(cmd.Context()) != nil {
+		_ = serviceSection(a, "UNKNOWN", instances)
+		fmt.Println("\nDocker is not running, so running state is unknown.")
+		return nil
+	}
+
 	var running, stopped []services.Instance
 	for _, in := range instances {
 		if in.Running {

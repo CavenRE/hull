@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -33,6 +34,11 @@ type Server struct {
 	// RunningProjects lists running compose projects (injectable for tests;
 	// defaults to dockerx.RunningComposeProjects).
 	RunningProjects func(ctx context.Context) ([]string, error)
+	// EngineCheck reports whether the container engine is reachable, guarding
+	// the routes that act on containers. Injectable like the other Docker
+	// touchpoints; nil means no check, which is what unit tests with fake
+	// runners want.
+	EngineCheck func(ctx context.Context) error
 	// OnShutdown is invoked when POST /v1/shutdown is received.
 	OnShutdown func()
 	// SyncRoutes reconciles the embedded router after lifecycle changes
@@ -108,6 +114,7 @@ func NewServer(cfg *config.Config, token string) *Server {
 		Jobs:            jobs.NewManager(),
 		Token:           token,
 		RunningProjects: dockerx.RunningComposeProjects,
+		EngineCheck:     dockerx.EngineCheck,
 		NewJobEngine: func(log func(string)) *engine.Engine {
 			e := engine.New(cfg)
 			e.Run = captureRunner(log)
@@ -131,13 +138,13 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/status", s.handleStatus)
 	mux.HandleFunc("GET /v1/projects", s.handleProjects)
-	mux.HandleFunc("POST /v1/projects", s.handleCreateProject)
+	mux.HandleFunc("POST /v1/projects", s.withEngine(s.handleCreateProject))
 	mux.HandleFunc("GET /v1/projects/{name}/volumes", s.handleProjectVolumes)
-	mux.HandleFunc("POST /v1/projects/{name}/{action}", s.handleProjectAction)
-	mux.HandleFunc("POST /v1/imports", s.handleImport)
+	mux.HandleFunc("POST /v1/projects/{name}/{action}", s.withEngine(s.handleProjectAction))
+	mux.HandleFunc("POST /v1/imports", s.withEngine(s.handleImport))
 	mux.HandleFunc("GET /v1/clusters", s.handleClusters)
 	mux.HandleFunc("POST /v1/clusters", s.handleAdoptCluster)
-	mux.HandleFunc("POST /v1/clusters/create", s.handleCreateCluster)
+	mux.HandleFunc("POST /v1/clusters/create", s.withEngine(s.handleCreateCluster))
 	mux.HandleFunc("PUT /v1/clusters/{name}", s.handleClusterConfigSet)
 	mux.HandleFunc("PUT /v1/clusters/{name}/routes/{key}", s.handleClusterRouteSet)
 	mux.HandleFunc("DELETE /v1/clusters/{name}/routes/{key}", s.handleClusterRouteDelete)
@@ -151,9 +158,36 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/jobs/{id}", s.handleJob)
 	mux.HandleFunc("GET /v1/jobs/{id}/stream", s.handleJobStream)
 	mux.HandleFunc("GET /v1/events", s.handleEvents)
-	mux.HandleFunc("POST /v1/stop-all", s.handleStopAll)
+	mux.HandleFunc("POST /v1/stop-all", s.withEngine(s.handleStopAll))
 	mux.HandleFunc("POST /v1/shutdown", s.handleShutdown)
 	return s.auth(mux)
+}
+
+// withEngine guards a handler that ACTS ON CONTAINERS, returning 503 with the
+// same actionable wording the CLI uses when the engine is unreachable.
+//
+// Without it the daemon accepts the request, docker fails deep inside a compose
+// call, and the raw transport error is relayed to whoever asked: the CLI (every
+// daemon-routed verb) or the desktop app. It also closes the hole where the CLI
+// guard sat inside the in-process branch of withDaemon and so never ran for the
+// daemon path at all.
+//
+// Applied per route rather than to every mutation on purpose. Plenty of writes
+// never touch a container: editing a project's fields, saving config, group
+// membership, adopting a cluster, and editing cluster routes all just rewrite
+// YAML, and they must keep working with Docker closed. Reads are unguarded too:
+// the listers degrade to unknown running state, and status and doctor have to
+// keep answering so you can find out the engine is down.
+func (s *Server) withEngine(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.EngineCheck != nil {
+			if err := s.EngineCheck(r.Context()); err != nil {
+				writeError(w, http.StatusServiceUnavailable, err)
+				return
+			}
+		}
+		next(w, r)
+	}
 }
 
 func (s *Server) auth(next http.Handler) http.Handler {
@@ -216,7 +250,29 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		TLD:      s.Config.TLD,
 		Roots:    s.Config.Roots,
 		HullHome: s.Config.HullHome,
+		Engine:   s.engineState(r.Context()),
 	})
+}
+
+// engineState classifies the container engine for status consumers: "ok",
+// "stopped" (installed but unreachable), or "missing" (no docker on PATH).
+func (s *Server) engineState(ctx context.Context) string {
+	if s.EngineCheck == nil {
+		return "ok"
+	}
+	return classifyEngineErr(s.EngineCheck(ctx))
+}
+
+// classifyEngineErr maps an engine probe result to the status vocabulary.
+func classifyEngineErr(err error) string {
+	switch {
+	case err == nil:
+		return "ok"
+	case errors.Is(err, dockerx.ErrEngineMissing):
+		return "missing"
+	default:
+		return "stopped"
+	}
 }
 
 // ProjectList builds the project view served by GET /v1/projects; exported

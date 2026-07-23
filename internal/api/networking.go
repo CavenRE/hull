@@ -61,6 +61,8 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 		}
 		lastFingerprint := "\x00never-applied" // force the first Apply even with zero routes
 		lastHosts := "\x00never-synced"
+		// Tracks engine reachability so the loop logs transitions, not every tick.
+		lastEngineUp := true
 		var syncMu sync.Mutex
 		sync := func() {
 			// Serialize reconciles: the ticker, initial call, and many
@@ -68,8 +70,32 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 			// can overlap, and SyncHosts shells out to edit the hosts file.
 			syncMu.Lock()
 			defer syncMu.Unlock()
-			svcRoutes, svcDomains := serviceUI(ctx, cfg)
-			live := append(eng.Routes(ctx), svcRoutes...)
+
+			// With the engine down every container lookup below fails, and the
+			// loop used to discard those errors twice per tick: dozens of futile
+			// docker spawns a minute, no log line, and every site silently
+			// dropping to a 502. Probe once, log only the transition (so the log
+			// records when Docker went away and came back rather than repeating
+			// itself every 3 seconds), and skip the container half of the sync.
+			// The hosts block and vhosts below come from disk, so they keep
+			// working and a stopped site still answers a readable 502.
+			engineUp := dockerx.EngineCheck(ctx) == nil
+			if engineUp != lastEngineUp {
+				if engineUp {
+					logf("docker: engine is back")
+				} else {
+					logf("docker: engine is not running; container state is unavailable until it returns")
+				}
+				lastEngineUp = engineUp
+			}
+
+			var svcRoutes []router.Route
+			var svcDomains []string
+			var live []router.Route
+			if engineUp {
+				svcRoutes, svcDomains = serviceUI(ctx, cfg)
+				live = append(eng.Routes(ctx), svcRoutes...)
+			}
 
 			// Every known domain (running or not) for both the hosts block and
 			// router vhosts , a stopped site keeps a vhost so it answers a

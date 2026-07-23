@@ -136,12 +136,6 @@ func init() {
 				return nil
 			}
 
-			if !noStart {
-				if err := ensureDocker(cmd.Context()); err != nil {
-					return err
-				}
-			}
-
 			var dir string
 			var meta *bundle.Meta
 
@@ -267,9 +261,6 @@ func (a *app) importInPlace(ctx context.Context, dir string, overrides engine.Ne
 		if noStart {
 			return nil
 		}
-		if err := ensureDocker(ctx); err != nil {
-			return err
-		}
 		if err := a.Engine.Up(ctx, &state.Project{Name: m.Name, Dir: dir, Manifest: m}); err != nil {
 			return err
 		}
@@ -303,11 +294,6 @@ func (a *app) importInPlace(ctx context.Context, dir string, overrides engine.Ne
 		overrides.Template = t
 	}
 
-	if !noStart {
-		if err := ensureDocker(ctx); err != nil {
-			return err
-		}
-	}
 	m, err := resolveImportManifest(name, dir, nil, overrides)
 	if err != nil {
 		return err

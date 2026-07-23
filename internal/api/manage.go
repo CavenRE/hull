@@ -27,7 +27,7 @@ func (s *Server) registerManageRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /v1/config", s.handleConfigPut)
 	mux.HandleFunc("POST /v1/projects/{name}/open", s.handleProjectOpen)
 	mux.HandleFunc("PATCH /v1/projects/{name}", s.handleProjectPatch)
-	mux.HandleFunc("DELETE /v1/projects/{name}", s.handleProjectDelete)
+	mux.HandleFunc("DELETE /v1/projects/{name}", s.withEngine(s.handleProjectDelete))
 	mux.HandleFunc("GET /v1/logs", s.handleLogs)
 	mux.HandleFunc("GET /v1/doctor", s.handleDoctor)
 	mux.HandleFunc("GET /v1/detect", s.handleDetect)

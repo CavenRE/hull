@@ -40,6 +40,7 @@ func init() {
 				return err
 			}
 			fmt.Println("Hull is running.")
+			reportEngineState(cmd.Context())
 			return nil
 		},
 	}

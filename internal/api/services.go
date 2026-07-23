@@ -14,9 +14,9 @@ import (
 // registerServiceRoutes adds the shared-services endpoints to the mux.
 func (s *Server) registerServiceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/services", s.handleServicesList)
-	mux.HandleFunc("POST /v1/services", s.handleServiceAdd)
-	mux.HandleFunc("POST /v1/services/{name}/{action}", s.handleServiceAction)
-	mux.HandleFunc("DELETE /v1/services/{name}", s.handleServiceRemove)
+	mux.HandleFunc("POST /v1/services", s.withEngine(s.handleServiceAdd))
+	mux.HandleFunc("POST /v1/services/{name}/{action}", s.withEngine(s.handleServiceAction))
+	mux.HandleFunc("DELETE /v1/services/{name}", s.withEngine(s.handleServiceRemove))
 }
 
 func (s *Server) handleServicesList(w http.ResponseWriter, r *http.Request) {

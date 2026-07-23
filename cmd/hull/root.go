@@ -303,6 +303,9 @@ func main() {
 	if maybeRunAsInstaller() {
 		return
 	}
+	// Every init() has registered its commands by now, so the declared engine
+	// requirements can be stamped onto the tree (enforced in PersistentPreRunE).
+	applyEngineAnnotations()
 	rootCmd.SetVersionTemplate("hull {{.Version}}\n")
 	// Ctrl-C cancels the command context so a long or wedged call (e.g. a
 	// streaming log tail, or a request to an unresponsive daemon) unwinds

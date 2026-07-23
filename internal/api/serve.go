@@ -70,6 +70,14 @@ func Serve(ctx context.Context, cfg *config.Config, logf func(format string, a .
 	// even while `docker compose up` runs; best-effort (failures are logged).
 	// Only spun up when something is actually marked, so the default (nothing
 	// marked) never pays the wait-for-Docker cost.
+	// Always report the engine state at boot. This is a fast probe that never
+	// waits, and it is what makes `hull start` able to say Hull is running but
+	// Docker is not, instead of claiming everything is fine. The expensive
+	// start-and-wait below stays gated on there being something to bring up.
+	if err := dockerx.EngineCheck(ctx); err != nil {
+		logf("docker: %v", err)
+	}
+
 	if server.Engine.HasAutostart() {
 		go func() {
 			// Docker may be closed, or still starting at login. Start it if needed

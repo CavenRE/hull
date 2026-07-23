@@ -39,9 +39,12 @@ type updateState struct {
 
 func init() {
 	// Cobra runs only the closest PersistentPreRun in the chain; no subcommand
-	// defines one, so this covers every command.
-	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
+	// defines one, so this covers every command. It also runs before the command
+	// body, and therefore before the daemon/in-process fork inside it, which is
+	// what makes the engine requirement impossible to route around.
+	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		maybeOfferUpdate(cmd)
+		return enforceEngineRequirement(cmd)
 	}
 }
 

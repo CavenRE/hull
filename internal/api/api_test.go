@@ -63,6 +63,10 @@ func testServer(t *testing.T) (*Server, *Client, *recorded) {
 	s.Services = fakeServices
 	s.JobServices = func(log func(string)) *services.Manager { return fakeServices() }
 	s.RunningProjects = func(ctx context.Context) ([]string, error) { return []string{"alpha"}, nil }
+	// These tests drive the handlers with fake runners and never touch a real
+	// engine, so the container guard must be stubbed alongside them. A test that
+	// wants to exercise the guard sets this to a failing func.
+	s.EngineCheck = func(ctx context.Context) error { return nil }
 
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
