@@ -1,0 +1,61 @@
+name: Release
+
+# Build and publish all four platform binaries whenever a v* tag is pushed.
+# Cutting a release is then just: bump CHANGELOG, commit, `git tag vX.Y.Z`,
+# `git push --tags`.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build binaries
+        run: |
+          set -euo pipefail
+          VER="${GITHUB_REF_NAME}"
+          COMMIT="$(git rev-parse --short HEAD)"
+          LDFLAGS="-s -w -X github.com/CavenRE/hull/internal/version.Version=${VER} -X github.com/CavenRE/hull/internal/version.Commit=${COMMIT}"
+          mkdir -p dist
+          build() { CGO_ENABLED=0 GOOS="$1" GOARCH="$2" go build -ldflags "$LDFLAGS" -o "dist/$3" ./cmd/hull; }
+          build windows amd64 hull-windows-x64.exe
+          build linux   amd64 hull-linux-x64
+          build darwin  amd64 hull-macos-intel
+          build darwin  arm64 hull-macos-apple-silicon
+          ls -l dist
+
+      - name: Extract release notes
+        run: |
+          set -euo pipefail
+          VER_NO_V="${GITHUB_REF_NAME#v}"
+          awk -v v="[$VER_NO_V]" 'index($0,"## "v){f=1;next} /^## \[/{if(f)exit} f' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then echo "See CHANGELOG.md for details." > notes.md; fi
+          {
+            echo ""
+            echo "## Install"
+            echo "- Windows: download \`hull-windows-x64.exe\`, rename to \`hull.exe\`, run \`hull.exe install\`."
+            echo "- Linux: \`hull-linux-x64\`. macOS: \`hull-macos-apple-silicon\` or \`hull-macos-intel\`."
+            echo "- Already installed on a prebuilt platform: run \`hull update\`."
+          } >> notes.md
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --notes-file notes.md
+          gh release upload "$TAG" \
+            dist/hull-windows-x64.exe dist/hull-linux-x64 dist/hull-macos-intel dist/hull-macos-apple-silicon \
+            --repo "$GITHUB_REPOSITORY" --clobber

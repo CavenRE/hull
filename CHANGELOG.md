@@ -4,6 +4,17 @@ All notable changes to Hull are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Hull follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.15.6] - 2026-08-26
+
+### Added
+- **Automated releases.** A GitHub Actions workflow now builds all four
+  platform binaries (Windows x64, Linux x64, macOS Intel, macOS Apple silicon)
+  and publishes them to the GitHub release on every `v*` tag, so cutting a
+  release is just pushing a tag. Version and commit are stamped from the tag.
+- **Continuous integration.** A CI workflow builds, vets, and tests the code on
+  every push to `master` and every pull request, so regressions surface before
+  a release instead of after.
+
 ## [0.15.5] - 2026-08-26
 
 ### Fixed
