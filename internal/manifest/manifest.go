@@ -147,6 +147,11 @@ type Container struct {
 	Port     int               `yaml:"port,omitempty"` // upstream port; required for routed raw containers
 	Command  string            `yaml:"command,omitempty"`
 	Env      map[string]string `yaml:"env,omitempty"`
+	// PHPTune opts a raw-image container into Hull's PHP OPcache tuning: Hull
+	// mounts its shared opcache.ini into the container's conf.d. Only needed for
+	// a custom `image:` that is PHP on the standard official-php layout; template
+	// containers get the tuning automatically.
+	PHPTune bool `yaml:"php_tune,omitempty"`
 	// Networks are private network segments this container joins (in addition
 	// to the default). A container reaches another only on a shared network, so
 	// this is how a sensitive backend (e.g. a PII database) is isolated to just

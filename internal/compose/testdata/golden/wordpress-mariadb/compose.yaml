@@ -11,12 +11,15 @@ services:
       - --
     command: apache2-foreground
     environment:
+      - WORDPRESS_CONFIG_EXTRA=define('DISABLE_WP_CRON', true);
       - WORDPRESS_DB_HOST=db
       - WORDPRESS_DB_NAME=blog
       - WORDPRESS_DB_PASSWORD=
       - WORDPRESS_DB_USER=root
+      - WP_ENVIRONMENT_TYPE=local
     volumes:
       - ./:/var/www/html
+      - /home/test/.hull/system/php/opcache.ini:/usr/local/etc/php/conf.d/zz-hull-opcache.ini:ro
     ports:
       - 127.0.0.1::80
     extra_hosts:

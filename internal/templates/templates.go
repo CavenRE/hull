@@ -17,8 +17,8 @@ type SiteDef struct {
 	// XdebugTarget is where a shared xdebug.ini would mount inside the
 	// container. Reserved: Hull no longer mounts it, because serversideup v4
 	// images ship no xdebug extension, so forcing zend_extension=xdebug only
-	// printed a "cannot load xdebug" warning on every PHP call. See phpTuning
-	// in internal/compose/render.go.
+	// printed a "cannot load xdebug" warning on every PHP call. See opcacheMount
+	// in internal/compose/render.go for the ini Hull does mount.
 	XdebugTarget string
 	// ExtraEnv is template-fixed environment (KEY=value pairs).
 	ExtraEnv []string
@@ -55,6 +55,12 @@ var sites = map[string]SiteDef{
 // (needed for writable bind mounts on native Linux Docker). WordPress uses
 // the upstream wordpress image, which does not.
 func (d SiteDef) ServersideUp() bool { return d.Key != "wordpress" }
+
+// PHPConfDir is where every PHP image Hull uses loads extra ini files: both
+// serversideup/php and the upstream wordpress image are built on the official
+// php image, whose scan dir is this path. Hull mounts its opcache.ini here, and
+// a custom `php_tune` app container is assumed to use the same layout.
+const PHPConfDir = "/usr/local/etc/php/conf.d"
 
 // Site returns the built-in site template for key.
 func Site(key string) (SiteDef, bool) {

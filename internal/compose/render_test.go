@@ -253,6 +253,81 @@ func TestSharedServicesNotRendered(t *testing.T) {
 	}
 }
 
+// TestOpcacheMountedForAllPHPImages locks in the uniform OPcache tuning: every
+// site template mounts Hull's shared opcache.ini into the PHP conf.d, WordPress
+// gets the local-dev env, and a raw app image gets the mount only when it opts
+// in with php_tune.
+func TestOpcacheMountedForAllPHPImages(t *testing.T) {
+	const want = "/home/test/.hull/system/php/opcache.ini:/usr/local/etc/php/conf.d/zz-hull-opcache.ini:ro"
+	hasMount := func(svc *ServiceDef) bool {
+		for _, v := range svc.Volumes {
+			if v == want {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, tmpl := range []string{"laravel", "plain", "wordpress"} {
+		src := "schema: 1\nname: site\ntype: site\ntemplate: " + tmpl + "\n"
+		if tmpl == "wordpress" {
+			src += "services:\n  db:\n    engine: mariadb\n"
+		}
+		m, err := manifest.Parse([]byte(src))
+		if err != nil {
+			t.Fatalf("%s parse: %v", tmpl, err)
+		}
+		f, err := Render(m, testCtx)
+		if err != nil {
+			t.Fatalf("%s render: %v", tmpl, err)
+		}
+		if !hasMount(f.Services["app"]) {
+			t.Errorf("%s: app missing the opcache mount: %v", tmpl, f.Services["app"].Volumes)
+		}
+	}
+
+	// WordPress local-dev defaults.
+	m, err := manifest.Parse([]byte("schema: 1\nname: blog\ntype: site\ntemplate: wordpress\nservices:\n  db:\n    engine: mariadb\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := Render(m, testCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(f.Services["app"].Environment, "\n")
+	for _, w := range []string{"WP_ENVIRONMENT_TYPE=local", "DISABLE_WP_CRON"} {
+		if !strings.Contains(joined, w) {
+			t.Errorf("wordpress env missing %q: %v", w, f.Services["app"].Environment)
+		}
+	}
+
+	// A raw app image gets the mount only when it opts in with php_tune.
+	app, err := manifest.Parse([]byte(`schema: 1
+name: stack
+type: app
+containers:
+  tuned:
+    image: my-php:8.3
+    php_tune: true
+  raw:
+    image: my-php:8.3
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	af, err := Render(app, testCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasMount(af.Services["tuned"]) {
+		t.Errorf("php_tune container missing opcache mount: %v", af.Services["tuned"].Volumes)
+	}
+	if hasMount(af.Services["raw"]) {
+		t.Errorf("raw container should not get opcache mount: %v", af.Services["raw"].Volumes)
+	}
+}
+
 // TestContainerNetworkIsolation locks in the build-your-own isolation model
 // (CLU-21): a container reaches another only on a shared network, so a PII
 // backend on its own segment is unreachable by services not on it.

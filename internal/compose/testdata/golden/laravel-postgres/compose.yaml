@@ -4,14 +4,9 @@ name: myapp
 services:
   app:
     image: serversideup/php:8.4-fpm-nginx
-    environment:
-      - PHP_OPCACHE_ENABLE=1
-      - PHP_OPCACHE_MAX_ACCELERATED_FILES=20000
-      - PHP_OPCACHE_MEMORY_CONSUMPTION=192
-      - PHP_OPCACHE_REVALIDATE_FREQ=2
-      - PHP_OPCACHE_VALIDATE_TIMESTAMPS=1
     volumes:
       - ./:/var/www/html
+      - /home/test/.hull/system/php/opcache.ini:/usr/local/etc/php/conf.d/zz-hull-opcache.ini:ro
     ports:
       - 127.0.0.1::8080
     extra_hosts:

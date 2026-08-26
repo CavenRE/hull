@@ -227,7 +227,7 @@ func TestNewProjectWritesArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"caddy=myapp.test", "postgres:16-alpine", "redis:alpine", "PHP_OPCACHE_ENABLE=1"} {
+	for _, want := range []string{"caddy=myapp.test", "postgres:16-alpine", "redis:alpine", "zz-hull-opcache.ini:ro"} {
 		if !strings.Contains(string(composeData), want) {
 			t.Errorf("compose.yaml missing %q", want)
 		}

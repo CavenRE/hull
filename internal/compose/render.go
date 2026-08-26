@@ -144,6 +144,7 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 		Image: def.Image(m.PHP, m.Version),
 		Volumes: []string{
 			"./:" + webrootMount,
+			opcacheMount(ctx),
 		},
 		ExtraHosts: []string{"host.docker.internal:host-gateway"},
 		Networks:   []string{"default"},
@@ -168,7 +169,6 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 
 	applyIDRemap(svc, ctx, def)
 	env := append([]string{}, def.ExtraEnv...)
-	env = append(env, phpTuning(def)...)
 	if m.Template == "wordpress" {
 		dbKey, db, ok := m.DatabaseService(def.RequiredDB...)
 		if !ok {
@@ -185,6 +185,12 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 			"WORDPRESS_DB_NAME="+db.Database,
 			"WORDPRESS_DB_PASSWORD=",
 			"WORDPRESS_DB_USER=root",
+			// Local-dev defaults: mark the environment local, and disable
+			// page-load wp-cron so the dashboard stops firing blocking update
+			// checks on every request (the usual cause of a slow first load).
+			// A project can override either via its own hull.yaml env.
+			"WP_ENVIRONMENT_TYPE=local",
+			"WORDPRESS_CONFIG_EXTRA=define('DISABLE_WP_CRON', true);",
 		)
 	}
 	svc.Environment = mergeEnv(env, m.Env, nil)
@@ -203,9 +209,10 @@ func containerService(m *manifest.Manifest, key string, c *manifest.Container, c
 			Command: c.Command,
 			Volumes: []string{
 				mountSource(c.Path) + ":" + webrootMount,
+				opcacheMount(ctx),
 			},
 			ExtraHosts:  []string{"host.docker.internal:host-gateway"},
-			Environment: mergeEnv(append(phpTuning(def), def.ExtraEnv...), m.Env, c.Env),
+			Environment: mergeEnv(def.ExtraEnv, m.Env, c.Env),
 			Networks:    append([]string{"default"}, c.Networks...),
 		}
 		applyIDRemap(svc, ctx, def)
@@ -227,6 +234,11 @@ func containerService(m *manifest.Manifest, key string, c *manifest.Container, c
 		Command:     c.Command,
 		Environment: mergeEnv(nil, m.Env, c.Env),
 		Networks:    append([]string{"default"}, c.Networks...),
+	}
+	// A raw image opts into Hull's OPcache tuning with `php_tune: true` (Hull
+	// cannot know a custom image is PHP, or where its conf.d lives, otherwise).
+	if c.PHPTune {
+		svc.Volumes = append(svc.Volumes, opcacheMount(ctx))
 	}
 	if c.Domain != "" && c.Served() {
 		svc.Ports = []string{loopbackPublish(c.Port)}
@@ -254,31 +266,23 @@ func caddyLabels(fqdn string, upstreamPort int) []string {
 	}
 }
 
-// phpTuning returns serversideup/php image env knobs for a PHP site template.
-// The image ships with OPcache DISABLED, so every request recompiles every PHP
-// file, which is agonizing over a Windows/WSL2 bind mount. Enable it, keep
-// timestamp validation on (so edits are still picked up) but revalidate at most
-// every 2s rather than every request: on a Windows/WSL2 bind mount the
-// per-request mtime stat of every cached file is itself a major cost. Also
-// raise the file and memory ceilings so a large Laravel + vendor tree fits in
-// the cache instead of recompiling the overflow on every request.
-// Returns nil for non-serversideup images (wordpress uses the upstream image,
-// whose own opcache-recommended.ini already sets revalidate_freq=2).
+// opcacheMount returns the read-only bind mount that drops Hull's shared
+// opcache.ini into a PHP container's conf.d, so every PHP image (serversideup,
+// the upstream wordpress image, and opted-in custom images) gets one uniform
+// OPcache tuning instead of relying on each image's own defaults. Images ship
+// OPcache off or under-sized, so every request otherwise recompiles and
+// re-stats over the bind mount; the shared ini enables it, holds a large file
+// set, and revalidates at most every 2s. The "zz-" prefix loads it after an
+// image's own opcache ini (e.g. wordpress's opcache-recommended.ini), so Hull's
+// settings win. EnsureSystemFiles writes the host file before any container
+// starts, and never overwrites a copy the user has edited.
 //
-// Xdebug is deliberately not forced on here: serversideup v4 images ship no
-// xdebug extension, so Hull no longer mounts a `zend_extension=xdebug` ini,
-// which only produced a "cannot load xdebug" warning on every PHP invocation.
-func phpTuning(def templates.SiteDef) []string {
-	if !def.ServersideUp() {
-		return nil
-	}
-	return []string{
-		"PHP_OPCACHE_ENABLE=1",
-		"PHP_OPCACHE_VALIDATE_TIMESTAMPS=1",
-		"PHP_OPCACHE_REVALIDATE_FREQ=2",
-		"PHP_OPCACHE_MAX_ACCELERATED_FILES=20000",
-		"PHP_OPCACHE_MEMORY_CONSUMPTION=192",
-	}
+// Xdebug is deliberately not forced on: serversideup v4 images ship no xdebug
+// extension, so Hull no longer mounts a `zend_extension=xdebug` ini, which only
+// produced a "cannot load xdebug" warning on every PHP invocation.
+func opcacheMount(ctx Context) string {
+	host := ctx.HullHome + "/system/php/opcache.ini"
+	return host + ":" + templates.PHPConfDir + "/zz-hull-opcache.ini:ro"
 }
 
 // mountSource normalizes a manifest path field to a compose bind source.

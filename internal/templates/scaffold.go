@@ -15,16 +15,19 @@ var plainIndex string
 //go:embed assets/xdebug.ini
 var xdebugINI string
 
+//go:embed assets/opcache.ini
+var opcacheINI string
+
 //go:embed assets/hull-login.php
 var adminerLogin string
 
-// EnsureSystemFiles writes Hull-owned support files (the shared xdebug.ini
-// every PHP container mounts, Adminer's auto-login plugin) into the Hull
-// home directory if missing, so a fresh v2 machine works without a v1
-// installation. Existing files are left untouched , they may carry user
-// tweaks.
+// EnsureSystemFiles writes Hull-owned support files (the shared opcache.ini and
+// xdebug.ini every PHP container mounts, Adminer's auto-login plugin) into the
+// Hull home directory if missing, so a fresh v2 machine works without a v1
+// installation. Existing files are left untouched , they may carry user tweaks.
 func EnsureSystemFiles(hullHome string) error {
 	files := map[string]string{
+		filepath.Join(hullHome, "system", "php", "opcache.ini"):        opcacheINI,
 		filepath.Join(hullHome, "system", "php", "xdebug.ini"):         xdebugINI,
 		filepath.Join(hullHome, "system", "adminer", "hull-login.php"): adminerLogin,
 	}

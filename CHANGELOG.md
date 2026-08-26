@@ -4,6 +4,25 @@ All notable changes to Hull are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Hull follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.15.7] - 2026-08-26
+
+### Changed
+- **PHP OPcache tuning now applies to every PHP container, WordPress included.**
+  Previously only serversideup sites (Laravel, plain PHP) got OPcache tuning,
+  via image env vars, and WordPress and custom images got nothing. Hull now
+  mounts one shared `opcache.ini` into every PHP container's conf.d (written to
+  `~/.hull/system/php/opcache.ini`, editable, never overwritten), so WordPress,
+  Laravel, and plain sites all get the same large-cache, low-revalidation
+  settings that keep repeated requests off the slow bind mount. A custom `app`
+  container built on a raw image opts in with `php_tune: true`.
+
+### Added
+- **WordPress local-dev defaults.** New WordPress sites set
+  `WP_ENVIRONMENT_TYPE=local` and disable page-load wp-cron (`DISABLE_WP_CRON`),
+  so the dashboard stops firing blocking update-check and news-widget requests
+  on every load, the usual cause of a slow first login. Override either in your
+  project's `hull.yaml` env if you need them.
+
 ## [0.15.6] - 2026-08-26
 
 ### Added

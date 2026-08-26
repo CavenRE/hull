@@ -346,7 +346,7 @@ services:
 1. **Keep your sites in the WSL2 Linux filesystem.** Run Hull inside your WSL distro with roots under the Linux home, or store projects under `\\wsl$\<distro>\...`. Native-VM files are commonly 10x to 50x faster for this workload.
 2. **Exclude the sites folder and Docker's data from Windows Defender.** Real-time scanning of every file read compounds the cost. Add exclusions for your sites directory and Docker Desktop's data (its `ext4.vhdx`).
 
-`hull doctor` warns when a project root is on the Windows filesystem, and Hull enables and tunes PHP OPcache for Laravel/plain sites so repeated requests skip recompilation.
+`hull doctor` warns when a project root is on the Windows filesystem. Hull also enables and tunes PHP OPcache for every PHP container (Laravel, WordPress, and plain sites, plus custom `app` images that set `php_tune: true`) so repeated requests skip recompilation, and new WordPress sites disable page-load wp-cron to speed up the dashboard.
 
 **Linux , privileged ports.** The embedded router binds `:80`/`:443` directly (no container). Grant the capability once during install, or lower the unprivileged-port threshold system-wide:
 
