@@ -32,8 +32,8 @@ func init() {
 		Aliases: []string{"upgrade", "self-update"},
 		Short:   "Update Hull (the CLI + daemon) to the latest version",
 		Long: "Update the Hull CLI and daemon in place by rebuilding them from source.\n\n" +
-			"There are no prebuilt CLI releases yet, so this clones the Hull repo and\n" +
-			"runs `go build`, exactly the way you installed it. It needs git and Go on\n" +
+			"This clones the Hull repo and runs `go build`, exactly the way the install\n" +
+			"scripts do (prebuilt binaries also ship on each release). It needs git and Go on\n" +
 			"your PATH. It writes the fresh `hull` next to the running\n" +
 			"binary (whatever directory `hull` itself lives in), so it updates the same\n" +
 			"install you already have.\n\n" +

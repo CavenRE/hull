@@ -10,7 +10,7 @@ Counterpart to get.sh on Linux/macOS.
 
 It clones the Hull repo, builds the CLI from source (needs Go and git),
 installs it to %LOCALAPPDATA%\Hull, and adds that to your PATH. No admin needed.
-There are no prebuilt CLI releases yet, so this always builds from source.
+This builds from source; prebuilt binaries are also attached to each GitHub release if you would rather download one.
 
   -Uninstall     remove Hull instead of installing
   -Purge         with -Uninstall: also remove ~/.hull (config, CA, service data)

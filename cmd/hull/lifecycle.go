@@ -54,6 +54,11 @@ func init() {
 				if err != nil {
 					return fmt.Errorf("%s: %w", p.Name, err)
 				}
+				// `compose up -d` returns when the container is started, not when
+				// the app is ready. For a served site behind the daemon, wait for
+				// the site to actually respond so `up` stops claiming success too
+				// early, and show progress while it boots.
+				reportUp(cmd.Context(), a, p, viaDaemon)
 			}
 			return nil
 		},

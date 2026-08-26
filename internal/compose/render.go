@@ -256,11 +256,14 @@ func caddyLabels(fqdn string, upstreamPort int) []string {
 
 // phpTuning returns serversideup/php image env knobs for a PHP site template.
 // The image ships with OPcache DISABLED, so every request recompiles every PHP
-// file, which is agonizing over a Windows/WSL2 bind mount. Enable it, but keep
-// timestamp validation on and revalidate every request so code edits are still
-// picked up immediately (the mtime stat is far cheaper than recompiling).
+// file, which is agonizing over a Windows/WSL2 bind mount. Enable it, keep
+// timestamp validation on (so edits are still picked up) but revalidate at most
+// every 2s rather than every request: on a Windows/WSL2 bind mount the
+// per-request mtime stat of every cached file is itself a major cost. Also
+// raise the file and memory ceilings so a large Laravel + vendor tree fits in
+// the cache instead of recompiling the overflow on every request.
 // Returns nil for non-serversideup images (wordpress uses the upstream image,
-// which tunes PHP its own way).
+// whose own opcache-recommended.ini already sets revalidate_freq=2).
 //
 // Xdebug is deliberately not forced on here: serversideup v4 images ship no
 // xdebug extension, so Hull no longer mounts a `zend_extension=xdebug` ini,
@@ -272,7 +275,9 @@ func phpTuning(def templates.SiteDef) []string {
 	return []string{
 		"PHP_OPCACHE_ENABLE=1",
 		"PHP_OPCACHE_VALIDATE_TIMESTAMPS=1",
-		"PHP_OPCACHE_REVALIDATE_FREQ=0",
+		"PHP_OPCACHE_REVALIDATE_FREQ=2",
+		"PHP_OPCACHE_MAX_ACCELERATED_FILES=20000",
+		"PHP_OPCACHE_MEMORY_CONSUMPTION=192",
 	}
 }
 

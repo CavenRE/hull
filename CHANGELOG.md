@@ -4,6 +4,44 @@ All notable changes to Hull are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Hull follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.15.4] - 2026-08-26
+
+Windows performance and an honest `up`. Two long-standing Windows papercuts:
+`hull up` reported success before the site could actually serve, and PHP pages
+loaded slowly because of how OPcache was tuned over the Docker Desktop bind
+mount.
+
+### Fixed
+- **`hull up` waits for the site to actually respond.** It used to return as
+  soon as `docker compose up -d` had started the container, which on a first
+  boot (WordPress copying core, Laravel migrating) is a minute or two before the
+  page loads. For a served site behind the daemon, Hull now polls the URL and
+  shows an elapsed-time status line, then confirms the real URL once it answers
+  (or warns, pointing at `hull logs`, if it takes too long). No more "up" that
+  isn't.
+- **Faster PHP page loads on Windows.** The serversideup OPcache revalidation
+  checked every file on every request, which is expensive over a Windows/WSL2
+  bind mount. It now revalidates at most every 2 seconds and caches a larger
+  file set (raised the accelerated-files and memory limits), so repeated
+  requests skip the recompile-and-stat storm. WordPress already ships this via
+  its own image.
+
+### Added
+- **`hull doctor` flags slow Windows setups.** When a project root lives on the
+  Windows filesystem, doctor warns that Docker bind-mount I/O there is slow and
+  points at the fixes: keep sites in the WSL2 Linux filesystem, and exclude the
+  sites folder and Docker's data from Windows Defender. A matching "Windows,
+  performance" note was added to the README.
+
+### Changed
+- Corrected stale docs. ADR 0002 (the API transport is loopback TCP, not a unix
+  socket or named pipe; superseded by ADR 0006), ADR 0004 (v2 shipped on
+  `master`, not by promoting `main`), and ADR 0005 (the Docker Engine SDK was
+  never adopted; `/v1/events` polls `docker ps`). Also corrected the stale "no
+  prebuilt CLI releases yet" note in the README, `get.ps1`, and `hull update`
+  help: GitHub releases do ship prebuilt binaries, even though the install
+  scripts still build from source.
+
 ## [0.15.3] - 2026-07-19
 
 Docker handling, done properly. v0.15.1 taught Hull to start a closed Docker but

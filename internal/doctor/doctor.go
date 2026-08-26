@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -81,6 +82,18 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 			add(Warn, "root "+root, "does not exist yet")
 		} else {
 			add(OK, "root "+root, "ok")
+		}
+	}
+
+	// Windows performance. Docker Desktop runs Linux in a WSL2 VM, so bind
+	// mounting project files that live on the Windows filesystem makes every
+	// PHP request read across the VM boundary , the usual cause of slow page
+	// loads. Warn when a root sits on a Windows drive and point at the fix.
+	if runtime.GOOS == "windows" {
+		for _, root := range cfg.Roots {
+			if vol := filepath.VolumeName(root); len(vol) == 2 && vol[1] == ':' {
+				add(Warn, "performance (Windows)", "root "+root+" is on the Windows filesystem; Docker bind-mount I/O there makes PHP pages slow to load. Keep sites in the WSL2 Linux filesystem (run Hull inside WSL, or store them under \\\\wsl$\\...), and exclude the sites folder and Docker's data VHDX from Windows Defender real-time scanning.")
+			}
 		}
 	}
 

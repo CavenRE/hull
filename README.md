@@ -94,7 +94,7 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
 
 ### Windows
 
-**Installer (recommended).** Download `hull.exe` from the [latest release](../../releases/latest), then run `hull.exe install`. It copies `hull` into `%LOCALAPPDATA%\Hull`, adds it to your PATH, and registers an Apps & Features entry. No admin required. It's unsigned for now, so Windows SmartScreen shows an "unknown publisher" prompt , click **More info → Run anyway**.
+**Installer (recommended).** Download `hull-windows-x64.exe` from the [latest release](../../releases/latest), rename it to `hull.exe`, then run `hull.exe install`. It copies `hull` into `%LOCALAPPDATA%\Hull`, adds it to your PATH, and registers an Apps & Features entry. No admin required. It's unsigned for now, so Windows SmartScreen shows an "unknown publisher" prompt: click **More info -> Run anyway**.
 
 **Build from source** (needs Go and git):
 
@@ -341,6 +341,13 @@ services:
 
 ## Platform notes
 
+**Windows , performance.** Docker Desktop runs Linux in a WSL2 VM, so bind-mounting project files that live on the Windows filesystem (for example `C:\Users\you\Work\Sites`) is slow: every PHP request reads hundreds of files across the VM boundary, which is why pages can take seconds to load. Two fixes, biggest first:
+
+1. **Keep your sites in the WSL2 Linux filesystem.** Run Hull inside your WSL distro with roots under the Linux home, or store projects under `\\wsl$\<distro>\...`. Native-VM files are commonly 10x to 50x faster for this workload.
+2. **Exclude the sites folder and Docker's data from Windows Defender.** Real-time scanning of every file read compounds the cost. Add exclusions for your sites directory and Docker Desktop's data (its `ext4.vhdx`).
+
+`hull doctor` warns when a project root is on the Windows filesystem, and Hull enables and tunes PHP OPcache for Laravel/plain sites so repeated requests skip recompilation.
+
 **Linux , privileged ports.** The embedded router binds `:80`/`:443` directly (no container). Grant the capability once during install, or lower the unprivileged-port threshold system-wide:
 
 ```bash
@@ -364,7 +371,7 @@ hull update            # rebuild + install the latest, in place
 hull update --check    # just see whether a newer version is available
 ```
 
-Since there are no prebuilt CLI releases yet, `hull update` clones the latest source and rebuilds `hull` where it already lives (it needs Go and git, the same as installing). Installed from a package manager? Update it there instead, for example `yay -Syu hull`. Your running daemon keeps serving the old version until you restart it, so after updating, restart the daemon to pick up the change. Flags: `--check` (report only), `--branch <name>`, `--reinstall` (rebuild even if up to date).
+`hull update` clones the latest source and rebuilds `hull` where it already lives (it needs Go and git, the same as building from source; prebuilt binaries are attached to each release if you would rather download one). Installed from a package manager? Update it there instead, for example `yay -Syu hull`. Your running daemon keeps serving the old version until you restart it, so after updating, restart the daemon to pick up the change. Flags: `--check` (report only), `--branch <name>`, `--reinstall` (rebuild even if up to date).
 
 Hull also checks for a new release on its own, at most once a day, and offers the update the next time you run a command interactively. Decline once and it will not ask again for that version. Set `HULL_NO_UPDATE_CHECK=1` to disable the check entirely.
 
