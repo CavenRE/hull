@@ -4,6 +4,18 @@ All notable changes to Hull are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Hull follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.15.5] - 2026-08-26
+
+### Fixed
+- **`hull update` no longer needs Go or git where a prebuilt binary exists.**
+  Now that releases ship binaries, `hull update` downloads the prebuilt binary
+  for your platform from the latest release and swaps it in place, so a machine
+  without a Go toolchain (the common Windows case) can update itself. It falls
+  back to a source build only when there is no prebuilt binary for the platform,
+  or when you pass the new `--from-source`. `hull update --check` also works
+  without Go or git now. (Existing v0.15.4 installs without Go need to download
+  the v0.15.5 binary once by hand; every update after that is toolchain-free.)
+
 ## [0.15.4] - 2026-08-26
 
 Windows performance and an honest `up`. Two long-standing Windows papercuts:
