@@ -5,11 +5,31 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/CavenRE/hull/internal/config"
 )
+
+func TestOnWindowsFilesystem(t *testing.T) {
+	// /mnt/<drive> is detected on every OS (a plain string check), so the
+	// warning fires when Hull runs inside WSL against a project on a Windows drive.
+	for _, r := range []string{"/mnt/c/Sites/app", "/mnt/d/x"} {
+		if !onWindowsFilesystem(r) {
+			t.Errorf("onWindowsFilesystem(%q) = false, want true", r)
+		}
+	}
+	for _, r := range []string{"/home/me/app", "/mnt/wsl/x", "/mnt/", "/srv/c", "/mntfoo/c/x"} {
+		if onWindowsFilesystem(r) {
+			t.Errorf("onWindowsFilesystem(%q) = true, want false", r)
+		}
+	}
+	// Drive letters are only recognized by the OS-specific VolumeName on Windows.
+	if runtime.GOOS == "windows" && !onWindowsFilesystem(`C:\Sites\app`) {
+		t.Error(`onWindowsFilesystem("C:\\Sites\\app") = false on windows, want true`)
+	}
+}
 
 func findCheck(checks []Check, name string) (Check, bool) {
 	for _, c := range checks {

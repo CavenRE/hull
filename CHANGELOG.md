@@ -4,6 +4,26 @@ All notable changes to Hull are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Hull follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.15.8] - 2026-08-26
+
+### Fixed
+- **`hull start` no longer wedges after a crash plus PID reuse.** The
+  single-daemon lock stored only a PID, so when a daemon crashed and the OS
+  recycled its PID for an unrelated process (on Windows a dead hulld's PID was
+  reused by a ShellHost), `hull start` saw that PID alive and refused with "a
+  previous Hull daemon is still running but not responding." Hull now checks that
+  the PID actually belongs to a Hull process before refusing; a recycled PID is
+  recognized as a stale lock and reclaimed. (Manual recovery on older builds:
+  delete `~/.hull/hulld.lock`, then start again.)
+
+### Changed
+- **`hull doctor` performance warning is smarter and more actionable.** It now
+  also fires when Hull runs inside WSL against a project on a Windows drive
+  (`/mnt/<drive>/...`), not only a drive-letter path, and it spells out the real
+  fix (move sites onto the WSL2 ext4 filesystem) and a stopgap (set
+  `opcache.validate_timestamps=0` in `~/.hull/system/php/opcache.ini`, one file
+  shared by every site, to stop the per-request re-stat spikes over the 9p mount).
+
 ## [0.15.7] - 2026-08-26
 
 ### Changed

@@ -6,6 +6,7 @@ require (
 	github.com/caddyserver/caddy/v2 v2.11.4
 	github.com/charmbracelet/huh v1.0.0
 	github.com/miekg/dns v1.1.72
+	github.com/mitchellh/go-ps v1.0.0
 	github.com/smallstep/truststore v0.13.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sys v0.45.0
@@ -97,7 +98,6 @@ require (
 	github.com/mgutz/ansi v0.0.0-20200706080929-d51e80ef957d // indirect
 	github.com/mholt/acmez/v3 v3.1.6 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
-	github.com/mitchellh/go-ps v1.0.0 // indirect
 	github.com/mitchellh/hashstructure/v2 v2.0.2 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/muesli/ansi v0.0.0-20230316100256-276c6243b2f6 // indirect

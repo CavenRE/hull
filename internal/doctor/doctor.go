@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -85,15 +84,16 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 		}
 	}
 
-	// Windows performance. Docker Desktop runs Linux in a WSL2 VM, so bind
-	// mounting project files that live on the Windows filesystem makes every
-	// PHP request read across the VM boundary , the usual cause of slow page
-	// loads. Warn when a root sits on a Windows drive and point at the fix.
-	if runtime.GOOS == "windows" {
-		for _, root := range cfg.Roots {
-			if vol := filepath.VolumeName(root); len(vol) == 2 && vol[1] == ':' {
-				add(Warn, "performance (Windows)", "root "+root+" is on the Windows filesystem; Docker bind-mount I/O there makes PHP pages slow to load. Keep sites in the WSL2 Linux filesystem (run Hull inside WSL, or store them under \\\\wsl$\\...), and exclude the sites folder and Docker's data VHDX from Windows Defender real-time scanning.")
-			}
+	// Windows / WSL bind-mount performance. Docker serves files from the Windows
+	// filesystem to Linux containers over a slow 9p mount, so PHP page loads run
+	// multiple seconds and a cold start can 502 until the app warms. Warn when a
+	// root is on a Windows drive (a drive letter on Windows, or /mnt/<drive> when
+	// Hull runs inside WSL) and point at the real fix plus a stopgap.
+	for _, root := range cfg.Roots {
+		if onWindowsFilesystem(root) {
+			opcache := filepath.Join(cfg.HullHome, "system", "php", "opcache.ini")
+			add(Warn, "performance", "root "+root+" is on the Windows filesystem, which Docker serves to containers over a slow 9p mount (multi-second PHP page loads; a 502 on a cold start until the app warms). The real fix is to keep sites in the WSL2 Linux filesystem (ext4): run Hull inside WSL with projects under your Linux home. Stopgap: set opcache.validate_timestamps=0 in "+opcache+" to stop the per-request re-stat spikes (then restart a container after editing PHP). Also exclude the sites folder and Docker's data VHDX from Windows Defender.")
+			break
 		}
 	}
 
@@ -202,6 +202,22 @@ func isDockerPermissionErr(err error) bool {
 	s := strings.ToLower(err.Error())
 	return strings.Contains(s, "permission denied") &&
 		(strings.Contains(s, "docker.sock") || strings.Contains(s, "/var/run/docker") || strings.Contains(s, "dial unix"))
+}
+
+// onWindowsFilesystem reports whether a project root lives on the Windows
+// filesystem, which Docker shares to containers over a slow 9p mount: a
+// drive-letter path on native Windows (C:\...), or a /mnt/<drive> path when Hull
+// runs inside a WSL distro.
+func onWindowsFilesystem(root string) bool {
+	if vol := filepath.VolumeName(root); len(vol) == 2 && vol[1] == ':' {
+		return true // C:\ on native Windows
+	}
+	r := filepath.ToSlash(root)
+	if len(r) >= 7 && strings.HasPrefix(r, "/mnt/") && r[6] == '/' {
+		c := r[5]
+		return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+	}
+	return false
 }
 
 func containsLine(out, want string) bool {

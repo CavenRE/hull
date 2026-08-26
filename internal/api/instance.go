@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	ps "github.com/mitchellh/go-ps"
 )
 
 const lockFileName = "hulld.lock"
@@ -52,11 +54,16 @@ func acquireInstance(hullHome string, isLive func() bool) (*instanceGuard, error
 		if isLive != nil && isLive() {
 			return nil, fmt.Errorf("a Hull daemon is already running (pid %d) , stop it with `hull stop` (or `hull daemon stop`)", pid)
 		}
-		if processAlive(pid) {
+		// A live PID alone is NOT proof the daemon is up: after a crash the OS can
+		// recycle the dead daemon's PID for an unrelated process (Windows reused a
+		// crashed hulld's PID for a ShellHost). Only refuse when the PID is alive
+		// AND the process is actually a Hull binary; otherwise the lock is stale.
+		if processAlive(pid) && processLooksLikeHull(pid) {
 			return nil, fmt.Errorf("a previous Hull daemon (pid %d) is still running but not responding , stop it with `hull stop` or kill the process, then retry", pid)
 		}
-		// Dead owner: the lock is stale (a crash left it behind). Clear the
-		// stale discovery file too, then try once more to take over.
+		// Dead owner (crashed, or its PID was recycled by another process): the
+		// lock is stale. Clear the stale discovery file too, then try once more to
+		// take over.
 		_ = os.Remove(path)
 		RemoveDaemonFile(hullHome)
 	}
@@ -70,4 +77,18 @@ func readLockPID(path string) int {
 	}
 	pid, _ := strconv.Atoi(strings.TrimSpace(string(data)))
 	return pid
+}
+
+// processLooksLikeHull reports whether the process with the given PID is
+// plausibly a Hull daemon, so a lock left by a crashed daemon whose PID the OS
+// later recycled for something else is recognized as stale rather than mistaken
+// for a live daemon. When the process cannot be identified it errs toward
+// "yes", so a daemon that is only briefly unreadable (still coming up) is never
+// stomped by a second one. Overridable in tests.
+var processLooksLikeHull = func(pid int) bool {
+	p, err := ps.FindProcess(pid)
+	if err != nil || p == nil {
+		return true // cannot tell: stay safe and treat it as a live daemon
+	}
+	return strings.Contains(strings.ToLower(p.Executable()), "hull")
 }
