@@ -60,6 +60,11 @@ type Server struct {
 	// projectLocks serializes mutating operations on the same project so two
 	// concurrent jobs (e.g. a GUI restart and a CLI reset) cannot interleave.
 	projectLocks *keyedMutex
+	// events fans running-project changes out to every /v1/events subscriber
+	// from a single shared poller, so the cost is one `docker ps` per interval
+	// regardless of how many clients are connected, and zero when none are.
+	events     *eventHub
+	eventsOnce sync.Once
 }
 
 // keyedMutex hands out a mutex per key (project name), so operations on

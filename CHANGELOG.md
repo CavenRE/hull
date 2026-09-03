@@ -52,6 +52,11 @@ Clean wins from the external v0.16 audit (P-03, P-05, P-06, P-09).
 - **Fewer docker calls.** The `caddy` network existence check is memoized for
   the daemon's lifetime instead of running `docker network ls` on every
   up/restart/rebuild.
+- **One shared events poller.** `/v1/events` (the GUI's live dashboard feed) now
+  runs a single `docker ps` poll for the whole daemon and fans changes out to
+  every connected client, instead of one poll loop per connection. The poller
+  starts on the first subscriber and stops when the last one disconnects, so an
+  idle daemon does no polling at all.
 
 ## [0.15.8] - 2026-08-26
 
