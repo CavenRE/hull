@@ -4,6 +4,34 @@ All notable changes to Hull are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and Hull follows
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Clean wins from the external v0.16 audit (P-03, P-05, P-06, P-09).
+
+### Added
+- **`hull doctor` warns about duplicate project names.** When two directories
+  declare the same manifest name, Hull silently resolves to one and ignores the
+  rest, which is a real debugging trap. Doctor now flags the collision and names
+  every directory involved.
+
+### Changed
+- **The app waits for its database to be ready before it starts.** Dedicated
+  database services now render a healthcheck (`pg_isready` / `mysqladmin ping` /
+  the MariaDB `healthcheck.sh`), and a site's app `depends_on` them with
+  `condition: service_healthy`. A cold `hull up` no longer races an unready
+  database, so the Laravel migrate hook no longer needs to swallow failures: a
+  genuinely broken migration now surfaces instead of coming up with an empty
+  schema.
+- **`hull up` readiness stops reporting false failures.** The per-request probe
+  timeout was 3s, so a slow first request over a Windows bind mount aborted every
+  probe and the site was wrongly reported as unresponsive. It is now 60s (with a
+  240s overall budget), and the timeout message reads "still warming up" rather
+  than implying the app is broken.
+- **The generated `compose.yaml` is gitignored.** Hull appends `/compose.yaml`
+  to a site/app project's `.gitignore` when it writes artifacts (idempotent, and
+  it never clobbers a hand-written `.gitignore` or touches a cluster's own
+  compose file), so a machine-specific generated artifact stops landing in git.
+
 ## [0.15.8] - 2026-08-26
 
 ### Fixed

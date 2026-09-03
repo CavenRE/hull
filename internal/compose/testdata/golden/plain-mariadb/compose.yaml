@@ -22,6 +22,9 @@ services:
     networks:
       - default
       - caddy
+    depends_on:
+      db:
+        condition: service_healthy
   db:
     image: mariadb:lts
     environment:
@@ -34,6 +37,14 @@ services:
     networks:
       - default
       - caddy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - healthcheck.sh --connect --innodb_initialized
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 networks:
   caddy:
     external: true

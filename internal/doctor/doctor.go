@@ -16,6 +16,7 @@ import (
 	"github.com/CavenRE/hull/internal/certs"
 	"github.com/CavenRE/hull/internal/config"
 	"github.com/CavenRE/hull/internal/platform"
+	"github.com/CavenRE/hull/internal/state"
 	"github.com/CavenRE/hull/internal/templates"
 )
 
@@ -95,6 +96,13 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 			add(Warn, "performance", "root "+root+" is on the Windows filesystem, which Docker serves to containers over a slow 9p mount (multi-second PHP page loads; a 502 on a cold start until the app warms). The real fix is to keep sites in the WSL2 Linux filesystem (ext4): run Hull inside WSL with projects under your Linux home. Stopgap: set opcache.validate_timestamps=0 in "+opcache+" to stop the per-request re-stat spikes (then restart a container after editing PHP). Also exclude the sites folder and Docker's data VHDX from Windows Defender.")
 			break
 		}
+	}
+
+	// Duplicate project names. Scan resolves a name to one directory and silently
+	// skips the rest, so a stray copy of a hull.yaml (a backup folder, a clone)
+	// can make Hull operate on the wrong directory with no warning anywhere.
+	for _, c := range state.Collisions(cfg.Roots, cfg.Projects...) {
+		add(Warn, "duplicate name "+c.Name, "resolves to more than one directory; Hull uses one and silently ignores the rest: "+strings.Join(c.Dirs, ", "))
 	}
 
 	// System files (self-healing).

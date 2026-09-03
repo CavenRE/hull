@@ -12,10 +12,17 @@ import (
 )
 
 // upReadyTimeout bounds how long `hull up` waits for a served site to answer
-// before it stops blocking. First boot can genuinely take a minute or two: a
+// before it stops blocking. First boot can genuinely take a few minutes: a
 // WordPress image copies core into the (bind-mounted) webroot, a Laravel app
-// runs its migrate hook, and on Windows that all happens over a slow VM mount.
-const upReadyTimeout = 150 * time.Second
+// runs its migrate hook and compiles Blade, and on Windows that all happens over
+// a slow VM mount where a single first request can be tens of seconds.
+const upReadyTimeout = 240 * time.Second
+
+// reqTimeout is the per-request budget. It must be generous: on a slow Windows
+// bind mount a Laravel app's very first HTTP request (autoloader crossing the
+// mount, Blade compile, opcache prime) can take tens of seconds, and a short
+// timeout would abort every probe and wrongly report the site as unresponsive.
+const reqTimeout = 60 * time.Second
 
 // readyPad clears leftover characters from the in-place progress line when it
 // is overwritten by a shorter final line (kept simple: spaces, not ANSI, so it
@@ -45,7 +52,7 @@ func reportUp(ctx context.Context, a *app, p *state.Project, viaDaemon bool) {
 // answered. In an interactive terminal it shows a live elapsed-time line.
 func waitSiteReady(ctx context.Context, name, url string) {
 	client := &http.Client{
-		Timeout: 3 * time.Second,
+		Timeout: reqTimeout,
 		Transport: &http.Transport{
 			// The probe checks reachability, not certificate trust: this CLI
 			// process may not have Hull's local CA installed.
@@ -72,7 +79,7 @@ func waitSiteReady(ctx context.Context, name, url string) {
 			if interactive {
 				fmt.Print("\r")
 			}
-			fmt.Printf("  ! %s started but did not respond within %s; first boot can be slow, watch it with `hull logs %s`.%s\n",
+			fmt.Printf("  ! %s is still warming up after %s (a first boot over a slow mount can take longer). It is probably fine, not broken; watch it with `hull logs %s`.%s\n",
 				name, upReadyTimeout.Round(time.Second), name, readyPad)
 			return
 		case <-time.After(1500 * time.Millisecond):

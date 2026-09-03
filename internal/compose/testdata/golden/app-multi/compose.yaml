@@ -30,6 +30,14 @@ services:
     networks:
       - default
       - caddy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U postgres
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
   redis:
     image: redis:alpine
     volumes:

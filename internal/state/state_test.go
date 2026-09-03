@@ -19,6 +19,26 @@ func writeFile(t *testing.T, path, content string) {
 	}
 }
 
+func TestCollisions(t *testing.T) {
+	root := t.TempDir()
+	// Two directories declare the same manifest name; Scan silently uses one.
+	writeFile(t, filepath.Join(root, "dash", "hull.yaml"), "schema: 1\nname: dash\ntemplate: plain\n")
+	writeFile(t, filepath.Join(root, "_dash-backup", "hull.yaml"), "schema: 1\nname: dash\ntemplate: plain\n")
+	// A distinct name is not a collision, even from a similarly-named folder.
+	writeFile(t, filepath.Join(root, "solo", "hull.yaml"), "schema: 1\nname: solo\ntemplate: plain\n")
+
+	cols := Collisions([]string{root})
+	if len(cols) != 1 {
+		t.Fatalf("expected 1 collision, got %d: %+v", len(cols), cols)
+	}
+	if cols[0].Name != "dash" {
+		t.Errorf("collision name = %q, want dash", cols[0].Name)
+	}
+	if len(cols[0].Dirs) != 2 {
+		t.Errorf("expected 2 colliding dirs, got %v", cols[0].Dirs)
+	}
+}
+
 func TestScanMixedRoots(t *testing.T) {
 	sites := t.TempDir()
 	apps := t.TempDir()

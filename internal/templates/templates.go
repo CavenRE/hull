@@ -111,6 +111,10 @@ type EngineDef struct {
 	DataPath string
 	// Command overrides the container command (e.g. minio "server").
 	Command string
+	// HealthTest is the compose healthcheck test command for a database engine
+	// (the vendor-recommended readiness probe), empty for engines Hull does not
+	// gate a dependent on. Lets a site app wait on condition: service_healthy.
+	HealthTest []string
 	// fixedEnv is instance environment that does not depend on a database.
 	fixedEnv []string
 	// JoinsCaddy: the instance joins the caddy network (reachable by other
@@ -130,11 +134,14 @@ type EngineDef struct {
 
 var engines = map[string]EngineDef{
 	"postgres": {Name: "postgres", Category: "database", DefaultVersion: "16", imageRepo: "postgres", imageTagSuffix: "-alpine", DataPath: "/var/lib/postgresql/data", JoinsCaddy: true, IsDatabase: true, containerPort: "5432", HostPortBase: 54320,
-		fixedEnv: []string{"POSTGRES_HOST_AUTH_METHOD=trust", "POSTGRES_USER=postgres"}},
+		fixedEnv:   []string{"POSTGRES_HOST_AUTH_METHOD=trust", "POSTGRES_USER=postgres"},
+		HealthTest: []string{"CMD-SHELL", "pg_isready -U postgres"}},
 	"mysql": {Name: "mysql", Category: "database", DefaultVersion: "8.0", imageRepo: "mysql", DataPath: "/var/lib/mysql", JoinsCaddy: true, IsDatabase: true, containerPort: "3306", HostPortBase: 53360,
-		fixedEnv: []string{"MYSQL_ALLOW_EMPTY_PASSWORD=yes"}},
+		fixedEnv:   []string{"MYSQL_ALLOW_EMPTY_PASSWORD=yes"},
+		HealthTest: []string{"CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root --silent"}},
 	"mariadb": {Name: "mariadb", Category: "database", DefaultVersion: "lts", imageRepo: "mariadb", DataPath: "/var/lib/mysql", JoinsCaddy: true, IsDatabase: true, containerPort: "3306", HostPortBase: 53390,
-		fixedEnv: []string{"MYSQL_ALLOW_EMPTY_PASSWORD=yes"}},
+		fixedEnv:   []string{"MYSQL_ALLOW_EMPTY_PASSWORD=yes"},
+		HealthTest: []string{"CMD-SHELL", "healthcheck.sh --connect --innodb_initialized"}},
 	"redis":   {Name: "redis", Category: "cache", imageRepo: "redis", defaultTag: "alpine", DataPath: "/data", containerPort: "6379", HostPortBase: 56379},
 	"mailpit": {Name: "mailpit", Category: "mail", imageRepo: "axllent/mailpit", defaultTag: "latest", DataPath: "/data", JoinsCaddy: true, containerPort: "1025", UIPort: 8025, UISubdomain: "mail", HostPortBase: 52525, fixedEnv: []string{"MP_DATABASE=/data/mailpit.db"}},
 	"adminer": {Name: "adminer", Category: "tool", imageRepo: "adminer", defaultTag: "latest", JoinsCaddy: true, UIPort: 8080, UISubdomain: "db"},

@@ -114,6 +114,9 @@ func Render(m *manifest.Manifest, ctx Context) (*File, error) {
 			Environment: eng.Env(s.Database),
 			Networks:    networks,
 		}
+		if len(eng.HealthTest) > 0 {
+			svc.HealthCheck = dbHealthCheck(eng.HealthTest)
+		}
 		if eng.DataPath != "" {
 			volume := key + "_data"
 			svc.Volumes = []string{volume + ":" + eng.DataPath}
@@ -125,6 +128,27 @@ func Render(m *manifest.Manifest, ctx Context) (*File, error) {
 		f.Services[key] = svc
 	}
 
+	// A site's web container waits for its dedicated database to become healthy
+	// before it starts, so the post_create migrate hook never races an unready
+	// database and comes up with an empty schema. Relies on the db healthcheck
+	// emitted above.
+	if m.Type == manifest.TypeSite {
+		if app := f.Services["app"]; app != nil {
+			for _, key := range m.ServiceKeys() {
+				s := m.Services[key]
+				if s.Mode != manifest.ModeDedicated {
+					continue
+				}
+				if eng, ok := templates.Engine(s.Engine); ok && len(eng.HealthTest) > 0 {
+					if app.DependsOn == nil {
+						app.DependsOn = map[string]DependsOn{}
+					}
+					app.DependsOn[key] = DependsOn{Condition: "service_healthy"}
+				}
+			}
+		}
+	}
+
 	// Stamp Hull's ownership label on every generated service so the daemon
 	// can reliably find and stop everything Hull started (engine.StopAll).
 	for _, svc := range f.Services {
@@ -132,6 +156,19 @@ func Render(m *manifest.Manifest, ctx Context) (*File, error) {
 	}
 
 	return f, nil
+}
+
+// dbHealthCheck builds a database service healthcheck from the engine's probe
+// command, with timing generous enough for a cold init over a slow bind mount
+// but bounded so a wrong probe fails `up` in about a minute rather than hanging.
+func dbHealthCheck(test []string) *HealthCheck {
+	return &HealthCheck{
+		Test:        test,
+		Interval:    "5s",
+		Timeout:     "5s",
+		Retries:     12,
+		StartPeriod: "10s",
+	}
 }
 
 // siteService builds the single web container of a type:site project.

@@ -32,6 +32,9 @@ services:
     networks:
       - default
       - caddy
+    depends_on:
+      db:
+        condition: service_healthy
   db:
     image: mysql:8.0
     environment:
@@ -44,6 +47,14 @@ services:
     networks:
       - default
       - caddy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - mysqladmin ping -h 127.0.0.1 -u root --silent
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 networks:
   caddy:
     external: true

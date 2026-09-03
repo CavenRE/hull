@@ -328,6 +328,40 @@ containers:
 	}
 }
 
+// TestDBHealthcheckAndDependsOn locks in the cold-start race fix: a site with a
+// dedicated database gets a healthcheck on the db and the app waits on it with
+// condition service_healthy; a site with no database gets neither.
+func TestDBHealthcheckAndDependsOn(t *testing.T) {
+	m, err := manifest.Parse([]byte("schema: 1\nname: dash\ntype: site\ntemplate: laravel\nservices:\n  db:\n    engine: postgres\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := Render(m, testCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := f.Services["db"]
+	if db == nil || db.HealthCheck == nil || len(db.HealthCheck.Test) == 0 {
+		t.Fatalf("dedicated db is missing a healthcheck: %+v", db)
+	}
+	app := f.Services["app"]
+	if app == nil || app.DependsOn["db"].Condition != "service_healthy" {
+		t.Errorf("app is missing depends_on db (service_healthy): %+v", app.DependsOn)
+	}
+
+	bare, err := manifest.Parse([]byte("schema: 1\nname: bare\ntype: site\ntemplate: laravel\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	bf, err := Render(bare, testCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bf.Services["app"].DependsOn != nil {
+		t.Errorf("a no-db site should have no depends_on: %+v", bf.Services["app"].DependsOn)
+	}
+}
+
 // TestContainerNetworkIsolation locks in the build-your-own isolation model
 // (CLU-21): a container reaches another only on a shared network, so a PII
 // backend on its own segment is unreachable by services not on it.

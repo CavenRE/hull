@@ -19,6 +19,9 @@ services:
     networks:
       - default
       - caddy
+    depends_on:
+      db:
+        condition: service_healthy
   db:
     image: postgres:16-alpine
     environment:
@@ -32,6 +35,14 @@ services:
     networks:
       - default
       - caddy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U postgres
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 networks:
   caddy:
     external: true

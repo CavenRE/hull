@@ -91,6 +91,64 @@ func Scan(roots []string, extra ...string) ([]Project, error) {
 	return out, nil
 }
 
+// Collision records a project name that resolves to more than one directory.
+// Scan returns only the first (by scan order) and silently skips the rest, which
+// is a real debugging trap (hull then operates on a directory you did not mean).
+type Collision struct {
+	Name string
+	Dirs []string
+}
+
+// Collisions reports project names found in more than one directory across the
+// roots and individually-registered projects. It complements Scan (which hides
+// the duplicates by design so a collision never breaks the listing) so a command
+// or `hull doctor` can warn about the shadowed directories.
+func Collisions(roots []string, extra ...string) []Collision {
+	byName := map[string][]string{}
+	seenDir := map[string]bool{}
+	record := func(dir, dirName string) {
+		if seenDir[dir] {
+			return
+		}
+		seenDir[dir] = true
+		p, ok := load(dir, dirName)
+		if !ok || p.Unmanaged {
+			return // bare folders are import candidates, not named projects
+		}
+		byName[p.Name] = append(byName[p.Name], dir)
+	}
+	for _, root := range roots {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+				continue
+			}
+			record(filepath.Join(root, e.Name()), e.Name())
+		}
+	}
+	for _, dir := range extra {
+		if dir == "" {
+			continue
+		}
+		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+			continue
+		}
+		record(dir, filepath.Base(dir))
+	}
+	var out []Collision
+	for name, dirs := range byName {
+		if len(dirs) > 1 {
+			sort.Strings(dirs)
+			out = append(out, Collision{Name: name, Dirs: dirs})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
 // load classifies a single directory.
 func load(dir, dirName string) (Project, bool) {
 	if _, err := os.Stat(filepath.Join(dir, manifest.Filename)); err == nil {

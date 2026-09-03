@@ -18,18 +18,36 @@ type File struct {
 
 // ServiceDef is one compose service.
 type ServiceDef struct {
-	Image         string   `yaml:"image,omitempty"`
-	Build         string   `yaml:"build,omitempty"`
-	ContainerName string   `yaml:"container_name,omitempty"`
-	User          string   `yaml:"user,omitempty"`
-	Entrypoint    []string `yaml:"entrypoint,omitempty"`
-	Command       string   `yaml:"command,omitempty"`
-	Environment   []string `yaml:"environment,omitempty"`
-	Volumes       []string `yaml:"volumes,omitempty"`
-	Ports         []string `yaml:"ports,omitempty"`
-	ExtraHosts    []string `yaml:"extra_hosts,omitempty"`
-	Labels        []string `yaml:"labels,omitempty"`
-	Networks      []string `yaml:"networks,omitempty"`
+	Image         string               `yaml:"image,omitempty"`
+	Build         string               `yaml:"build,omitempty"`
+	ContainerName string               `yaml:"container_name,omitempty"`
+	User          string               `yaml:"user,omitempty"`
+	Entrypoint    []string             `yaml:"entrypoint,omitempty"`
+	Command       string               `yaml:"command,omitempty"`
+	Environment   []string             `yaml:"environment,omitempty"`
+	Volumes       []string             `yaml:"volumes,omitempty"`
+	Ports         []string             `yaml:"ports,omitempty"`
+	ExtraHosts    []string             `yaml:"extra_hosts,omitempty"`
+	Labels        []string             `yaml:"labels,omitempty"`
+	Networks      []string             `yaml:"networks,omitempty"`
+	HealthCheck   *HealthCheck         `yaml:"healthcheck,omitempty"`
+	DependsOn     map[string]DependsOn `yaml:"depends_on,omitempty"`
+}
+
+// HealthCheck is a compose service healthcheck. Hull emits one on dedicated
+// database services so a dependent app can wait on condition: service_healthy.
+type HealthCheck struct {
+	Test        []string `yaml:"test,omitempty"`
+	Interval    string   `yaml:"interval,omitempty"`
+	Timeout     string   `yaml:"timeout,omitempty"`
+	Retries     int      `yaml:"retries,omitempty"`
+	StartPeriod string   `yaml:"start_period,omitempty"`
+}
+
+// DependsOn is the long-form compose dependency condition (e.g. an app waiting
+// for its database to be service_healthy before it starts).
+type DependsOn struct {
+	Condition string `yaml:"condition"`
 }
 
 // Network is a compose network definition.

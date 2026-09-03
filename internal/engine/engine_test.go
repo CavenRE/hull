@@ -232,6 +232,14 @@ func TestNewProjectWritesArtifacts(t *testing.T) {
 			t.Errorf("compose.yaml missing %q", want)
 		}
 	}
+
+	gitignore, err := os.ReadFile(filepath.Join(dir, ".gitignore"))
+	if err != nil {
+		t.Fatalf("no .gitignore written for the generated compose: %v", err)
+	}
+	if !strings.Contains(string(gitignore), "/compose.yaml") {
+		t.Errorf(".gitignore missing /compose.yaml: %q", gitignore)
+	}
 }
 
 func TestNewProjectRejectsExisting(t *testing.T) {

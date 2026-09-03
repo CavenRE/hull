@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -229,7 +230,41 @@ func (e *Engine) WriteArtifacts(m *manifest.Manifest, dir string) error {
 	if err := os.WriteFile(filepath.Join(dir, manifest.Filename), data, 0o644); err != nil {
 		return err
 	}
-	return e.Render(m, dir)
+	if err := e.Render(m, dir); err != nil {
+		return err
+	}
+	// The generated compose.yaml is a machine-specific artifact (it embeds
+	// absolute host paths), so keep it out of git. Only site/app projects
+	// generate one; a cluster wraps the user's own compose, which must stay
+	// tracked, so it is never gitignored.
+	if m.Type == manifest.TypeSite || m.Type == manifest.TypeApp {
+		ignoreCompose(dir)
+	}
+	return nil
+}
+
+// ignoreCompose ensures the project's .gitignore lists the generated
+// compose.yaml. Best-effort (a failure never blocks writing artifacts) and
+// idempotent: it leaves a hand-written .gitignore intact and never duplicates an
+// existing entry (with or without a leading slash).
+func ignoreCompose(dir string) {
+	path := filepath.Join(dir, ".gitignore")
+	existing, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return
+	}
+	for _, line := range strings.Split(string(existing), "\n") {
+		switch strings.TrimSpace(line) {
+		case "/compose.yaml", "compose.yaml":
+			return // already ignored
+		}
+	}
+	body := string(existing)
+	if body != "" && !strings.HasSuffix(body, "\n") {
+		body += "\n"
+	}
+	body += "/compose.yaml\n"
+	_ = os.WriteFile(path, []byte(body), 0o644)
 }
 
 // Render regenerates compose.yaml from the manifest.
@@ -697,11 +732,13 @@ func buildManifest(opts NewOptions) (*manifest.Manifest, error) {
 
 	// Laravel ships SESSION_DRIVER=database etc., so the app 500s until its
 	// tables exist. A default post_create hook runs `artisan migrate` once the
-	// project is up (best-effort: a project without a reachable DB just leaves
-	// the user to re-run it). Persisted into hull.yaml so it's visible/editable.
+	// project is up. The app now waits on the database healthcheck
+	// (depends_on: service_healthy), so this no longer races an unready DB, and
+	// a genuinely failed migration surfaces instead of coming up with an empty
+	// schema. Persisted into hull.yaml so it stays visible and editable.
 	if opts.Template == "laravel" {
 		m.Hooks.PostCreate = append(m.Hooks.PostCreate, manifest.Hook{
-			Run: "php artisan migrate --force", Service: "app", IgnoreFailure: true,
+			Run: "php artisan migrate --force", Service: "app",
 		})
 	}
 
