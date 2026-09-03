@@ -6,7 +6,11 @@ All notable changes to Hull are documented here. The format follows
 
 ## [Unreleased]
 
-Clean wins from the external v0.16 audit (P-03, P-05, P-06, P-09).
+## [0.16.0] - 2026-09-04
+
+Four new project templates (`static`, `python`, `node`, `go`) alongside the PHP
+templates, a batch of container and daemon performance wins, and the clean fixes
+from the external v0.16 audit (P-03, P-05, P-06, P-09).
 
 ### Added
 - **`hull doctor` warns about duplicate project names.** When two directories
