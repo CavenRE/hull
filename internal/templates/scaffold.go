@@ -27,6 +27,15 @@ var staticIndex string
 //go:embed assets/python-app.py
 var pythonApp string
 
+//go:embed assets/node-server.js
+var nodeServer string
+
+//go:embed assets/go-main.txt
+var goMain string
+
+//go:embed assets/air.toml
+var airToml string
+
 // EnsureSystemFiles writes Hull-owned support files (the shared opcache.ini and
 // xdebug.ini every PHP container mounts, Adminer's auto-login plugin) into the
 // Hull home directory if missing, so a fresh v2 machine works without a v1
@@ -85,9 +94,49 @@ func Scaffold(ctx context.Context, template string, opts ScaffoldOptions) error 
 		return scaffoldStatic(opts)
 	case "python":
 		return scaffoldPython(opts)
+	case "node":
+		return scaffoldNode(opts)
+	case "go":
+		return scaffoldGo(opts)
 	default:
 		return fmt.Errorf("no scaffolder for template %q", template)
 	}
+}
+
+// scaffoldNode writes a plain Node project: a stdlib server.js, a package.json,
+// and a .gitignore. node_modules lives on a named volume, not in the dir.
+func scaffoldNode(opts ScaffoldOptions) error {
+	name := filepath.Base(opts.Dir)
+	pkg := fmt.Sprintf("{\n  \"name\": %q,\n  \"private\": true,\n  \"scripts\": {\n    \"start\": \"node server.js\"\n  }\n}\n", name)
+	return writeAll(opts.Dir, map[string]string{
+		"server.js":    nodeServer,
+		"package.json": pkg,
+		".gitignore":   "node_modules/\nnpm-debug.log*\n",
+	})
+}
+
+// scaffoldGo writes a plain Go project: a go.mod, a stdlib main.go, an air
+// config for rebuild-on-change, and a .gitignore. Written directly, so nothing
+// is root-owned; the module and build caches live on named volumes.
+func scaffoldGo(opts ScaffoldOptions) error {
+	name := filepath.Base(opts.Dir)
+	gomod := fmt.Sprintf("module %s\n\ngo %s\n", name, DefaultGo)
+	return writeAll(opts.Dir, map[string]string{
+		"main.go":    goMain,
+		"go.mod":     gomod,
+		".air.toml":  airToml,
+		".gitignore": "tmp/\n",
+	})
+}
+
+// writeAll writes each name->content file into dir.
+func writeAll(dir string, files map[string]string) error {
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // scaffoldStatic writes a minimal index.html the nginx image serves straight

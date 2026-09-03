@@ -11,6 +11,12 @@ const DefaultPHP = "8.4"
 // DefaultPython is the Python version used when a python project pins none.
 const DefaultPython = "3.13"
 
+// DefaultNode is the Node version used when a node project pins none.
+const DefaultNode = "22"
+
+// DefaultGo is the Go toolchain version used when a go project pins none.
+const DefaultGo = "1.24"
+
 // SiteDef describes a built-in site template: the web container Hull
 // generates for it and how requests reach it. Ported from v1's
 // templates/base/*.yaml (fixing plain's missing default network).
@@ -109,6 +115,32 @@ var sites = map[string]SiteDef{
 		Command:      `sh -c '[ -d /opt/venv/bin ] || python -m venv /opt/venv; pip install -q -r requirements.txt 2>/dev/null || true; exec python app.py'`,
 		NamedVolumes: []NamedVolume{{Name: "venv", Path: "/opt/venv"}, {Name: "pip_cache", Path: "/root/.cache/pip"}},
 	},
+	// Node: a node:slim container with your code at /app and node_modules on a
+	// named volume (off the bind mount). Installs package.json deps on boot and
+	// runs server.js. Use `hull node` to run scripts; add deps to package.json.
+	"node": {
+		Key:          "node",
+		Runtime:      "node",
+		UpstreamPort: 8000,
+		Mount:        "/app",
+		Workdir:      "/app",
+		ExtraEnv:     []string{"PORT=8000", "NODE_ENV=development"},
+		Command:      `sh -c '[ -f package.json ] && npm install --no-audit --no-fund --loglevel=error 2>/dev/null; exec node server.js'`,
+		NamedVolumes: []NamedVolume{{Name: "node_modules", Path: "/app/node_modules"}},
+	},
+	// Go: a golang container that rebuilds and reruns on change via air, with the
+	// module and build caches on named volumes (off the bind mount). Use
+	// `hull go` for the toolchain (build/run/test/mod).
+	"go": {
+		Key:          "go",
+		Runtime:      "go",
+		UpstreamPort: 8080,
+		Mount:        "/app",
+		Workdir:      "/app",
+		ExtraEnv:     []string{"PORT=8080"},
+		Command:      `sh -c 'command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@latest; exec air'`,
+		NamedVolumes: []NamedVolume{{Name: "go_mod", Path: "/go/pkg/mod"}, {Name: "go_build", Path: "/root/.cache/go-build"}, {Name: "go_bin", Path: "/go/bin"}},
+	},
 }
 
 // IsPHP reports whether the template runs on a PHP image (laravel, plain,
@@ -164,6 +196,18 @@ func (d SiteDef) Image(php, version string) string {
 				v = DefaultPython
 			}
 			return "python:" + v + "-slim"
+		case "node":
+			v := version
+			if v == "" {
+				v = DefaultNode
+			}
+			return "node:" + v + "-slim"
+		case "go":
+			v := version
+			if v == "" {
+				v = DefaultGo
+			}
+			return "golang:" + v
 		default:
 			return d.BaseImage
 		}

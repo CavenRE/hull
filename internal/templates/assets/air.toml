@@ -1,0 +1,14 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+# Build to /tmp (container-only, off the bind mount) for fast incremental builds.
+cmd = "go build -o /tmp/app ."
+bin = "/tmp/app"
+delay = 300
+include_ext = ["go"]
+exclude_dir = ["tmp", "vendor"]
+stop_on_error = true
+
+[misc]
+clean_on_exit = true

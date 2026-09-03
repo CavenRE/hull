@@ -49,6 +49,15 @@ Clean wins from the external v0.16 audit (P-03, P-05, P-06, P-09).
   packages with the new `hull python` and `hull pip` verbs (the python analogs
   of `hull artisan`). Attach a database with `--db` and Hull wires `DATABASE_URL`.
   No web framework is imposed; add your own.
+- **`node` template.** `hull new <name> node` gives `node:22-slim` with your code
+  at `/app`, `node_modules` on a named volume (off the bind mount), a stdlib
+  `server.js`, and a `package.json`. `hull node` runs node in the container; deps
+  install on boot from `package.json`.
+- **`go` template.** `hull new <name> go` gives `golang` with rebuild-on-change
+  via `air`, the module and build caches on named volumes, and a stdlib
+  `main.go`. `hull go` runs the toolchain (build/test/mod) in the container.
+- The `node` and `go` templates also get `DATABASE_URL` wired when you attach a
+  database with `--db`.
 
 ### Performance
 - **Smaller binary and faster builds.** The embedded Caddy import was trimmed

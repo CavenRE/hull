@@ -1,0 +1,28 @@
+// Minimal Hull Go app. Serves a page on $PORT with the standard library.
+// air rebuilds and reruns it automatically when you edit this file.
+package main
+
+import (
+	"fmt"
+	"net/http"
+	"os"
+	"runtime"
+)
+
+func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		db := ""
+		if os.Getenv("DATABASE_URL") != "" {
+			db = "<p>DATABASE_URL is set, ready to connect.</p>"
+		}
+		fmt.Fprintf(w, "<h1>Your Go app is live</h1><p>%s</p>%s<p>Edit main.go; air rebuilds automatically.</p>", runtime.Version(), db)
+	})
+	fmt.Println("listening on :" + port)
+	if err := http.ListenAndServe("0.0.0.0:"+port, nil); err != nil {
+		panic(err)
+	}
+}

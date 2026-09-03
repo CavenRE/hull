@@ -32,7 +32,7 @@ func init() {
 	cmd := &cobra.Command{
 		Use:   "new <name> <template>",
 		Short: "Scaffold a new project",
-		Long: "Scaffold a new project from a template (laravel, wordpress, plain, static, or python).\n" +
+		Long: "Scaffold a new project from a template (laravel, wordpress, plain, static, python, node, or go).\n" +
 			"\n" +
 			"What it does: creates the project directory under your first configured\n" +
 			"root, writes a hull.yaml manifest, renders compose.yaml, boots the\n" +
@@ -41,9 +41,10 @@ func init() {
 			"\n" +
 			"Smart defaults pick sensible infrastructure per template: laravel uses\n" +
 			"SQLite (no DB container, like a fresh Laravel install), wordpress gets\n" +
-			"MariaDB, and plain/static/python get no database (static serves the folder\n" +
-			"with nginx; python serves app.py with a venv, run scripts via hull python).\n" +
-			"Add a database with --db, layer in extra\n" +
+			"MariaDB, and plain/static/python/node/go get no database by default (add\n" +
+			"one with --db; Hull wires DATABASE_URL for python/node/go). Static serves\n" +
+			"the folder with nginx; python/node/go run a minimal server you edit. Layer\n" +
+			"in extra\n" +
 			"infrastructure with --service (repeatable), or skip the DB with --no-db.\n" +
 			"An explicit --db or --service suppresses the smart default.\n" +
 			"\n" +
@@ -58,6 +59,8 @@ func init() {
 			"  hull new api laravel --no-db\n" +
 			"  hull new landing static\n" +
 			"  hull new api python --db postgres\n" +
+			"  hull new svc node\n" +
+			"  hull new gateway go --db postgres\n" +
 			"  hull new site laravel --here    (create ./site here, not under a root)",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {

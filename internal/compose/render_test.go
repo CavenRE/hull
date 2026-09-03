@@ -426,6 +426,57 @@ func TestPythonTemplateRenders(t *testing.T) {
 	}
 }
 
+// TestNodeAndGoTemplates locks in the compiled/JS runtimes: correct image and
+// working dir, caches on named volumes, none of the PHP machinery, and a
+// DATABASE_URL wired when a database is attached.
+func TestNodeAndGoTemplates(t *testing.T) {
+	cases := []struct {
+		tmpl, image, workdir string
+		vols                 []string
+	}{
+		{"node", "node:22-slim", "/app", []string{"node_modules:/app/node_modules"}},
+		{"go", "golang:1.24", "/app", []string{"go_mod:/go/pkg/mod", "go_bin:/go/bin"}},
+	}
+	for _, c := range cases {
+		m, err := manifest.Parse([]byte("schema: 1\nname: x\ntype: site\ntemplate: " + c.tmpl + "\n"))
+		if err != nil {
+			t.Fatalf("%s parse: %v", c.tmpl, err)
+		}
+		f, err := Render(m, testCtx)
+		if err != nil {
+			t.Fatalf("%s render: %v", c.tmpl, err)
+		}
+		app := f.Services["app"]
+		if app.Image != c.image {
+			t.Errorf("%s image = %q, want %q", c.tmpl, app.Image, c.image)
+		}
+		if app.WorkingDir != c.workdir {
+			t.Errorf("%s working_dir = %q, want %q", c.tmpl, app.WorkingDir, c.workdir)
+		}
+		vols := strings.Join(app.Volumes, "\n")
+		for _, v := range c.vols {
+			if !strings.Contains(vols, v) {
+				t.Errorf("%s missing named volume %s in %v", c.tmpl, v, app.Volumes)
+			}
+		}
+		if strings.Contains(vols, "opcache") || app.User != "" {
+			t.Errorf("%s must not get PHP machinery (opcache/id-remap): vols=%v user=%q", c.tmpl, app.Volumes, app.User)
+		}
+	}
+
+	m, err := manifest.Parse([]byte("schema: 1\nname: gw\ntype: site\ntemplate: go\nservices:\n  db:\n    engine: postgres\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := Render(m, testCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env := strings.Join(f.Services["app"].Environment, "\n"); !strings.Contains(env, "DATABASE_URL=postgres://postgres@db:5432/gw") {
+		t.Errorf("go DATABASE_URL not wired: %v", f.Services["app"].Environment)
+	}
+}
+
 // TestContainerNetworkIsolation locks in the build-your-own isolation model
 // (CLU-21): a container reaches another only on a shared network, so a PII
 // backend on its own segment is unreachable by services not on it.

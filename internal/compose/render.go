@@ -254,7 +254,9 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 			"WORDPRESS_CONFIG_EXTRA=define('DISABLE_WP_CRON', true);",
 		)
 	}
-	if def.Runtime == "python" {
+	// Non-PHP app runtimes (python, node, go) read their database connection from
+	// DATABASE_URL; static has no runtime and PHP wires its own framework env.
+	if !def.IsPHP() && def.Runtime != "static" {
 		if dbKey, db, ok := m.DatabaseService(); ok {
 			host := dbKey
 			if db.Mode == manifest.ModeShared {
