@@ -8,6 +8,9 @@ import (
 // DefaultPHP is the PHP version used when a manifest does not pin one.
 const DefaultPHP = "8.4"
 
+// DefaultPython is the Python version used when a python project pins none.
+const DefaultPython = "3.13"
+
 // SiteDef describes a built-in site template: the web container Hull
 // generates for it and how requests reach it. Ported from v1's
 // templates/base/*.yaml (fixing plain's missing default network).
@@ -42,6 +45,16 @@ type SiteDef struct {
 	// Command overrides the container command (e.g. a dev server for a non-PHP
 	// runtime); empty means the image default.
 	Command string
+	// NamedVolumes are docker named volumes the app service mounts, to keep a
+	// heavy or platform-specific tree (a Python venv, a build cache) off the slow
+	// bind mount. Compose scopes the volume name to the project.
+	NamedVolumes []NamedVolume
+}
+
+// NamedVolume is a docker named volume a template's app service mounts.
+type NamedVolume struct {
+	Name string
+	Path string
 }
 
 var sites = map[string]SiteDef{
@@ -76,6 +89,25 @@ var sites = map[string]SiteDef{
 		UpstreamPort: 80,
 		BaseImage:    "nginx:alpine",
 		Mount:        "/usr/share/nginx/html",
+	},
+	// Plain Python: a python:slim container with your code at /app and a venv on
+	// a named volume (kept off the slow bind mount). It installs requirements.txt
+	// and runs app.py; use `hull python` / `hull pip` to run scripts and manage
+	// packages. No web framework is assumed (bring your own, or serve stdlib).
+	"python": {
+		Key:          "python",
+		Runtime:      "python",
+		UpstreamPort: 8000,
+		Mount:        "/app",
+		Workdir:      "/app",
+		ExtraEnv: []string{
+			"PYTHONUNBUFFERED=1",
+			"VIRTUAL_ENV=/opt/venv",
+			"PATH=/opt/venv/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin",
+			"PORT=8000",
+		},
+		Command:      `sh -c '[ -d /opt/venv/bin ] || python -m venv /opt/venv; pip install -q -r requirements.txt 2>/dev/null || true; exec python app.py'`,
+		NamedVolumes: []NamedVolume{{Name: "venv", Path: "/opt/venv"}, {Name: "pip_cache", Path: "/root/.cache/pip"}},
 	},
 }
 
@@ -125,7 +157,16 @@ func SiteKeys() []string {
 // runtime it is the template's BaseImage.
 func (d SiteDef) Image(php, version string) string {
 	if !d.IsPHP() {
-		return d.BaseImage
+		switch d.Runtime {
+		case "python":
+			v := version
+			if v == "" {
+				v = DefaultPython
+			}
+			return "python:" + v + "-slim"
+		default:
+			return d.BaseImage
+		}
 	}
 	if d.Key == "wordpress" {
 		if version == "" {

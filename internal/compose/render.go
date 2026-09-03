@@ -75,6 +75,14 @@ func Render(m *manifest.Manifest, ctx Context) (*File, error) {
 			return nil, err
 		}
 		f.Services["app"] = svc
+		if def, ok := templates.Site(m.Template); ok {
+			for _, nv := range def.NamedVolumes {
+				if f.Volumes == nil {
+					f.Volumes = map[string]*Volume{}
+				}
+				f.Volumes[nv.Name] = nil
+			}
+		}
 	case manifest.TypeApp:
 		for _, key := range m.ContainerKeys() {
 			svc, err := containerService(m, key, m.Containers[key], ctx)
@@ -197,6 +205,11 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 	if def.Workdir != "" {
 		svc.WorkingDir = def.Workdir
 	}
+	// Named volumes keep a heavy or platform-specific tree (e.g. a Python venv)
+	// off the slow bind mount; Render registers them in the top-level volumes.
+	for _, nv := range def.NamedVolumes {
+		svc.Volumes = append(svc.Volumes, nv.Name+":"+nv.Path)
+	}
 	// Unserved sites (serve: false) still build and run; they just get no
 	// loopback publish, no caddy route, and no caddy network membership.
 	if m.Served() {
@@ -241,8 +254,32 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 			"WORDPRESS_CONFIG_EXTRA=define('DISABLE_WP_CRON', true);",
 		)
 	}
+	if def.Runtime == "python" {
+		if dbKey, db, ok := m.DatabaseService(); ok {
+			host := dbKey
+			if db.Mode == manifest.ModeShared {
+				host = templates.InstanceContainerName(db.Engine, db.Version)
+			}
+			if url := databaseURL(db.Engine, host, db.Database); url != "" {
+				env = append(env, "DATABASE_URL="+url)
+			}
+		}
+	}
 	svc.Environment = mergeEnv(env, m.Env, nil)
 	return svc, nil
+}
+
+// databaseURL builds a standard connection URL a non-PHP app (e.g. Python's
+// dj-database-url / psycopg) reads from DATABASE_URL. Local dev uses the
+// trust-auth superuser with no password.
+func databaseURL(engine, host, dbname string) string {
+	switch engine {
+	case "postgres":
+		return "postgres://postgres@" + host + ":5432/" + dbname
+	case "mysql", "mariadb":
+		return "mysql://root@" + host + ":3306/" + dbname
+	}
+	return ""
 }
 
 // containerService builds one container of a type:app project.

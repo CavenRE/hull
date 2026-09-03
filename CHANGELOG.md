@@ -42,6 +42,13 @@ Clean wins from the external v0.16 audit (P-03, P-05, P-06, P-09).
 - Fixed a latent bug where any non-WordPress template was assumed to be a
   serversideup PHP image, which would have made a non-PHP container inherit the
   PHP root entrypoint and fail to boot.
+- **`python` template.** `hull new <name> python` gives a plain Python
+  environment on `python:3.13-slim`: your code at `/app`, a virtualenv on a
+  named volume (kept off the slow bind mount), a stdlib `app.py` served at the
+  routed domain, and a starter `requirements.txt`. Run scripts and manage
+  packages with the new `hull python` and `hull pip` verbs (the python analogs
+  of `hull artisan`). Attach a database with `--db` and Hull wires `DATABASE_URL`.
+  No web framework is imposed; add your own.
 
 ### Performance
 - **Smaller binary and faster builds.** The embedded Caddy import was trimmed

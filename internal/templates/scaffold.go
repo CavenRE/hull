@@ -24,6 +24,9 @@ var adminerLogin string
 //go:embed assets/static-index.html
 var staticIndex string
 
+//go:embed assets/python-app.py
+var pythonApp string
+
 // EnsureSystemFiles writes Hull-owned support files (the shared opcache.ini and
 // xdebug.ini every PHP container mounts, Adminer's auto-login plugin) into the
 // Hull home directory if missing, so a fresh v2 machine works without a v1
@@ -80,6 +83,8 @@ func Scaffold(ctx context.Context, template string, opts ScaffoldOptions) error 
 		return nil
 	case "static":
 		return scaffoldStatic(opts)
+	case "python":
+		return scaffoldPython(opts)
 	default:
 		return fmt.Errorf("no scaffolder for template %q", template)
 	}
@@ -89,6 +94,23 @@ func Scaffold(ctx context.Context, template string, opts ScaffoldOptions) error 
 // from the project directory.
 func scaffoldStatic(opts ScaffoldOptions) error {
 	return os.WriteFile(filepath.Join(opts.Dir, "index.html"), []byte(staticIndex), 0o644)
+}
+
+// scaffoldPython writes a plain Python project: a stdlib app.py, an empty
+// requirements.txt, and a .gitignore. Written directly (no container), so there
+// are no root-owned files; the venv lives on a named volume, not in the dir.
+func scaffoldPython(opts ScaffoldOptions) error {
+	files := map[string]string{
+		"app.py":           pythonApp,
+		"requirements.txt": "# Add your dependencies here, then `hull restart` (or `hull pip install <pkg>`).\n",
+		".gitignore":       "__pycache__/\n*.pyc\n.venv/\n",
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(opts.Dir, name), []byte(content), 0o644); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func scaffoldLaravel(ctx context.Context, opts ScaffoldOptions) error {

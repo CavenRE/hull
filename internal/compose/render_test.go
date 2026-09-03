@@ -389,6 +389,43 @@ func TestStaticTemplateRenders(t *testing.T) {
 	}
 }
 
+// TestPythonTemplateRenders locks in the plain Python template: python:slim,
+// a venv on a named volume kept off the bind mount, no PHP machinery, and a
+// DATABASE_URL wired when a database is attached.
+func TestPythonTemplateRenders(t *testing.T) {
+	m, err := manifest.Parse([]byte("schema: 1\nname: py\ntype: site\ntemplate: python\nservices:\n  db:\n    engine: postgres\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := Render(m, testCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := f.Services["app"]
+	if app.Image != "python:3.13-slim" {
+		t.Errorf("python image = %q, want python:3.13-slim", app.Image)
+	}
+	if app.WorkingDir != "/app" {
+		t.Errorf("python working_dir = %q, want /app", app.WorkingDir)
+	}
+	vols := strings.Join(app.Volumes, "\n")
+	if !strings.Contains(vols, "venv:/opt/venv") || !strings.Contains(vols, "pip_cache:/root/.cache/pip") {
+		t.Errorf("python volumes = %v, want venv + pip_cache named volumes", app.Volumes)
+	}
+	if strings.Contains(vols, "opcache") {
+		t.Errorf("python must not mount the opcache ini: %v", app.Volumes)
+	}
+	if _, ok := f.Volumes["venv"]; !ok {
+		t.Error("venv named volume not registered in top-level volumes")
+	}
+	if env := strings.Join(app.Environment, "\n"); !strings.Contains(env, "DATABASE_URL=postgres://postgres@db:5432/py") {
+		t.Errorf("python DATABASE_URL not wired: %v", app.Environment)
+	}
+	if app.DependsOn["db"].Condition != "service_healthy" {
+		t.Errorf("python app should wait for the db: %v", app.DependsOn)
+	}
+}
+
 // TestContainerNetworkIsolation locks in the build-your-own isolation model
 // (CLU-21): a container reaches another only on a shared network, so a PII
 // backend on its own segment is unreachable by services not on it.
