@@ -8,9 +8,15 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"sync"
 
 	"golang.org/x/term"
 )
+
+// ensuredNetworks memoizes networks already confirmed to exist this process, so
+// the daemon does not run `docker network ls` on every up/restart/rebuild: an
+// external network it created cannot vanish under a running daemon.
+var ensuredNetworks sync.Map
 
 // Runner executes a command attached to the user's terminal. Tests inject a
 // recorder; production uses Exec.
@@ -167,14 +173,24 @@ func PublishedPort(ctx context.Context, dir, service string, containerPort int) 
 	return parsePublishedPort(out)
 }
 
-// EnsureNetwork creates the named docker network if it does not exist.
+// EnsureNetwork creates the named docker network if it does not exist. The
+// result is memoized for the process (ensuredNetworks), so repeated lifecycle
+// actions skip the `docker network ls` probe after the first confirmation.
 func EnsureNetwork(ctx context.Context, name string) error {
+	if _, ok := ensuredNetworks.Load(name); ok {
+		return nil
+	}
 	if out, err := Output(ctx, "", "docker", "network", "ls", "--filter", "name=^"+name+"$", "--format", "{{.Name}}"); err == nil {
 		for _, line := range strings.Split(out, "\n") {
 			if strings.TrimSpace(line) == name {
+				ensuredNetworks.Store(name, struct{}{})
 				return nil
 			}
 		}
 	}
-	return Exec(ctx, "", "docker", "network", "create", name)
+	if err := Exec(ctx, "", "docker", "network", "create", name); err != nil {
+		return err
+	}
+	ensuredNetworks.Store(name, struct{}{})
+	return nil
 }

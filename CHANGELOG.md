@@ -32,6 +32,27 @@ Clean wins from the external v0.16 audit (P-03, P-05, P-06, P-09).
   it never clobbers a hand-written `.gitignore` or touches a cluster's own
   compose file), so a machine-specific generated artifact stops landing in git.
 
+### Performance
+- **Smaller binary and faster builds.** The embedded Caddy import was trimmed
+  from the full `modules/standard` set to only the modules Hull's config uses
+  (http, reverse_proxy, tls, pki, file storage), cutting the binary from about
+  56MB to about 49MB and dropping a few hundred packages from every build. The
+  router end-to-end test still loads a live config and serves a request, so a
+  missing module would fail the build.
+- **Faster PHP.** The shared PHP ini now enables OPcache JIT (`jit=tracing`) and
+  tunes the realpath cache, so hot code runs as machine code and per-request
+  path lookups do fewer stats over a slow bind mount.
+- **Fewer cold-start 502s.** The Caddy reverse proxy now retries a just-started
+  upstream for a few seconds (`try_duration`) instead of returning 502
+  immediately, so a browser hitting a site right after `hull up` waits and
+  succeeds rather than seeing a bad gateway.
+- **Faster route sync.** The per-site published-port lookups (`docker compose
+  port`) now run concurrently instead of one at a time, so reconciling routes no
+  longer scales linearly with the number of running sites.
+- **Fewer docker calls.** The `caddy` network existence check is memoized for
+  the daemon's lifetime instead of running `docker network ls` on every
+  up/restart/rebuild.
+
 ## [0.15.8] - 2026-08-26
 
 ### Fixed

@@ -7,8 +7,16 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 
-	// Standard Caddy modules: http server, reverse_proxy, tls, pki, ...
-	_ "github.com/caddyserver/caddy/v2/modules/standard"
+	// Register only the Caddy modules Hull's generated config actually
+	// references, instead of the full `modules/standard` set (which drags in
+	// every ACME issuer, DNS provider, and http middleware). This trims the
+	// binary and the build. The router end-to-end tests (Apply + a live request,
+	// EnsureCA, reload) fail if any referenced module is missing here.
+	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp"              // http app + static_response
+	_ "github.com/caddyserver/caddy/v2/modules/caddyhttp/reverseproxy" // reverse_proxy
+	_ "github.com/caddyserver/caddy/v2/modules/caddypki"               // local CA (pki app)
+	_ "github.com/caddyserver/caddy/v2/modules/caddytls"               // tls app + internal issuer
+	_ "github.com/caddyserver/caddy/v2/modules/filestorage"            // file_system storage
 )
 
 // Route maps one HTTPS hostname to a loopback upstream (ADR 0007).
@@ -87,6 +95,14 @@ func ConfigJSON(routes []Route, o Options) ([]byte, error) {
 			handle = map[string]any{
 				"handler":   "reverse_proxy",
 				"upstreams": []map[string]any{{"dial": r.Upstream}},
+				// Retry a just-started upstream for a few seconds instead of
+				// returning 502 immediately, so a container that is still binding
+				// its port right after `hull up` (or a browser hitting a cold
+				// site) waits and succeeds rather than seeing a bad gateway.
+				"load_balancing": map[string]any{
+					"try_duration": "5s",
+					"try_interval": "250ms",
+				},
 				"headers": map[string]any{
 					"request": map[string]any{
 						"set": map[string][]string{

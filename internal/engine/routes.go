@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"strconv"
+	"sync"
 
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/manifest"
@@ -24,7 +25,17 @@ type PortLookup func(ctx context.Context, p *state.Project, service string, cont
 // Projects whose ports cannot be resolved are skipped, not fatal , they
 // may be mid-start.
 func ComputeRoutes(ctx context.Context, projects []state.Project, tld string, running map[string]bool, ports PortLookup) []router.Route {
-	var routes []router.Route
+	// Collect every port lookup this route table needs, then resolve them
+	// concurrently. Each lookup is a separate `docker compose port` shell-out,
+	// so doing them serially made route-sync latency scale with the number of
+	// served sites. Order-preserving so the output stays deterministic.
+	type portReq struct {
+		domains []string
+		p       *state.Project
+		service string
+		cport   int
+	}
+	var reqs []portReq
 	for i := range projects {
 		p := &projects[i]
 		if p.Manifest == nil || !running[p.Name] {
@@ -45,15 +56,7 @@ func ComputeRoutes(ctx context.Context, projects []state.Project, tld string, ru
 				if !rt.Served() {
 					continue
 				}
-				hostPort, err := ports(ctx, p, rt.Service, rt.Port)
-				if err != nil {
-					// Internal-only service (no published port): skip here, it
-					// falls through to a readable 502 down-route.
-					continue
-				}
-				for _, host := range rt.Hosts(suffix) {
-					routes = append(routes, router.Route{Domain: host, Upstream: loopback(hostPort)})
-				}
+				reqs = append(reqs, portReq{domains: rt.Hosts(suffix), p: p, service: rt.Service, cport: rt.Port})
 			}
 		case "app":
 			for _, key := range m.ContainerKeys() {
@@ -67,12 +70,7 @@ func ComputeRoutes(ctx context.Context, projects []state.Project, tld string, ru
 						upstream = def.UpstreamPort
 					}
 				}
-				if hostPort, err := ports(ctx, p, key, upstream); err == nil {
-					routes = append(routes, router.Route{
-						Domain:   c.Domain + "." + tld,
-						Upstream: loopback(hostPort),
-					})
-				}
+				reqs = append(reqs, portReq{domains: []string{c.Domain + "." + tld}, p: p, service: key, cport: upstream})
 			}
 		default: // site
 			if !m.Served() {
@@ -82,12 +80,38 @@ func ComputeRoutes(ctx context.Context, projects []state.Project, tld string, ru
 			if !ok {
 				continue
 			}
-			if hostPort, err := ports(ctx, p, "app", def.UpstreamPort); err == nil {
-				routes = append(routes, router.Route{
-					Domain:   m.Domain + "." + tld,
-					Upstream: loopback(hostPort),
-				})
-			}
+			reqs = append(reqs, portReq{domains: []string{m.Domain + "." + tld}, p: p, service: "app", cport: def.UpstreamPort})
+		}
+	}
+
+	type portRes struct {
+		port int
+		err  error
+	}
+	results := make([]portRes, len(reqs))
+	sem := make(chan struct{}, 8) // bound concurrent docker shell-outs
+	var wg sync.WaitGroup
+	for i := range reqs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			port, err := ports(ctx, reqs[i].p, reqs[i].service, reqs[i].cport)
+			results[i] = portRes{port, err}
+		}(i)
+	}
+	wg.Wait()
+
+	var routes []router.Route
+	for i := range reqs {
+		if results[i].err != nil {
+			// Internal-only service (no published port) or mid-start: skip, it
+			// falls through to a readable 502 down-route.
+			continue
+		}
+		for _, host := range reqs[i].domains {
+			routes = append(routes, router.Route{Domain: host, Upstream: loopback(results[i].port)})
 		}
 	}
 	return routes
