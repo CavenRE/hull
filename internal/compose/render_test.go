@@ -362,6 +362,33 @@ func TestDBHealthcheckAndDependsOn(t *testing.T) {
 	}
 }
 
+// TestStaticTemplateRenders locks in the first non-PHP template: nginx serving
+// the project directory, with none of the PHP-only machinery.
+func TestStaticTemplateRenders(t *testing.T) {
+	m, err := manifest.Parse([]byte("schema: 1\nname: site\ntype: site\ntemplate: static\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := Render(m, testCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := f.Services["app"]
+	if app.Image != "nginx:alpine" {
+		t.Errorf("static image = %q, want nginx:alpine", app.Image)
+	}
+	if len(app.Volumes) != 1 || app.Volumes[0] != "./:/usr/share/nginx/html" {
+		t.Errorf("static volumes = %v, want [./:/usr/share/nginx/html] (no opcache mount)", app.Volumes)
+	}
+	if app.User != "" || len(app.Entrypoint) != 0 {
+		t.Errorf("static must not get the serversideup id-remap: user=%q entrypoint=%v", app.User, app.Entrypoint)
+	}
+	// A non-PHP template must reject a php version.
+	if _, err := manifest.Parse([]byte("schema: 1\nname: x\ntype: site\ntemplate: static\nphp: \"8.3\"\n")); err == nil {
+		t.Error("static template should reject a php version")
+	}
+}
+
 // TestContainerNetworkIsolation locks in the build-your-own isolation model
 // (CLU-21): a container reaches another only on a shared network, so a PII
 // backend on its own segment is unreachable by services not on it.

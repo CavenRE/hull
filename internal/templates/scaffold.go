@@ -21,6 +21,9 @@ var opcacheINI string
 //go:embed assets/hull-login.php
 var adminerLogin string
 
+//go:embed assets/static-index.html
+var staticIndex string
+
 // EnsureSystemFiles writes Hull-owned support files (the shared opcache.ini and
 // xdebug.ini every PHP container mounts, Adminer's auto-login plugin) into the
 // Hull home directory if missing, so a fresh v2 machine works without a v1
@@ -75,9 +78,17 @@ func Scaffold(ctx context.Context, template string, opts ScaffoldOptions) error 
 	case "wordpress":
 		// WordPress core files are populated by the container on first boot.
 		return nil
+	case "static":
+		return scaffoldStatic(opts)
 	default:
 		return fmt.Errorf("no scaffolder for template %q", template)
 	}
+}
+
+// scaffoldStatic writes a minimal index.html the nginx image serves straight
+// from the project directory.
+func scaffoldStatic(opts ScaffoldOptions) error {
+	return os.WriteFile(filepath.Join(opts.Dir, "index.html"), []byte(staticIndex), 0o644)
 }
 
 func scaffoldLaravel(ctx context.Context, opts ScaffoldOptions) error {

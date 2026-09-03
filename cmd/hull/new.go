@@ -32,7 +32,7 @@ func init() {
 	cmd := &cobra.Command{
 		Use:   "new <name> <template>",
 		Short: "Scaffold a new project",
-		Long: "Scaffold a new project from a template (laravel, wordpress, or plain).\n" +
+		Long: "Scaffold a new project from a template (laravel, wordpress, plain, or static).\n" +
 			"\n" +
 			"What it does: creates the project directory under your first configured\n" +
 			"root, writes a hull.yaml manifest, renders compose.yaml, boots the\n" +
@@ -41,7 +41,8 @@ func init() {
 			"\n" +
 			"Smart defaults pick sensible infrastructure per template: laravel uses\n" +
 			"SQLite (no DB container, like a fresh Laravel install), wordpress gets\n" +
-			"MariaDB, plain gets no database. Add a database with --db, layer in extra\n" +
+			"MariaDB, plain and static get no database (static serves the folder with\n" +
+			"nginx). Add a database with --db, layer in extra\n" +
 			"infrastructure with --service (repeatable), or skip the DB with --no-db.\n" +
 			"An explicit --db or --service suppresses the smart default.\n" +
 			"\n" +
@@ -54,6 +55,7 @@ func init() {
 			"  hull new shop laravel --db mysql --redis\n" +
 			"  hull new blog wordpress --version 6.4\n" +
 			"  hull new api laravel --no-db\n" +
+			"  hull new landing static\n" +
 			"  hull new site laravel --here    (create ./site here, not under a root)",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {

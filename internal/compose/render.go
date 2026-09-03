@@ -180,11 +180,22 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 	svc := &ServiceDef{
 		Image: def.Image(m.PHP, m.Version),
 		Volumes: []string{
-			"./:" + webrootMount,
-			opcacheMount(ctx),
+			"./:" + def.MountTarget(),
 		},
 		ExtraHosts: []string{"host.docker.internal:host-gateway"},
 		Networks:   []string{"default"},
+	}
+	// OPcache is PHP-only; a non-PHP runtime (static, and later python/node/go)
+	// gets no ini mount, no id-remap (skipped by ServersideUp below), and runs
+	// the template's own image command.
+	if def.IsPHP() {
+		svc.Volumes = append(svc.Volumes, opcacheMount(ctx))
+	}
+	if def.Command != "" {
+		svc.Command = def.Command
+	}
+	if def.Workdir != "" {
+		svc.WorkingDir = def.Workdir
 	}
 	// Unserved sites (serve: false) still build and run; they just get no
 	// loopback publish, no caddy route, and no caddy network membership.

@@ -25,16 +25,35 @@ type SiteDef struct {
 	// RequiredDB lists acceptable database engines when the template cannot
 	// run without one (e.g. wordpress).
 	RequiredDB []string
+	// Runtime is the language family: "php" (laravel/plain/wordpress), or a
+	// non-PHP runtime like "static", "python", "node", "go". It gates the
+	// PHP-only render behavior (the OPcache mount, the serversideup id-remap,
+	// the PHP image selection). Empty is treated as "php" for back-compat.
+	Runtime string
+	// BaseImage is the container image for a non-PHP template (PHP templates
+	// compute their own image from the PHP version). May include a tag.
+	BaseImage string
+	// Mount is where the project directory is bind-mounted inside the container.
+	// Empty defaults to the PHP webroot (/var/www/html).
+	Mount string
+	// Workdir is the container working directory for run commands (non-PHP
+	// templates that execute a dev server); empty means the image default.
+	Workdir string
+	// Command overrides the container command (e.g. a dev server for a non-PHP
+	// runtime); empty means the image default.
+	Command string
 }
 
 var sites = map[string]SiteDef{
 	"laravel": {
 		Key:          "laravel",
+		Runtime:      "php",
 		UpstreamPort: 8080,
 		XdebugTarget: "/usr/local/etc/php/conf.d/99-xdebug.ini",
 	},
 	"plain": {
 		Key:          "plain",
+		Runtime:      "php",
 		UpstreamPort: 8080,
 		XdebugTarget: "/usr/local/etc/php/conf.d/99-xdebug.ini",
 		ExtraEnv: []string{
@@ -44,17 +63,40 @@ var sites = map[string]SiteDef{
 	},
 	"wordpress": {
 		Key:          "wordpress",
+		Runtime:      "php",
 		UpstreamPort: 80,
 		XdebugTarget: "/usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini",
 		RequiredDB:   []string{"mariadb", "mysql"},
 	},
+	// Static site: serve files straight from the project directory with nginx.
+	// No runtime, no build, no database; edits are live over the bind mount.
+	"static": {
+		Key:          "static",
+		Runtime:      "static",
+		UpstreamPort: 80,
+		BaseImage:    "nginx:alpine",
+		Mount:        "/usr/share/nginx/html",
+	},
 }
 
-// ServersideUp reports whether the template runs on a serversideup/php
-// image, which honours PUID/PGID to match the container user to the host
-// (needed for writable bind mounts on native Linux Docker). WordPress uses
-// the upstream wordpress image, which does not.
-func (d SiteDef) ServersideUp() bool { return d.Key != "wordpress" }
+// IsPHP reports whether the template runs on a PHP image (laravel, plain,
+// wordpress). Empty runtime is treated as PHP for back-compat.
+func (d SiteDef) IsPHP() bool { return d.Runtime == "php" || d.Runtime == "" }
+
+// ServersideUp reports whether the template runs on a serversideup/php image,
+// which honours PUID/PGID to match the container user to the host (needed for
+// writable bind mounts on native Linux Docker). WordPress uses the upstream
+// wordpress image, and non-PHP runtimes are not serversideup at all.
+func (d SiteDef) ServersideUp() bool { return d.IsPHP() && d.Key != "wordpress" }
+
+// MountTarget is where the project directory is bind-mounted in the container,
+// defaulting to the PHP webroot.
+func (d SiteDef) MountTarget() string {
+	if d.Mount != "" {
+		return d.Mount
+	}
+	return "/var/www/html"
+}
 
 // PHPConfDir is where every PHP image Hull uses loads extra ini files: both
 // serversideup/php and the upstream wordpress image are built on the official
@@ -78,9 +120,13 @@ func SiteKeys() []string {
 	return keys
 }
 
-// Image returns the web image for the template. php applies to
-// laravel/plain; version pins the wordpress image tag.
+// Image returns the web image for the template. For PHP templates, php applies
+// to laravel/plain and version pins the wordpress image tag. For a non-PHP
+// runtime it is the template's BaseImage.
 func (d SiteDef) Image(php, version string) string {
+	if !d.IsPHP() {
+		return d.BaseImage
+	}
 	if d.Key == "wordpress" {
 		if version == "" {
 			version = "latest"

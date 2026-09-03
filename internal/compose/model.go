@@ -24,6 +24,7 @@ type ServiceDef struct {
 	User          string               `yaml:"user,omitempty"`
 	Entrypoint    []string             `yaml:"entrypoint,omitempty"`
 	Command       string               `yaml:"command,omitempty"`
+	WorkingDir    string               `yaml:"working_dir,omitempty"`
 	Environment   []string             `yaml:"environment,omitempty"`
 	Volumes       []string             `yaml:"volumes,omitempty"`
 	Ports         []string             `yaml:"ports,omitempty"`

@@ -32,6 +32,17 @@ Clean wins from the external v0.16 audit (P-03, P-05, P-06, P-09).
   it never clobbers a hand-written `.gitignore` or touches a cluster's own
   compose file), so a machine-specific generated artifact stops landing in git.
 
+### Templates
+- **Non-PHP templates are now possible, starting with `static`.** The template
+  descriptor was generalized (a runtime family, a base image, a mount target, a
+  command, a working dir) so a template no longer has to be PHP. `hull new
+  <name> static` serves the project folder directly with nginx: no runtime, no
+  build, no database, and edits are live over the bind mount. Existing PHP
+  templates render exactly as before.
+- Fixed a latent bug where any non-WordPress template was assumed to be a
+  serversideup PHP image, which would have made a non-PHP container inherit the
+  PHP root entrypoint and fail to boot.
+
 ### Performance
 - **Smaller binary and faster builds.** The embedded Caddy import was trimmed
   from the full `modules/standard` set to only the modules Hull's config uses

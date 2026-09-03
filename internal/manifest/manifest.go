@@ -326,8 +326,13 @@ func (m *Manifest) normalize() {
 	if m.Type == TypeSite && m.Domain == "" {
 		m.Domain = m.Name
 	}
-	if m.Type == TypeSite && m.PHP == "" && m.Template != "wordpress" {
-		m.PHP = templates.DefaultPHP
+	if m.Type == TypeSite && m.PHP == "" {
+		// Default a PHP version only for serversideup templates (laravel/plain);
+		// wordpress pins its image tag instead, and non-PHP runtimes (static,
+		// python, node, go) have no PHP version at all.
+		if def, ok := templates.Site(m.Template); ok && def.ServersideUp() {
+			m.PHP = templates.DefaultPHP
+		}
 	}
 	for _, c := range m.Containers {
 		if c == nil {
@@ -336,8 +341,10 @@ func (m *Manifest) normalize() {
 		if c.Path == "" {
 			c.Path = "./"
 		}
-		if c.Template != "" && c.Template != "wordpress" && c.PHP == "" {
-			c.PHP = templates.DefaultPHP
+		if c.Template != "" && c.PHP == "" {
+			if def, ok := templates.Site(c.Template); ok && def.ServersideUp() {
+				c.PHP = templates.DefaultPHP
+			}
 		}
 	}
 	if m.Type == TypeCluster {
@@ -459,6 +466,9 @@ func (m *Manifest) validateSite(fail func(string, ...any)) {
 	}
 	if m.PHP != "" && !phpRE.MatchString(m.PHP) {
 		fail("invalid php version %q (expected e.g. \"8.3\")", m.PHP)
+	}
+	if def, ok := templates.Site(m.Template); ok && !def.IsPHP() && m.PHP != "" {
+		fail("template %q does not use a php version", m.Template)
 	}
 	if def, ok := templates.Site(m.Template); ok && len(def.RequiredDB) > 0 {
 		if !m.hasServiceEngine(def.RequiredDB...) {
