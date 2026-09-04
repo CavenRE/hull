@@ -77,6 +77,11 @@ func init() {
 			"it to drop a corrupted database, clear seed data, or return to a known\n" +
 			"empty starting point.\n" +
 			"\n" +
+			"A Laravel project's vendor/ lives on a named volume (kept off the slow bind\n" +
+			"mount), so a reset re-runs composer install on the next boot. Your\n" +
+			"composer.json/lock and code are the source of truth, so nothing is lost;\n" +
+			"the first boot after a reset is just slower while dependencies reinstall.\n" +
+			"\n" +
 			"Unless --force (or the global --yes) is given, Hull first lists the named\n" +
 			"volumes it will delete and prompts for confirmation. The wipe runs as a\n" +
 			"streamed job through the daemon when one is up, otherwise in-process.",

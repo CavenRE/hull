@@ -6,6 +6,43 @@ All notable changes to Hull are documented here. The format follows
 
 ## [Unreleased]
 
+### Performance
+- **Faster Laravel on Windows and macOS: vendor/ off the bind mount (CR-3).**
+  Composer's `vendor/` (thousands of files that PHP stats and autoloads on every
+  request) now lives on a Docker named volume instead of the slow 9p/virtiofs
+  bind mount, so autoload and realpath lookups hit the fast container
+  filesystem. Hull fills the volume with a small `composer install` script it
+  mounts into the serversideup image's `/etc/entrypoint.d`, which runs once,
+  before PHP-FPM serves, only when `vendor/autoload.php` is missing. It is
+  idempotent (a no-op on every later boot) and self-heals: `hull reset` wipes
+  the volume and the next boot reinstalls. Adoption needs no project changes:
+  the next `hull up`/`rebuild` re-renders the compose file and the first boot
+  runs the install. A failed install is non-fatal (the site starts and reports
+  the failure) rather than crash-looping the container. The script writes a
+  `vendor/.hull-installed` marker only after a fully successful install, and
+  `hull new laravel` waits for that marker before running the `php artisan
+  migrate` hook, so a cold first install never races the migration.
+
+### Added
+- **`hull composer`.** Runs Composer inside the project's app container, so
+  added or updated packages land on the vendor named volume the app actually
+  uses (a host `composer` would write to the shadowed bind-mount copy). The
+  Composer analog of `hull artisan`.
+
+### Notes
+- The vendor volume applies to `type: site` Laravel projects. A Laravel
+  container inside a `type: app` project keeps vendor on the bind mount (its
+  render path does not carry template named volumes yet).
+- `hull reset` on a Laravel project now reinstalls dependencies on the next
+  boot; the reset help spells this out. Code, `composer.json`, and
+  `composer.lock` are untouched, so nothing is lost.
+- Known follow-ups: the boot install has no shared Composer download cache yet,
+  so `hull reset` (and a first boot) re-downloads dependencies; and because the
+  container inits as root, `hull composer` runs as root and can leave
+  root-owned files in the vendor volume (reads are unaffected; a package that
+  writes into its own vendor directory at runtime could hit a permission error
+  until the next boot re-chowns).
+
 ## [0.16.0] - 2026-09-04
 
 Four new project templates (`static`, `python`, `node`, `go`) alongside the PHP

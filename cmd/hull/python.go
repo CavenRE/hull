@@ -65,6 +65,18 @@ func init() {
 			"  hull node server.js\n"+
 			"  hull node --version"))
 
+	rootCmd.AddCommand(appBinCmd("composer",
+		"Run Composer in the current project's app container",
+		"Run Composer inside the current project's running app container, installing\n"+
+			"into the vendor named volume Hull keeps off the slow bind mount. Add or\n"+
+			"update packages here so they land on the fast volume the app actually uses;\n"+
+			"a plain host composer would write to the shadowed bind-mount vendor instead.\n\n"+
+			"Run it from inside a Laravel/PHP project; the container must be up (hull up).\n"+
+			"This is the Composer analog of hull artisan.",
+		"  hull composer require guzzlehttp/guzzle\n"+
+			"  hull composer install\n"+
+			"  hull composer update"))
+
 	rootCmd.AddCommand(appBinCmd("go",
 		"Run the go toolchain in the current project's app container",
 		"Run go inside the current project's running app container, which has the\n"+

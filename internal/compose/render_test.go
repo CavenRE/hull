@@ -187,13 +187,15 @@ func TestLinuxIDRemap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// No host identity → no remap (keeps goldens/Docker Desktop behaviour).
+	// No host identity → no set-id remap wrapper (keeps Docker Desktop
+	// behaviour). Laravel still runs as root so its entrypoint can populate the
+	// vendor volume, so assert on the remap entrypoint, not the user.
 	plain, err := Render(m, testCtx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u := plain.Services["app"].User; u != "" {
-		t.Errorf("expected no user override without HostUID, got %q", u)
+	if j := strings.Join(plain.Services["app"].Entrypoint, " "); strings.Contains(j, "set-id") {
+		t.Errorf("expected no set-id remap wrapper without HostUID, got entrypoint %v", plain.Services["app"].Entrypoint)
 	}
 
 	// Host identity → root + set-id entrypoint wrapper.
@@ -248,8 +250,64 @@ func TestSharedServicesNotRendered(t *testing.T) {
 	if len(f.Services) != 1 {
 		t.Errorf("expected only the app service, got %d services", len(f.Services))
 	}
-	if len(f.Volumes) != 0 {
-		t.Errorf("expected no volumes for shared services, got %v", f.Volumes)
+	// Shared db/redis emit no project-local data volumes. The app's own vendor
+	// volume (CR-3) is expected and must be the only volume.
+	if _, ok := f.Volumes["vendor"]; !ok || len(f.Volumes) != 1 {
+		t.Errorf("expected only the vendor volume for shared services, got %v", f.Volumes)
+	}
+}
+
+// TestLaravelVendorVolume locks in CR-3: laravel keeps vendor/ on a named
+// volume, mounts Hull's composer-install script into the serversideup
+// entrypoint.d to fill it before serving, and still gets the opcache mount and
+// the native-Linux id-remap.
+func TestLaravelVendorVolume(t *testing.T) {
+	m, err := manifest.Parse([]byte("schema: 1\nname: app\ntype: site\ntemplate: laravel\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := Render(m, testCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := f.Services["app"]
+	vols := strings.Join(app.Volumes, "\n")
+	if !strings.Contains(vols, "vendor:/var/www/html/vendor") {
+		t.Errorf("laravel missing vendor named volume: %v", app.Volumes)
+	}
+	const script = "/home/test/.hull/system/php/hull-composer-install.sh:/etc/entrypoint.d/15-hull-composer-install.sh:ro"
+	if !strings.Contains(vols, script) {
+		t.Errorf("laravel missing composer-install entrypoint mount: %v", app.Volumes)
+	}
+	if !strings.Contains(vols, "opcache") {
+		t.Errorf("laravel must still mount the opcache ini: %v", app.Volumes)
+	}
+	if _, ok := f.Volumes["vendor"]; !ok {
+		t.Error("vendor named volume not registered in top-level volumes")
+	}
+	// The container inits as root so it can populate the fresh, root-owned
+	// vendor volume (serversideup then drops php-fpm workers to www-data).
+	if app.User != "0:0" {
+		t.Errorf("laravel should init as root to seed the vendor volume, got user %q", app.User)
+	}
+
+	// Non-serversideup and non-vendor templates must not get the script.
+	for _, tmpl := range []string{"wordpress", "plain", "node", "static"} {
+		src := "schema: 1\nname: x\ntype: site\ntemplate: " + tmpl + "\n"
+		if tmpl == "wordpress" {
+			src += "services:\n  db:\n    engine: mariadb\n"
+		}
+		mm, err := manifest.Parse([]byte(src))
+		if err != nil {
+			t.Fatalf("%s parse: %v", tmpl, err)
+		}
+		ff, err := Render(mm, testCtx)
+		if err != nil {
+			t.Fatalf("%s render: %v", tmpl, err)
+		}
+		if strings.Contains(strings.Join(ff.Services["app"].Volumes, "\n"), "hull-composer-install.sh") {
+			t.Errorf("%s must not mount the composer-install script", tmpl)
+		}
 	}
 }
 

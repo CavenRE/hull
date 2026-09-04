@@ -69,6 +69,10 @@ var sites = map[string]SiteDef{
 		Runtime:      "php",
 		UpstreamPort: 8080,
 		XdebugTarget: "/usr/local/etc/php/conf.d/99-xdebug.ini",
+		// Keep Composer's vendor/ off the slow bind mount: an empty named volume
+		// shadows the host vendor/, and Hull's /etc/entrypoint.d composer-install
+		// script (see SeedsComposer) fills it before PHP-FPM serves.
+		NamedVolumes: []NamedVolume{{Name: "vendor", Path: "/var/www/html/vendor"}},
 	},
 	"plain": {
 		Key:          "plain",
@@ -152,6 +156,23 @@ func (d SiteDef) IsPHP() bool { return d.Runtime == "php" || d.Runtime == "" }
 // writable bind mounts on native Linux Docker). WordPress uses the upstream
 // wordpress image, and non-PHP runtimes are not serversideup at all.
 func (d SiteDef) ServersideUp() bool { return d.IsPHP() && d.Key != "wordpress" }
+
+// SeedsComposer reports whether this template keeps vendor/ on a named volume
+// that a boot-time `composer install` must populate. True for any serversideup
+// PHP template carrying a "vendor" named volume (laravel today). It gates the
+// /etc/entrypoint.d composer-install mount in the renderer, so the empty volume
+// is filled before the web server serves and self-heals after `hull reset`.
+func (d SiteDef) SeedsComposer() bool {
+	if !d.ServersideUp() {
+		return false
+	}
+	for _, nv := range d.NamedVolumes {
+		if nv.Name == "vendor" {
+			return true
+		}
+	}
+	return false
+}
 
 // MountTarget is where the project directory is bind-mounted in the container,
 // defaulting to the PHP webroot.

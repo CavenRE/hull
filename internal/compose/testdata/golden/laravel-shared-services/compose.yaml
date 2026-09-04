@@ -4,9 +4,12 @@ name: linked
 services:
   app:
     image: serversideup/php:8.4-fpm-nginx
+    user: "0:0"
     volumes:
       - ./:/var/www/html
       - /home/test/.hull/system/php/opcache.ini:/usr/local/etc/php/conf.d/zz-hull-opcache.ini:ro
+      - /home/test/.hull/system/php/hull-composer-install.sh:/etc/entrypoint.d/15-hull-composer-install.sh:ro
+      - vendor:/var/www/html/vendor
     ports:
       - 127.0.0.1::8080
     extra_hosts:
@@ -22,3 +25,5 @@ services:
 networks:
   caddy:
     external: true
+volumes:
+  vendor: null

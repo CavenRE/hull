@@ -72,6 +72,16 @@ func TestEnsureSystemFiles(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(home, "system", "php", "xdebug.ini")); err != nil {
 		t.Errorf("xdebug.ini not provisioned: %v", err)
 	}
+	// The Composer-install entrypoint script must be provisioned with content:
+	// it is mounted into the serversideup /etc/entrypoint.d and sourced there, so
+	// a missing host file would make Docker mount an empty directory and break
+	// boot. (It is sourced, not executed, so the exec bit is irrelevant, and
+	// Windows does not preserve it anyway.)
+	if info, err := os.Stat(filepath.Join(home, "system", "php", "hull-composer-install.sh")); err != nil {
+		t.Errorf("hull-composer-install.sh not provisioned: %v", err)
+	} else if info.Size() == 0 {
+		t.Error("hull-composer-install.sh is empty")
+	}
 	// Must be idempotent (doctor self-heals by calling it repeatedly).
 	if err := EnsureSystemFiles(home); err != nil {
 		t.Errorf("second EnsureSystemFiles call failed: %v", err)

@@ -199,6 +199,12 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 	if def.IsPHP() {
 		svc.Volumes = append(svc.Volumes, opcacheMount(ctx))
 	}
+	// A template whose vendor/ lives on a named volume needs that empty volume
+	// filled before PHP-FPM serves; mount Hull's composer-install script into the
+	// serversideup entrypoint.d, which runs it (once) at container init.
+	if def.SeedsComposer() {
+		svc.Volumes = append(svc.Volumes, composerInstallMount(ctx))
+	}
 	if def.Command != "" {
 		svc.Command = def.Command
 	}
@@ -229,6 +235,17 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 	}
 
 	applyIDRemap(svc, ctx, def)
+	// A Composer-seeding template must run its container init as root so the
+	// entrypoint script can populate the fresh, root-owned vendor volume (a new
+	// named volume mountpoint is owned by root, and serversideup runs rootless as
+	// www-data by default, which cannot write it). serversideup drops php-fpm
+	// workers back to www-data regardless. On native Linux, id-remap already runs
+	// it as root; this covers Docker Desktop, where Hull otherwise leaves the
+	// container as the image's www-data. Scoped to type:site, which mounts the
+	// vendor volume (a type:app container does not, so it must not be forced root).
+	if def.SeedsComposer() && svc.User == "" {
+		svc.User = "0:0"
+	}
 	env := append([]string{}, def.ExtraEnv...)
 	if m.Template == "wordpress" {
 		dbKey, db, ok := m.DatabaseService(def.RequiredDB...)
@@ -370,6 +387,18 @@ func caddyLabels(fqdn string, upstreamPort int) []string {
 func opcacheMount(ctx Context) string {
 	host := ctx.HullHome + "/system/php/opcache.ini"
 	return host + ":" + templates.PHPConfDir + "/zz-hull-opcache.ini:ro"
+}
+
+// composerInstallMount returns the read-only bind mount that drops Hull's
+// composer-install script into the serversideup entrypoint.d, so a template
+// whose vendor/ lives on a named volume (laravel) gets that empty volume filled
+// with `composer install` before the web server starts. The "15-" prefix runs
+// it after the image's own webserver-config init and before the Laravel
+// automations. EnsureSystemFiles writes the host script before any container
+// starts, and never overwrites a user-edited copy.
+func composerInstallMount(ctx Context) string {
+	host := ctx.HullHome + "/system/php/hull-composer-install.sh"
+	return host + ":/etc/entrypoint.d/15-hull-composer-install.sh:ro"
 }
 
 // mountSource normalizes a manifest path field to a compose bind source.

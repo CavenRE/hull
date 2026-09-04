@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -207,6 +208,14 @@ func (e *Engine) NewProject(ctx context.Context, opts NewOptions) (string, error
 		}
 		p := &state.Project{Name: m.Name, Dir: dir, Manifest: m}
 		e.recordStarted(p)
+		// A Composer-seeding template (laravel) fills its empty vendor volume with
+		// a boot-time `composer install` that can take a minute; wait for it to
+		// finish before the post_create migrate hook, which needs
+		// vendor/autoload.php. Otherwise the migrate races the install and fails on
+		// a cold first boot, leaving an unmigrated database.
+		if err := e.awaitComposerSeed(ctx, p); err != nil {
+			return dir, err
+		}
 		// post_create hooks run after the project boots (readiness-gated). For
 		// Laravel this carries the default `artisan migrate` (best-effort).
 		if err := e.runHooks(ctx, p, "post_create", true); err != nil {
@@ -219,6 +228,39 @@ func (e *Engine) NewProject(ctx context.Context, opts NewOptions) (string, error
 		}
 	}
 	return dir, nil
+}
+
+// awaitComposerSeed blocks until a Composer-seeding site (laravel) has finished
+// its boot-time `composer install`, so post_create hooks like `php artisan
+// migrate` do not race it and fail on a missing vendor/autoload.php. The
+// entrypoint script writes vendor/.hull-installed only on a fully successful
+// install, and this polls for that marker inside the app container. It is a
+// no-op for templates that do not seed Composer. On timeout it fails with a
+// pointer to the logs rather than letting the migrate fail more obscurely.
+func (e *Engine) awaitComposerSeed(ctx context.Context, p *state.Project) error {
+	if p.Manifest == nil {
+		return nil
+	}
+	def, ok := templates.Site(p.Manifest.Template)
+	if !ok || !def.SeedsComposer() {
+		return nil
+	}
+	marker := def.MountTarget() + "/vendor/.hull-installed"
+	deadline := time.Now().Add(4 * time.Minute)
+	for {
+		if err := e.composeFor(p).ExecNoTTY(ctx, "app", "test", "-f", marker); err == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			name := projectName(p)
+			return fmt.Errorf("composer install did not finish for %s; the container may still be installing dependencies (check `hull logs %s`)", name, name)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
 }
 
 // WriteArtifacts writes hull.yaml and the generated compose.yaml.

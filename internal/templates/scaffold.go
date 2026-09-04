@@ -18,6 +18,9 @@ var xdebugINI string
 //go:embed assets/opcache.ini
 var opcacheINI string
 
+//go:embed assets/hull-composer-install.sh
+var composerInstallSH string
+
 //go:embed assets/hull-login.php
 var adminerLogin string
 
@@ -41,19 +44,24 @@ var airToml string
 // Hull home directory if missing, so a fresh v2 machine works without a v1
 // installation. Existing files are left untouched , they may carry user tweaks.
 func EnsureSystemFiles(hullHome string) error {
-	files := map[string]string{
-		filepath.Join(hullHome, "system", "php", "opcache.ini"):        opcacheINI,
-		filepath.Join(hullHome, "system", "php", "xdebug.ini"):         xdebugINI,
-		filepath.Join(hullHome, "system", "adminer", "hull-login.php"): adminerLogin,
+	type sysFile struct {
+		content string
+		mode    os.FileMode
 	}
-	for target, content := range files {
+	files := map[string]sysFile{
+		filepath.Join(hullHome, "system", "php", "opcache.ini"):              {opcacheINI, 0o644},
+		filepath.Join(hullHome, "system", "php", "xdebug.ini"):               {xdebugINI, 0o644},
+		filepath.Join(hullHome, "system", "php", "hull-composer-install.sh"): {composerInstallSH, 0o755},
+		filepath.Join(hullHome, "system", "adminer", "hull-login.php"):       {adminerLogin, 0o644},
+	}
+	for target, f := range files {
 		if _, err := os.Stat(target); err == nil {
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
+		if err := os.WriteFile(target, []byte(f.content), f.mode); err != nil {
 			return err
 		}
 	}
