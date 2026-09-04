@@ -68,6 +68,16 @@ func init() {
 			if err != nil {
 				return err
 			}
+			// A created site is only reachable once the daemon (router + DNS) is up,
+			// so ensure it like `hull up` does instead of booting a container and
+			// claiming it is served while nothing routes it. Skipped for --no-start
+			// (nothing to serve); honored by --no-daemon; declining leaves the site
+			// created but unserved (the final message reflects that).
+			if !noStart {
+				if err := ensureDaemonRunning(cmd.Context(), a.Config.HullHome); err != nil {
+					return err
+				}
+			}
 			name, template := args[0], args[1]
 
 			if interactive {
@@ -170,7 +180,13 @@ func init() {
 				if domain == "" {
 					domain = name
 				}
-				fmt.Printf("✔ %s is up at https://%s.%s\n", name, domain, a.Config.TLD)
+				// Only claim it is up if the daemon is actually there to serve it;
+				// otherwise the container is running but nothing routes the domain.
+				if _, served := a.client(); served {
+					fmt.Printf("✔ %s is up at https://%s.%s\n", name, domain, a.Config.TLD)
+				} else {
+					fmt.Printf("✔ %s created. Run `hull start` to serve it at https://%s.%s\n", name, domain, a.Config.TLD)
+				}
 			}
 			return nil
 		},

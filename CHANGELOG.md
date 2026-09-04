@@ -6,6 +6,16 @@ All notable changes to Hull are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **`hull new` guarantees the site is actually served, or says it is not.** The
+  command boots the app container, but only Hull's daemon (router plus DNS)
+  makes `https://<name>.<tld>` reachable. `hull new` did not ensure the daemon
+  was running, so on a machine where it was stopped the container came up while
+  the domain routed nowhere, yet the command still printed "is up at ...". It
+  now ensures the daemon the same way `hull up` does (offering to start it), and
+  when the site is not served (daemon declined, or `--no-daemon`) it prints
+  "created. Run `hull start` ..." instead of falsely claiming it is up.
+
 ### Performance
 - **Faster Laravel on Windows and macOS: vendor/ off the bind mount (CR-3).**
   Composer's `vendor/` (thousands of files that PHP stats and autoloads on every
