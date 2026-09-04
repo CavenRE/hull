@@ -16,6 +16,16 @@ All notable changes to Hull are documented here. The format follows
   when the site is not served (daemon declined, or `--no-daemon`) it prints
   "created. Run `hull start` ..." instead of falsely claiming it is up.
 
+### Changed
+- **`hull new laravel` and `hull new wordpress` guide setup with recommended
+  defaults preselected.** Run without infra flags in a terminal, they ask a
+  couple of quick questions (database, then Redis) with the recommended choice
+  already highlighted, so you can press enter through them and boot straight
+  into a running container. Passing the flags (`--db`, `--no-db`, `--redis`,
+  `--service`), `-y`, or running in a non-interactive shell skips the prompts
+  entirely and keeps the smart defaults (Laravel uses SQLite, WordPress uses
+  MariaDB). Other templates keep the `-i` multi-select.
+
 ### Performance
 - **Faster Laravel on Windows and macOS: vendor/ off the bind mount (CR-3).**
   Composer's `vendor/` (thousands of files that PHP stats and autoloads on every

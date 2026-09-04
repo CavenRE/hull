@@ -105,6 +105,26 @@ func pickOneDefault(title string, options []string, def string) (string, error) 
 	return selected, nil
 }
 
+// confirmDefault asks a yes/no question with a preselected default, so pressing
+// enter takes the default. --yes/-y forces yes; off a terminal it returns def
+// without prompting (so scripts never hang), unlike confirm which errors.
+func confirmDefault(title string, def bool) (bool, error) {
+	if flagYes {
+		return true, nil
+	}
+	if !isInteractive() {
+		return def, nil
+	}
+	ok := def
+	form := huh.NewForm(huh.NewGroup(
+		huh.NewConfirm().Title(title).Value(&ok),
+	))
+	if err := form.Run(); err != nil {
+		return false, err
+	}
+	return ok, nil
+}
+
 // confirm asks a yes/no question, defaulting to no. --yes/-y short-circuits
 // to yes so destructive commands are scriptable.
 func confirm(title string) (bool, error) {

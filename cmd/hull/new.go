@@ -80,7 +80,23 @@ func init() {
 			}
 			name, template := args[0], args[1]
 
-			if interactive {
+			// Guided setup for the two templates people configure most (laravel,
+			// wordpress): when infra was not pinned by flags and we have a terminal,
+			// prompt with the recommended option preselected so pressing enter
+			// through it lands a sensible default fast. Flags or -y skip it; other
+			// templates keep the -i multi-select.
+			infraFlagged := cmd.Flags().Changed("db") || cmd.Flags().Changed("no-db") ||
+				cmd.Flags().Changed("redis") || cmd.Flags().Changed("service") ||
+				cmd.Flags().Changed("db-version")
+			guided := (template == "laravel" || template == "wordpress") && !infraFlagged && !flagYes && isInteractive()
+			switch {
+			case guided:
+				db, withRedis, err = setupPrompts(template)
+				if err != nil {
+					return err
+				}
+				noDB = db == "" // an explicit "no database" choice suppresses the smart default
+			case interactive:
 				db, withRedis, err = pickInfra()
 				if err != nil {
 					return err
@@ -204,6 +220,45 @@ func init() {
 	cmd.Flags().BoolVar(&noStart, "no-start", false, "create without booting containers")
 	cmd.Flags().BoolVar(&here, "here", false, "create the project in the current directory instead of your first root")
 	rootCmd.AddCommand(cmd)
+}
+
+// setupPrompts runs the guided infra questions for laravel/wordpress with the
+// recommended option preselected, so pressing enter through them lands a good
+// default and boots straight into a container. Returns the chosen db engine
+// ("" means none/SQLite for laravel) and whether to add Redis.
+func setupPrompts(template string) (db string, redis bool, err error) {
+	if template == "wordpress" {
+		const maria = "MariaDB (recommended)"
+		sel, err := pickOneDefault("Database", []string{maria, "MySQL"}, maria)
+		if err != nil {
+			return "", false, err
+		}
+		db = "mariadb"
+		if sel == "MySQL" {
+			db = "mysql"
+		}
+	} else { // laravel
+		const sqlite = "SQLite (no container, recommended)"
+		sel, err := pickOneDefault("Database", []string{sqlite, "PostgreSQL", "MySQL", "MariaDB"}, sqlite)
+		if err != nil {
+			return "", false, err
+		}
+		switch sel {
+		case "PostgreSQL":
+			db = "postgres"
+		case "MySQL":
+			db = "mysql"
+		case "MariaDB":
+			db = "mariadb"
+		default:
+			db = "" // SQLite: Laravel's default, no database container
+		}
+	}
+	redis, err = confirmDefault("Add a Redis cache?", false)
+	if err != nil {
+		return "", false, err
+	}
+	return db, redis, nil
 }
 
 // pickInfra is the interactive infrastructure selector (v1's fzf flow).
