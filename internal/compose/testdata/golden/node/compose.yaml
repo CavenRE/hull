@@ -4,7 +4,7 @@ name: nodeapp
 services:
   app:
     image: node:22-slim
-    command: sh -c '[ -f package.json ] && npm install --no-audit --no-fund --loglevel=error 2>/dev/null; exec node server.js'
+    command: sh -c 'if [ -f package.json ]; then h=$$(md5sum package.json | cut -c1-32); if [ "$$(cat node_modules/.hull-installed 2>/dev/null)" != "$$h" ]; then npm install --no-audit --no-fund --loglevel=error && echo "$$h" > node_modules/.hull-installed; fi; fi; exec node server.js'
     working_dir: /app
     environment:
       - NODE_ENV=development

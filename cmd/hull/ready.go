@@ -66,6 +66,11 @@ func waitSiteReady(ctx context.Context, name, url string) {
 
 	start := time.Now()
 	interactive := isInteractive()
+	// The route goes live a few hundred ms after the daemon returns (it syncs
+	// in the background), so probe quickly at first and ease off. A flat 1.5s
+	// first wait meant almost every `hull up` paid it in full.
+	const maxBackoff = 1500 * time.Millisecond
+	backoff := 150 * time.Millisecond
 	for {
 		if reachable(ctx, client, url) {
 			if interactive {
@@ -82,7 +87,12 @@ func waitSiteReady(ctx context.Context, name, url string) {
 			fmt.Printf("  ! %s is still warming up after %s (a first boot over a slow mount can take longer). It is probably fine, not broken; watch it with `hull logs %s`.%s\n",
 				name, upReadyTimeout.Round(time.Second), name, readyPad)
 			return
-		case <-time.After(1500 * time.Millisecond):
+		case <-time.After(backoff):
+			if backoff < maxBackoff {
+				if backoff *= 2; backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+			}
 		}
 		if interactive {
 			fmt.Printf("\r  waiting for %s to respond... %s", name, elapsedSince(start))

@@ -38,11 +38,17 @@ type ServiceDef struct {
 // HealthCheck is a compose service healthcheck. Hull emits one on dedicated
 // database services so a dependent app can wait on condition: service_healthy.
 type HealthCheck struct {
-	Test        []string `yaml:"test,omitempty"`
-	Interval    string   `yaml:"interval,omitempty"`
-	Timeout     string   `yaml:"timeout,omitempty"`
-	Retries     int      `yaml:"retries,omitempty"`
-	StartPeriod string   `yaml:"start_period,omitempty"`
+	Test     []string `yaml:"test,omitempty"`
+	Interval string   `yaml:"interval,omitempty"`
+	Timeout  string   `yaml:"timeout,omitempty"`
+	Retries  int      `yaml:"retries,omitempty"`
+	// StartInterval is the probe gap during start_period. Without it Docker
+	// waits a full Interval before the FIRST probe, so an app gated on
+	// service_healthy sits idle for seconds even though the database was ready
+	// almost immediately. Needs Engine 25 / Compose 2.20.3 (2023); on older
+	// engines the field is simply ignored.
+	StartInterval string `yaml:"start_interval,omitempty"`
+	StartPeriod   string `yaml:"start_period,omitempty"`
 }
 
 // DependsOn is the long-form compose dependency condition (e.g. an app waiting

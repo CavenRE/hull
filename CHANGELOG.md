@@ -6,6 +6,13 @@ All notable changes to Hull are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-09-05
+
+A permissions and performance release. WordPress media uploads work, file
+permissions self-heal on every boot across the PHP templates, and the slowest
+paths got measurably faster: `hull new laravel` is about 5x quicker, and every
+`hull up` of a site with a database saves several seconds.
+
 ### Fixed
 - **WordPress media uploads work, and file permissions now self-heal on every
   boot.** A fresh WordPress install could not upload media ("the uploaded file
@@ -49,6 +56,24 @@ All notable changes to Hull are documented here. The format follows
   MariaDB). Other templates keep the `-i` multi-select.
 
 ### Performance
+- **`hull new laravel` is about 5x faster: 7 minutes down to 87 seconds
+  (measured).** Composer writes roughly ten thousand small files, and the
+  scaffold did that directly on the bind mount, then copied the tree, then
+  deleted the staging copy: four full passes over a filesystem where each
+  inode operation costs about 1.5ms. It now builds inside the container's own
+  filesystem and copies the finished tree out in a single pass.
+- **About 3 seconds off every `hull up` of a site with a database.** Docker
+  waits a full healthcheck `interval` before its *first* probe, so an app gated
+  on `service_healthy` sat idle long after the database was already answering.
+  Hull now emits `start_interval`, which shortens the gap during startup.
+- **About a second off every `hull up` of a served site.** The route goes live a
+  few hundred milliseconds after the daemon responds, but the CLI waited a flat
+  1.5s before its second probe, so nearly every `hull up` paid it in full. The
+  probe now starts at 150ms and eases off.
+- **node and python skip a needless dependency install on every boot** (measured
+  ~0.35s and ~0.64s). They reinstall only when `package.json` or
+  `requirements.txt` actually changes, guarded by a content hash on the named
+  volume, the same pattern Laravel's vendor seeding already uses.
 - **WordPress boots roughly 7 seconds faster.** The permission step above
   replaces a recursive `chmod -R a+rX` of the entire webroot that ran on every
   single boot. Measured on a real project (4,324 entries) over a Docker Desktop

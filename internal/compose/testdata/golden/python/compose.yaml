@@ -4,7 +4,7 @@ name: pyapp
 services:
   app:
     image: python:3.13-slim
-    command: sh -c '[ -d /opt/venv/bin ] || python -m venv /opt/venv; pip install -q -r requirements.txt 2>/dev/null || true; exec python app.py'
+    command: sh -c '[ -d /opt/venv/bin ] || python -m venv /opt/venv; if [ -f requirements.txt ]; then h=$$(md5sum requirements.txt | cut -c1-32); if [ "$$(cat /opt/venv/.hull-installed 2>/dev/null)" != "$$h" ]; then pip install -q -r requirements.txt && echo "$$h" > /opt/venv/.hull-installed; fi; fi; exec python app.py'
     working_dir: /app
     environment:
       - PATH=/opt/venv/bin:/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin

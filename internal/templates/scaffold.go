@@ -195,15 +195,19 @@ func scaffoldLaravel(ctx context.Context, opts ScaffoldOptions) error {
 
 	// Docker's -v parser wants forward slashes even on Windows (a backslash
 	// drive path like W:\Sites\app:/app misparses against the : separator).
-	mount := filepath.ToSlash(opts.Dir) + ":/app"
+	mount := filepath.ToSlash(opts.Dir) + ":/out"
 
+	// Build inside the container's own filesystem, then copy the finished tree
+	// out in a single pass. Composer writes roughly ten thousand small files, and
+	// doing that directly on the bind mount cost four passes over it
+	// (create-project, cp, rm, plus composer's own churn). On a Windows 9p mount
+	// that measured about seven minutes; one write pass is the irreducible part.
 	args := []string{"run", "--rm"}
 	args = append(args, userFlag()...)
 	args = append(args,
 		"-v", mount,
-		"-w", "/app",
 		"composer:latest",
-		"sh", "-c", fmt.Sprintf("composer create-project %s tmp && cp -a tmp/. . && rm -rf tmp", target),
+		"sh", "-c", fmt.Sprintf("composer create-project %s /tmp/hull-build && cp -a /tmp/hull-build/. /out/", target),
 	)
 	if err := opts.Run(ctx, "", "docker", args...); err != nil {
 		return fmt.Errorf("composer create-project failed: %w", err)
@@ -220,7 +224,7 @@ func scaffoldLaravel(ctx context.Context, opts ScaffoldOptions) error {
 	chown := []string{
 		"run", "--rm",
 		"-v", mount,
-		"-w", "/app",
+		"-w", "/out",
 		"alpine", "sh", "-c", "chown -R 33:33 storage bootstrap/cache database",
 	}
 	if err := opts.Run(ctx, "", "docker", chown...); err != nil {

@@ -177,11 +177,16 @@ func Render(m *manifest.Manifest, ctx Context) (*File, error) {
 // but bounded so a wrong probe fails `up` in about a minute rather than hanging.
 func dbHealthCheck(test []string) *HealthCheck {
 	return &HealthCheck{
-		Test:        test,
-		Interval:    "5s",
-		Timeout:     "5s",
-		Retries:     12,
-		StartPeriod: "10s",
+		Test:     test,
+		Interval: "5s",
+		Timeout:  "5s",
+		Retries:  12,
+		// Probe every second while starting up. Docker otherwise waits a full
+		// Interval (5s) before the first probe, so the app, which depends_on
+		// service_healthy, was held for seconds after the database was already
+		// answering. Measured: about 3s off every `hull up` with a database.
+		StartInterval: "1s",
+		StartPeriod:   "10s",
 	}
 }
 

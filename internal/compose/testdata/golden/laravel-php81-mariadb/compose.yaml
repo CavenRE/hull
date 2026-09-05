@@ -47,6 +47,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 12
+      start_interval: 1s
       start_period: 10s
 networks:
   caddy:
