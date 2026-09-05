@@ -585,3 +585,84 @@ containers:
 		}
 	}
 }
+
+// TestWritablePathsFix locks in the boot-time permission repair: the PHP
+// templates whose web process runs as a non-root user get Hull's script plus
+// the path list, WordPress runs it AFTER the image extracts core, native Linux
+// gets an identity that keeps the host developer owning their files, and the
+// root-running runtimes are deliberately left alone.
+func TestWritablePathsFix(t *testing.T) {
+	// laravel: script lands in the serversideup entrypoint.d, after composer (15-).
+	lv, err := manifest.Parse([]byte("schema: 1\nname: app\ntype: site\ntemplate: laravel\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := Render(lv, testCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := f.Services["app"]
+	if v := strings.Join(app.Volumes, "\n"); !strings.Contains(v, "hull-fix-perms.sh:/etc/entrypoint.d/16-hull-writable.sh:ro") {
+		t.Errorf("laravel missing the entrypoint.d perm-fix mount: %v", app.Volumes)
+	}
+	if e := strings.Join(app.Environment, "\n"); !strings.Contains(e, "HULL_WRITABLE_PATHS=storage bootstrap/cache database") {
+		t.Errorf("laravel missing writable paths: %v", app.Environment)
+	}
+
+	// wordpress: the image has no entrypoint.d, so the wrapper executes the
+	// script, and it must run AFTER docker-ensure-installed.sh extracts core.
+	wp, err := manifest.Parse([]byte("schema: 1\nname: blog\ntype: site\ntemplate: wordpress\nservices:\n  db:\n    engine: mariadb\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err = Render(wp, testCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app = f.Services["app"]
+	joined := strings.Join(app.Entrypoint, " ")
+	install := strings.Index(joined, "docker-ensure-installed.sh")
+	fix := strings.Index(joined, "hull-fix-perms.sh")
+	if install < 0 || fix < 0 || install > fix {
+		t.Errorf("wordpress must extract core before fixing permissions: %q", joined)
+	}
+	if strings.Contains(joined, "chmod -R") {
+		t.Errorf("wordpress should no longer recursively chmod the whole webroot: %q", joined)
+	}
+	if e := strings.Join(app.Environment, "\n"); !strings.Contains(e, "HULL_WRITABLE_PATHS=wp-content") {
+		t.Errorf("wordpress missing writable paths: %v", app.Environment)
+	}
+	// Forcing a user here would break the image's root-only install branch.
+	if app.User != "" {
+		t.Errorf("wordpress must not get a user override, got %q", app.User)
+	}
+
+	// Native Linux: Apache runs as the host user so the developer keeps their files.
+	linux := testCtx
+	linux.HostUID, linux.HostGID = "1000", "1000"
+	f, err = Render(wp, linux)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := strings.Join(f.Services["app"].Environment, "\n"); !strings.Contains(e, "APACHE_RUN_USER=#1000") {
+		t.Errorf("wordpress on linux should run apache as the host uid: %v", f.Services["app"].Environment)
+	}
+
+	// The root-running runtimes must NOT be touched: handing their trees to a
+	// non-root uid would break venv creation, npm install and go build caches.
+	for _, tmpl := range []string{"python", "node", "go", "static"} {
+		m, err := manifest.Parse([]byte("schema: 1\nname: x\ntype: site\ntemplate: " + tmpl + "\n"))
+		if err != nil {
+			t.Fatalf("%s parse: %v", tmpl, err)
+		}
+		ff, err := Render(m, testCtx)
+		if err != nil {
+			t.Fatalf("%s render: %v", tmpl, err)
+		}
+		a := ff.Services["app"]
+		if strings.Contains(strings.Join(a.Volumes, "\n"), "hull-fix-perms.sh") ||
+			strings.Contains(strings.Join(a.Environment, "\n"), "HULL_WRITABLE_PATHS") {
+			t.Errorf("%s runs as root and must not get the permission fix", tmpl)
+		}
+	}
+}

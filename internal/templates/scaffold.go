@@ -21,6 +21,9 @@ var opcacheINI string
 //go:embed assets/hull-composer-install.sh
 var composerInstallSH string
 
+//go:embed assets/hull-fix-perms.sh
+var fixPermsSH string
+
 //go:embed assets/hull-login.php
 var adminerLogin string
 
@@ -52,6 +55,7 @@ func EnsureSystemFiles(hullHome string) error {
 		filepath.Join(hullHome, "system", "php", "opcache.ini"):              {opcacheINI, 0o644},
 		filepath.Join(hullHome, "system", "php", "xdebug.ini"):               {xdebugINI, 0o644},
 		filepath.Join(hullHome, "system", "php", "hull-composer-install.sh"): {composerInstallSH, 0o755},
+		filepath.Join(hullHome, "system", "php", "hull-fix-perms.sh"):        {fixPermsSH, 0o755},
 		filepath.Join(hullHome, "system", "adminer", "hull-login.php"):       {adminerLogin, 0o644},
 	}
 	for target, f := range files {

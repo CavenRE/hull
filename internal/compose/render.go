@@ -48,6 +48,12 @@ func applyIDRemap(svc *ServiceDef, ctx Context, def templates.SiteDef) {
 const (
 	caddyNetwork = "caddy"
 	webrootMount = "/var/www/html"
+	// permFixWP is where the wordpress entrypoint wrapper executes Hull's
+	// permission script; permFixSSU is the serversideup entrypoint.d slot, which
+	// that image sources before it starts the web server. "16-" runs just after
+	// Hull's composer install (15-) so vendor exists first.
+	permFixWP  = "/usr/local/bin/hull-fix-perms.sh"
+	permFixSSU = "/etc/entrypoint.d/16-hull-writable.sh"
 )
 
 // ManagedLabel marks every container Hull generates as Hull-owned. The daemon
@@ -205,6 +211,12 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 	if def.SeedsComposer() {
 		svc.Volumes = append(svc.Volumes, composerInstallMount(ctx))
 	}
+	// Re-assert ownership of the paths the web user must write (WordPress
+	// uploads, Laravel storage), on every boot, as root, before the server
+	// serves. Mounted read-only; the path list travels in HULL_WRITABLE_PATHS.
+	if def.NeedsPermFix() {
+		svc.Volumes = append(svc.Volumes, permFixMount(ctx, def))
+	}
 	if def.Command != "" {
 		svc.Command = def.Command
 	}
@@ -225,12 +237,16 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 	}
 
 	if m.Template == "wordpress" {
-		// Best-effort fix for the Windows bind-mount Apache error
-		// "unable to read htaccess file, denying access to be safe": make the
-		// webroot world-readable on boot, then run the image's normal
-		// entrypoint. (Wrapper pattern; chmod is a no-op on mounts that ignore
-		// it, but resolves the denial where it applies.)
-		svc.Entrypoint = []string{"bash", "-c", "chmod -R a+rX /var/www/html 2>/dev/null || true; exec docker-entrypoint.sh \"$@\"", "--"}
+		// Order matters here. docker-ensure-installed.sh is the image's own
+		// install-only entrypoint: it extracts WordPress core and returns. Running
+		// it first means the permission pass sees a populated wp-content instead
+		// of the empty directory that is all that exists on a first boot, which is
+		// why the previous pre-entrypoint step could never have fixed uploads.
+		// Then hand off to the image entrypoint to start Apache. This replaces a
+		// recursive `chmod -R a+rX` of the whole webroot that cost ~7s per boot
+		// over a 9p mount and only ever granted read, never the write bit that
+		// WordPress media uploads need.
+		svc.Entrypoint = []string{"bash", "-c", "docker-ensure-installed.sh; sh " + permFixWP + "; exec docker-entrypoint.sh \"$@\"", "--"}
 		svc.Command = "apache2-foreground"
 	}
 
@@ -247,7 +263,22 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 		svc.User = "0:0"
 	}
 	env := append([]string{}, def.ExtraEnv...)
+	if def.NeedsPermFix() {
+		env = append(env, "HULL_WRITABLE_PATHS="+strings.Join(def.WritablePaths, " "))
+	}
 	if m.Template == "wordpress" {
+		if ctx.HostUID != "" {
+			// Native Linux: run Apache, and therefore PHP, as the host user so the
+			// files WordPress writes stay editable by the developer. This is the
+			// wordpress twin of the serversideup id-remap, which cannot apply here
+			// because the upstream image has no PUID helper. The image accepts the
+			// "#1000" numeric form and Hull's permission script resolves the same
+			// identity, so ownership agrees on every platform.
+			env = append(env,
+				"APACHE_RUN_USER=#"+ctx.HostUID,
+				"APACHE_RUN_GROUP=#"+ctx.HostGID,
+			)
+		}
 		dbKey, db, ok := m.DatabaseService(def.RequiredDB...)
 		if !ok {
 			return nil, fmt.Errorf("template wordpress requires a %s service", strings.Join(def.RequiredDB, " or "))
@@ -399,6 +430,19 @@ func opcacheMount(ctx Context) string {
 func composerInstallMount(ctx Context) string {
 	host := ctx.HullHome + "/system/php/hull-composer-install.sh"
 	return host + ":/etc/entrypoint.d/15-hull-composer-install.sh:ro"
+}
+
+// permFixMount returns the read-only bind mount that drops Hull's permission
+// script into the container. serversideup sources every /etc/entrypoint.d/*.sh
+// before it starts php-fpm, so it lands there; the wordpress image does not use
+// entrypoint.d, so it lands on PATH and the entrypoint wrapper executes it.
+// EnsureSystemFiles writes the host script before any container starts.
+func permFixMount(ctx Context, def templates.SiteDef) string {
+	target := permFixWP
+	if def.ServersideUp() {
+		target = permFixSSU
+	}
+	return ctx.HullHome + "/system/php/hull-fix-perms.sh:" + target + ":ro"
 }
 
 // mountSource normalizes a manifest path field to a compose bind source.

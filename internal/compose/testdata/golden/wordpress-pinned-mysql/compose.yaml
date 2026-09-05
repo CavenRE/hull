@@ -7,10 +7,11 @@ services:
     entrypoint:
       - bash
       - -c
-      - chmod -R a+rX /var/www/html 2>/dev/null || true; exec docker-entrypoint.sh "$@"
+      - docker-ensure-installed.sh; sh /usr/local/bin/hull-fix-perms.sh; exec docker-entrypoint.sh "$@"
       - --
     command: apache2-foreground
     environment:
+      - HULL_WRITABLE_PATHS=wp-content wp-content/uploads wp-content/upgrade
       - WORDPRESS_CONFIG_EXTRA=define('DISABLE_WP_CRON', true);
       - WORDPRESS_DB_HOST=db
       - WORDPRESS_DB_NAME=oldblog
@@ -20,6 +21,7 @@ services:
     volumes:
       - ./:/var/www/html
       - /home/test/.hull/system/php/opcache.ini:/usr/local/etc/php/conf.d/zz-hull-opcache.ini:ro
+      - /home/test/.hull/system/php/hull-fix-perms.sh:/usr/local/bin/hull-fix-perms.sh:ro
     ports:
       - 127.0.0.1::80
     extra_hosts:

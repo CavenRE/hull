@@ -55,6 +55,13 @@ type SiteDef struct {
 	// heavy or platform-specific tree (a Python venv, a build cache) off the slow
 	// bind mount. Compose scopes the volume name to the project.
 	NamedVolumes []NamedVolume
+	// WritablePaths are paths under the mount target that the web server user
+	// must be able to write at runtime (WordPress uploads, Laravel storage).
+	// Hull re-asserts ownership of these on every boot, because anything created
+	// by root inside the container lands unwritable by the non-root web user.
+	// Only meaningful for images whose web process is NOT root: the python, node
+	// and go images run as root and must be left alone.
+	WritablePaths []string
 }
 
 // NamedVolume is a docker named volume a template's app service mounts.
@@ -73,6 +80,9 @@ var sites = map[string]SiteDef{
 		// shadows the host vendor/, and Hull's /etc/entrypoint.d composer-install
 		// script (see SeedsComposer) fills it before PHP-FPM serves.
 		NamedVolumes: []NamedVolume{{Name: "vendor", Path: "/var/www/html/vendor"}},
+		// Laravel writes these on every request (sessions, cache, logs, and the
+		// SQLite file plus its -wal/-shm sidecars).
+		WritablePaths: []string{"storage", "bootstrap/cache", "database"},
 	},
 	"plain": {
 		Key:          "plain",
@@ -90,6 +100,10 @@ var sites = map[string]SiteDef{
 		UpstreamPort: 80,
 		XdebugTarget: "/usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini",
 		RequiredDB:   []string{"mariadb", "mysql"},
+		// wp-content is where WordPress writes at runtime: media uploads, the
+		// upgrade staging dir, plugin/theme installs, and drop-ins. The image
+		// ships no uploads/ dir at all, so whatever creates it first owns it.
+		WritablePaths: []string{"wp-content", "wp-content/uploads", "wp-content/upgrade"},
 	},
 	// Static site: serve files straight from the project directory with nginx.
 	// No runtime, no build, no database; edits are live over the bind mount.
@@ -173,6 +187,12 @@ func (d SiteDef) SeedsComposer() bool {
 	}
 	return false
 }
+
+// NeedsPermFix reports whether Hull should re-assert ownership of this
+// template's WritablePaths on boot. True only for templates whose web process
+// runs as a non-root user (the PHP images); python/node/go run as root, already
+// write the bind mount fine, and would be broken by being handed to uid 33.
+func (d SiteDef) NeedsPermFix() bool { return d.IsPHP() && len(d.WritablePaths) > 0 }
 
 // MountTarget is where the project directory is bind-mounted in the container,
 // defaulting to the PHP webroot.

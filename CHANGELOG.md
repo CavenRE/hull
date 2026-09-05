@@ -7,6 +7,22 @@ All notable changes to Hull are documented here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- **WordPress media uploads work, and file permissions now self-heal on every
+  boot.** A fresh WordPress install could not upload media ("the uploaded file
+  could not be moved to wp-content/uploads/..."). The image ships no
+  `wp-content/uploads`, so whatever creates it first owns it, and anything
+  created by root inside the container lands mode 0755, which the `www-data`
+  the web server runs as cannot write. Hull's only permission step was
+  `chmod -R a+rX`, which grants read and traverse but never write, and it ran
+  *before* the image extracts WordPress, so on a first boot it walked a
+  directory containing nothing but `hull.yaml`. Hull now runs the image's own
+  install step first, re-asserts ownership of the paths the app must write, and
+  only then starts the web server. It is template-driven (a new `WritablePaths`
+  on the template), so Laravel gets the same treatment for `storage`,
+  `bootstrap/cache` and `database` on every boot instead of only at create time,
+  which also covers imported and adopted projects for the first time. The
+  runtimes that run as root (python, node, go) are deliberately left alone,
+  since handing their trees to a non-root user would break them.
 - **`hull new` guarantees the site is actually served, or says it is not.** The
   command boots the app container, but only Hull's daemon (router plus DNS)
   makes `https://<name>.<tld>` reachable. `hull new` did not ensure the daemon
@@ -17,6 +33,12 @@ All notable changes to Hull are documented here. The format follows
   "created. Run `hull start` ..." instead of falsely claiming it is up.
 
 ### Changed
+- **WordPress runs as the host user on native Linux.** Hull now sets
+  `APACHE_RUN_USER`/`APACHE_RUN_GROUP` to the host uid/gid there, the WordPress
+  equivalent of the id-remap Hull already does for serversideup images, so files
+  WordPress writes stay owned by (and editable by) the developer. On Docker
+  Desktop the stored Unix ownership does not restrict host editing, so the web
+  user keeps ownership there instead.
 - **`hull new laravel` and `hull new wordpress` guide setup with recommended
   defaults preselected.** Run without infra flags in a terminal, they ask a
   couple of quick questions (database, then Redis) with the recommended choice
@@ -27,6 +49,11 @@ All notable changes to Hull are documented here. The format follows
   MariaDB). Other templates keep the `-i` multi-select.
 
 ### Performance
+- **WordPress boots roughly 7 seconds faster.** The permission step above
+  replaces a recursive `chmod -R a+rX` of the entire webroot that ran on every
+  single boot. Measured on a real project (4,324 entries) over a Docker Desktop
+  9p mount: 6,737 ms before, a few milliseconds now, because Hull stats only the
+  declared paths and walks a tree only when its owner is actually wrong.
 - **Faster Laravel on Windows and macOS: vendor/ off the bind mount (CR-3).**
   Composer's `vendor/` (thousands of files that PHP stats and autoloads on every
   request) now lives on a Docker named volume instead of the slow 9p/virtiofs
