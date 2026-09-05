@@ -44,16 +44,27 @@ hull_fix_perms() {
 		if [ ! -e "$p" ]; then
 			mkdir -p "$p" 2>/dev/null || continue
 		fi
-		# Only walk the tree when the owner is actually wrong. On a healthy boot
-		# this is a single stat per path and nothing else.
+		# Test WRITABILITY, not ownership, and only walk the tree when the answer
+		# is no. This matters: a directory created from Windows is root-owned but
+		# mode 777, so it is already writable and must NOT trigger a recursive
+		# chown of, say, a whole wp-content full of plugins. On a healthy boot
+		# this is one stat per path and nothing else.
 		have="$(stat -c '%u' "$p" 2>/dev/null)"
-		if [ "$have" != "$want" ]; then
-			echo "hull: fixing ownership of $p (was uid ${have:-unknown}, want $user)"
-			chown -R "$user:$group" "$p" 2>/dev/null || chown -R "$want" "$p" 2>/dev/null
+		mode="$(stat -c '%a' "$p" 2>/dev/null)"
+		mode="${mode#"${mode%???}"}" # last three digits (drop any setuid digit)
+		umode="${mode%??}"           # owner digit
+		omode="${mode#??}"           # other digit
+		writable=0
+		if [ "$have" = "$want" ]; then
+			case "$umode" in 2 | 3 | 6 | 7) writable=1 ;; esac
 		fi
-		# Cheap and non-recursive: guarantees the owner can traverse and write
-		# even if the mode was restrictive.
-		chmod u+rwX "$p" 2>/dev/null
+		case "$omode" in 2 | 3 | 6 | 7) writable=1 ;; esac
+
+		if [ "$writable" = 0 ]; then
+			echo "hull: fixing ownership of $p (was uid ${have:-unknown} mode ${mode:-unknown}, want $user)"
+			chown -R "$user:$group" "$p" 2>/dev/null || chown -R "$want" "$p" 2>/dev/null
+			chmod u+rwX "$p" 2>/dev/null
+		fi
 	done
 	return 0
 }

@@ -50,17 +50,27 @@ func EnsureSystemFiles(hullHome string) error {
 	type sysFile struct {
 		content string
 		mode    os.FileMode
+		// managed marks a file as Hull-owned implementation rather than user
+		// configuration. Managed files are refreshed when Hull ships a new
+		// version of them; without this a bug fix in one of these scripts could
+		// never reach a machine that already has the old copy. The ini files are
+		// deliberately NOT managed: they are documented as user-tunable.
+		managed bool
 	}
 	files := map[string]sysFile{
-		filepath.Join(hullHome, "system", "php", "opcache.ini"):              {opcacheINI, 0o644},
-		filepath.Join(hullHome, "system", "php", "xdebug.ini"):               {xdebugINI, 0o644},
-		filepath.Join(hullHome, "system", "php", "hull-composer-install.sh"): {composerInstallSH, 0o755},
-		filepath.Join(hullHome, "system", "php", "hull-fix-perms.sh"):        {fixPermsSH, 0o755},
-		filepath.Join(hullHome, "system", "adminer", "hull-login.php"):       {adminerLogin, 0o644},
+		filepath.Join(hullHome, "system", "php", "opcache.ini"):              {opcacheINI, 0o644, false},
+		filepath.Join(hullHome, "system", "php", "xdebug.ini"):               {xdebugINI, 0o644, false},
+		filepath.Join(hullHome, "system", "php", "hull-composer-install.sh"): {composerInstallSH, 0o755, true},
+		filepath.Join(hullHome, "system", "php", "hull-fix-perms.sh"):        {fixPermsSH, 0o755, true},
+		filepath.Join(hullHome, "system", "adminer", "hull-login.php"):       {adminerLogin, 0o644, false},
 	}
 	for target, f := range files {
-		if _, err := os.Stat(target); err == nil {
-			continue
+		if existing, err := os.ReadFile(target); err == nil {
+			// Present already: leave user config alone, and rewrite a managed
+			// file only when Hull's shipped copy actually differs.
+			if !f.managed || string(existing) == f.content {
+				continue
+			}
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return err

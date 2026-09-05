@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -114,5 +115,51 @@ func TestRedisInsightViewerEngine(t *testing.T) {
 	// Clean instance name (no version pinned in the name) like other tools.
 	if got := InstanceName("redisinsight", ""); got != "redisinsight" {
 		t.Errorf("InstanceName = %q, want redisinsight", got)
+	}
+}
+
+// TestEnsureSystemFilesRefreshesManagedScripts locks in the delivery rule:
+// Hull-owned scripts are implementation and must be refreshed when Hull ships a
+// new version (otherwise a bug fix in one can never reach a machine that
+// already has the old copy), while the ini files are documented as user-tunable
+// and must never be clobbered.
+func TestEnsureSystemFilesRefreshesManagedScripts(t *testing.T) {
+	home := t.TempDir()
+	if err := EnsureSystemFiles(home); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(home, "system", "php", "hull-fix-perms.sh")
+	ini := filepath.Join(home, "system", "php", "opcache.ini")
+
+	// Simulate an older Hull's copy of the script, and a user-tuned ini.
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n# stale\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const tuned = "; my own settings\nopcache.enable=0\n"
+	if err := os.WriteFile(ini, []byte(tuned), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := EnsureSystemFiles(home); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) == "#!/bin/sh\n# stale\n" {
+		t.Error("managed script was not refreshed; a fix to it could never reach existing installs")
+	}
+	if !strings.Contains(string(got), "HULL_WRITABLE_PATHS") {
+		t.Errorf("refreshed script does not look like the shipped one: %q", string(got[:min(len(got), 80)]))
+	}
+
+	kept, err := os.ReadFile(ini)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(kept) != tuned {
+		t.Error("user-tuned opcache.ini was overwritten; it must be left alone")
 	}
 }
