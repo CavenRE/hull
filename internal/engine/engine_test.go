@@ -386,3 +386,41 @@ func TestUpRegeneratesCompose(t *testing.T) {
 		t.Errorf("commands run = %v", ran)
 	}
 }
+
+// TestNewProjectRejectsDuplicateName guards a real footgun: the compose project
+// name IS the Hull project name, so a second project sharing a name fights over
+// the same containers. Creating it either re-points the first project's
+// containers at the new directory, or (when compose considers them current)
+// leaves the new directory unpopulated while the old project keeps serving.
+// Note this is a DIFFERENT directory, so the existing already-exists check on
+// the target path cannot catch it.
+func TestNewProjectRejectsDuplicateName(t *testing.T) {
+	e, root := testEngine(t)
+	// An existing project called "dupe" living under a differently-named folder.
+	other := filepath.Join(root, "some-other-folder")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifestYAML := "schema: 1\nname: dupe\ntype: site\ntemplate: plain\n"
+	if err := os.WriteFile(filepath.Join(other, "hull.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := e.NewProject(context.Background(), NewOptions{
+		Name: "dupe", Template: "plain", SkipScaffold: true, SkipStart: true,
+	})
+	if err == nil {
+		t.Fatal("expected a duplicate-name refusal, got nil")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("error should name the collision, got: %v", err)
+	}
+	// It must name WHERE the other project lives, or the message is unactionable.
+	if !strings.Contains(err.Error(), "some-other-folder") {
+		t.Errorf("error should point at the conflicting directory, got: %v", err)
+	}
+	// And it must not have created the new directory.
+	if _, statErr := os.Stat(filepath.Join(root, "dupe")); statErr == nil {
+		t.Error("refused creation still made the project directory")
+	}
+}

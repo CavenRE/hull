@@ -167,6 +167,27 @@ func (e *Engine) NewProject(ctx context.Context, opts NewOptions) (string, error
 		}
 		root = e.Config.Roots[0]
 	}
+	// The compose project name IS the Hull project name, so two projects sharing
+	// a name fight over the same containers. Creating a second one silently
+	// re-points the first one's containers at the new directory; and when compose
+	// considers those containers already current it does not recreate them at
+	// all, so the new directory is never populated (a WordPress project stays an
+	// empty folder while the old one keeps serving). Refuse up front rather than
+	// producing either outcome.
+	if existing, ferr := state.Find(e.Config.Roots, opts.Name, e.Config.Projects...); ferr == nil && existing != nil {
+		return "", fmt.Errorf("a project named %q already exists at %s; pick a different name, or remove that one first", opts.Name, existing.Dir)
+	}
+	// Same collision with the other project's directory already gone while its
+	// containers are still up: compose would adopt them and never populate this
+	// directory. Best-effort, so a docker hiccup never blocks creating a project.
+	if running, rerr := dockerx.RunningComposeProjects(ctx); rerr == nil {
+		for _, name := range running {
+			if name == opts.Name {
+				return "", fmt.Errorf("containers named %q are already running from another project; stop them first (docker compose -p %s down) or pick a different name", opts.Name, opts.Name)
+			}
+		}
+	}
+
 	dir := filepath.Join(root, opts.Name)
 	if _, err := os.Stat(dir); err == nil {
 		return "", fmt.Errorf("target directory %s already exists", dir)
