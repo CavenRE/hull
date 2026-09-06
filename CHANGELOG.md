@@ -14,9 +14,9 @@ All notable changes to Hull are documented here. The format follows
   the Hull project name, so two projects called the same thing fight over the
   same containers. Creating the second one either re-pointed the first
   project's containers at the new directory (silently breaking the original), or
-  , when Docker Compose considered the running containers already current , did
-  not recreate them at all: the new directory was then never populated while the
-  old project kept serving. That is why `hull new <name> wordpress` could leave
+  else left them alone entirely when Docker Compose considered the running
+  containers already current, in which case the new directory was never
+  populated while the old project kept serving. That is why `hull new <name> wordpress` could leave
   a folder containing nothing but `hull.yaml` and `compose.yaml`, with no
   WordPress files at all. Hull now checks both for an existing project of that
   name (reporting where it lives) and for containers already running under it,
