@@ -724,3 +724,69 @@ func TestDedicatedServicesStayOffSharedNetwork(t *testing.T) {
 		}
 	}
 }
+
+// TestProjectPHPIniMount covers the per-project PHP config: a project can drop
+// .hull/php.ini and have it applied without touching the machine-wide file.
+// It must only be mounted when it exists, because a missing bind source makes
+// Docker create a DIRECTORY at the target, which PHP would then trip over in
+// its conf.d scan.
+func TestProjectPHPIniMount(t *testing.T) {
+	m, err := manifest.Parse([]byte("schema: 1\nname: app\ntype: site\ntemplate: plain\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// No ProjectDir (a pure render, as in the goldens): never mounted.
+	f, err := Render(m, testCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.Join(f.Services["app"].Volumes, "\n"), "php.ini") {
+		t.Errorf("pure render must not look at the filesystem: %v", f.Services["app"].Volumes)
+	}
+
+	// ProjectDir set but no file: still not mounted.
+	dir := t.TempDir()
+	ctx := testCtx
+	ctx.ProjectDir = dir
+	f, err = Render(m, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.Join(f.Services["app"].Volumes, "\n"), "php.ini") {
+		t.Errorf("absent .hull/php.ini must not be mounted: %v", f.Services["app"].Volumes)
+	}
+
+	// File present: mounted, read-only, and after Hull's own ini so it wins.
+	if err := os.MkdirAll(filepath.Join(dir, ".hull"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".hull", "php.ini"), []byte("memory_limit=512M\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err = Render(m, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vols := strings.Join(f.Services["app"].Volumes, "\n")
+	const want = "./.hull/php.ini:/usr/local/etc/php/conf.d/zzz-hull-project.ini:ro"
+	if !strings.Contains(vols, want) {
+		t.Errorf("expected %q in volumes, got %v", want, f.Services["app"].Volumes)
+	}
+	if strings.Index(vols, "zzz-hull-project.ini") < strings.Index(vols, "zz-hull-opcache.ini") {
+		t.Error("project ini must sort after Hull's own ini so the project wins")
+	}
+
+	// Non-PHP runtimes never get it.
+	st, err := manifest.Parse([]byte("schema: 1\nname: s\ntype: site\ntemplate: static\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs, err := Render(st, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.Join(fs.Services["app"].Volumes, "\n"), "php.ini") {
+		t.Errorf("static must not get a php.ini: %v", fs.Services["app"].Volumes)
+	}
+}

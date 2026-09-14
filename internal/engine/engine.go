@@ -332,7 +332,12 @@ func ignoreCompose(dir string) {
 
 // Render regenerates compose.yaml from the manifest.
 func (e *Engine) Render(m *manifest.Manifest, dir string) error {
-	f, err := compose.Render(m, e.ComposeContext())
+	ctx := e.ComposeContext()
+	// Let the renderer see the project directory so it can pick up an optional
+	// per-project php.ini. Only set here, so a pure render (tests, goldens)
+	// stays independent of the filesystem.
+	ctx.ProjectDir = dir
+	f, err := compose.Render(m, ctx)
 	if err != nil {
 		return err
 	}

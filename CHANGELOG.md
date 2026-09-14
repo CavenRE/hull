@@ -6,6 +6,17 @@ All notable changes to Hull are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Per-project PHP settings.** Drop a `.hull/php.ini` in a project and Hull
+  mounts it into the container's PHP scan directory, loaded after Hull's own
+  tuning so your values win. Previously the only options were a `.htaccess`
+  `php_value` (which silently does nothing on the PHP-FPM images) or editing the
+  machine-wide `~/.hull/system/php/opcache.ini`, which applies to every project.
+  Typical use is `upload_max_filesize`, `post_max_size`, and `memory_limit`. The
+  file lives with the project, so it is committable and survives `hull render`.
+  It is mounted only when it exists, since a missing bind source would make
+  Docker create a directory where PHP expects a file.
+
 ### Fixed
 - **Projects no longer connect to each other's database.** Docker Compose adds a
   service's name as an alias on *every* network it joins, and Hull put each

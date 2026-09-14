@@ -2,7 +2,9 @@ package compose
 
 import (
 	"fmt"
+	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -25,6 +27,31 @@ type Context struct {
 	// empty on macOS/Windows, where Docker Desktop remaps ownership.
 	HostUID string
 	HostGID string
+	// ProjectDir is the project directory on the host. Set only by the engine
+	// when writing a real compose file; it lets the renderer notice an optional
+	// per-project php.ini. Left empty by pure renders (tests and goldens), which
+	// keeps Render independent of the filesystem.
+	ProjectDir string
+}
+
+// projectPHPIni is the conventional per-project PHP config. It lives with the
+// project (so it is committable and survives `hull render`) and is mounted last
+// in the scan directory, so it overrides Hull's own tuning. Hull only mounts it
+// when it exists: a missing bind source would make Docker create a directory at
+// the target, which PHP would then trip over.
+const projectPHPIni = ".hull/php.ini"
+
+// projectPHPIniMount returns the read-only mount for a project's own php.ini,
+// or "" when the project has none. "zzz-" sorts after Hull's own "zz-" files so
+// the project's settings win.
+func projectPHPIniMount(ctx Context) string {
+	if ctx.ProjectDir == "" {
+		return ""
+	}
+	if _, err := os.Stat(filepath.Join(ctx.ProjectDir, ".hull", "php.ini")); err != nil {
+		return ""
+	}
+	return "./" + projectPHPIni + ":" + templates.PHPConfDir + "/zzz-hull-project.ini:ro"
 }
 
 // applyIDRemap makes a serversideup/php container write host-owned bind mounts
@@ -215,6 +242,11 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 	// the template's own image command.
 	if def.IsPHP() {
 		svc.Volumes = append(svc.Volumes, opcacheMount(ctx))
+		// A project can drop its own settings in .hull/php.ini (upload limits,
+		// memory, opcache tuning) without touching the machine-wide file.
+		if mount := projectPHPIniMount(ctx); mount != "" {
+			svc.Volumes = append(svc.Volumes, mount)
+		}
 	}
 	// A template whose vendor/ lives on a named volume needs that empty volume
 	// filled before PHP-FPM serves; mount Hull's composer-install script into the
