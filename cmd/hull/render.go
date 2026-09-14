@@ -49,7 +49,7 @@ func init() {
 			if err != nil {
 				return err
 			}
-			f, err := compose.Render(m, a.Engine.ComposeContext())
+			f, err := compose.Render(m, a.Engine.ComposeContextFor(dir))
 			if err != nil {
 				return err
 			}

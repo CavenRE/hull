@@ -794,6 +794,18 @@ components:
         name: { type: string }
         status: { type: string, enum: [ok, warn, fail] }
         detail: { type: string }
+        fix:
+          type: string
+          description: >-
+            What `hull doctor --fix` would do about this check. Absent when Hull
+            cannot fix it automatically.
+        commands:
+          type: array
+          items: { type: string }
+          description: >-
+            Ready-to-run commands for something Hull will not do itself, such as
+            an antivirus exclusion that needs an elevated shell. Present these
+            for the user to run; never run them on their behalf.
     SetupStepResult:
       type: object
       required: [done]

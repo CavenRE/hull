@@ -117,12 +117,15 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 		restart = append(restart, "router")
 	}
 
-	// Preserve file-only Services settings (aliases, autostart, auto_adminer)
-	// that this API does not manage: reload them from disk so a config PUT
-	// never clobbers a value the CLI wrote to the file after this daemon
-	// started (this daemon never mutates Services in memory).
+	// Preserve the file-only settings this API does not manage (the Services
+	// block: aliases, autostart, auto_adminer; and auto_reload) by reloading
+	// them from disk, so a config PUT never clobbers a value the CLI wrote to
+	// the file after this daemon started. This daemon never mutates either in
+	// memory, and `hull doctor --fix` writes auto_reload directly, so without
+	// this a later PUT would quietly undo that fix.
 	if onDisk, err := config.Load(s.Config.HullHome); err == nil {
 		s.Config.Services = onDisk.Services
+		s.Config.AutoReload = onDisk.AutoReload
 	}
 	if err := s.Config.Save(); err != nil {
 		writeError(w, http.StatusInternalServerError, err)

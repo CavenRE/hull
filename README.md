@@ -201,6 +201,8 @@ Run `hull <command> --help` for full flags on any command, `hull help routing` f
 | `hull down [name...]` | Stop projects (data preserved). |
 | `hull restart [name]` | Restart a project's containers. |
 | `hull reload [name]` | Clear a PHP project's opcode cache in place (a second, against the many a restart costs). Usually automatic, see "Watched reload". |
+| `hull move <name> --to-wsl` | Move a project into the WSL2 filesystem, where a container reads it at native speed. Windows only. |
+| `hull url [name]` | Print a project's URL for scripting. `--direct` gives the container's own `127.0.0.1` address, bypassing the router. |
 | `hull rebuild [name]` | Rebuild images and bring the project back up (`--no-cache`). |
 | `hull reset [name]` | Wipe the project's data volumes and start fresh. |
 | `hull repair [name]` | Recreate a project from a clean slate to fix a wedged or detached state (keeps data). |
@@ -346,10 +348,15 @@ services:
 
 **Windows , performance.** Docker Desktop runs Linux in a WSL2 VM, so bind-mounting project files that live on the Windows filesystem (for example `C:\Users\you\Work\Sites`) is slow: every PHP request reads hundreds of files across the VM boundary, which is why pages can take seconds to load. Two fixes, biggest first:
 
-1. **Keep your sites in the WSL2 Linux filesystem.** Run Hull inside your WSL distro with roots under the Linux home, or store projects under `\\wsl$\<distro>\...`. Native-VM files are commonly 10x to 50x faster for this workload.
-2. **Exclude the sites folder and Docker's data from Windows Defender.** Real-time scanning of every file read compounds the cost. Add exclusions for your sites directory and Docker Desktop's data (its `ext4.vhdx`).
+1. **Move your projects into the WSL2 Linux filesystem, with `hull move <name> --to-wsl`.** This is not a marginal gain. Measured on a 1,059 file WordPress tree, a container reads it in 4,450 ms from `W:\` and **10 ms** from a WSL distro, which is as fast as the container's own disk (20 ms). A stock WordPress page went from 1,010 ms to **50 ms**.
 
-`hull doctor` warns when a project root is on the Windows filesystem, and `hull new` says so the moment you create a project there. Hull also enables and tunes PHP OPcache for every PHP container (Laravel, WordPress, and plain sites, plus custom `app` images that set `php_tune: true`) so repeated requests skip recompilation, and new WordPress sites disable page-load wp-cron to speed up the dashboard.
+   Hull still runs on Windows and still serves the same `https://<name>.test` address; only the files move. Your editor opens the new path normally (VS Code and the JetBrains IDEs handle `\\wsl.localhost\...` directly, and it appears in Explorer under Linux). Docker identifies containers and volumes by project name rather than folder, so databases and data volumes come through untouched, and the old folder is renamed aside rather than deleted.
+
+   Two things to know. First, this needs Docker Desktop's WSL integration switched on for the distro (Settings > Resources > WSL Integration); `hull doctor` tells you whether it is, and `hull move` refuses rather than half-working if it is not. Second, files in a distro carry real Unix ownership, unlike a Windows bind mount, so Hull passes the distro user's identity into the container. That is what keeps the site able to write its own uploads and caches while every file stays editable from your editor. Worth checking, too, that whatever backs up your Windows drive still covers the new location.
+
+2. **Exclude the sites folder and Docker's data from Windows Defender.** Real-time scanning of every file read compounds the cost, and is the usual explanation for a page that normally takes 7 seconds occasionally taking 16. `hull doctor` prints the exact `Add-MpPreference` commands for your machine, including where Docker keeps its disk images; run them in an elevated PowerShell. Hull will not change your security settings for you.
+
+`hull doctor` warns when a project root is on the Windows filesystem, measures what a file operation actually costs there, and `hull new` says so the moment you create a project in one. Hull also enables and tunes PHP OPcache for every PHP container (Laravel, WordPress, and plain sites, plus custom `app` images that set `php_tune: true`) so repeated requests skip recompilation, and new WordPress sites disable page-load wp-cron to speed up the dashboard.
 
 **Watched reload.** On a Windows drive Hull goes one step further: PHP stops checking the modification time of every cached file on every request, which is the largest remaining per-request cost there (a WordPress page went from a mean of 1483 ms to a steady 985 ms in testing). That is only safe because the daemon watches the project from the host and clears the opcode cache when you save, so an edit still appears on the next refresh, typically well under a second later. It applies only to PHP projects on a Windows drive, ignores `vendor`, `node_modules`, `.git` and build output, and debounces a burst of saves into one reload. Your project's own `.hull/php.ini` still loads last if you want the check back for one project. To turn the whole thing off, for example if you run your own watcher:
 

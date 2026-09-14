@@ -23,10 +23,47 @@
 # calls exit. HULL_WRITABLE_PATHS is a space-separated list set by the renderer.
 set +e
 
+# hull_name_uid gives a numeric run user a name inside the container.
+#
+# Apache refuses to drop privileges to a uid it cannot look up: with
+# "User #1000" and no matching passwd entry it logs AH02155 ("getpwuid: couldn't
+# determine user name from uid 1000") and leaves every worker running as root.
+# The failure is quiet in the sense that pages still serve; what breaks is
+# ownership, because everything the site then writes belongs to root and the
+# developer's own editor cannot touch it afterwards.
+#
+# This matters for a project living in a WSL distribution, where the files carry
+# the distro user's real uid rather than the fiction a Windows bind mount
+# presents. Repointing www-data at that uid is the smallest fix: the name the
+# image already uses everywhere keeps working, and it now means the person who
+# owns the files.
+hull_name_uid() {
+	uid="$1"
+	gid="$2"
+	case "$uid" in '' | *[!0-9]*) return 0 ;; esac
+	grep -q "^[^:]*:[^:]*:${uid}:" /etc/passwd 2>/dev/null && return 0
+	[ -w /etc/passwd ] || return 0
+
+	echo "hull: giving uid $uid a name so the web server can run as it"
+	case "$gid" in
+	'' | *[!0-9]*) gid="" ;;
+	*)
+		if ! grep -q "^[^:]*:[^:]*:${gid}:" /etc/group 2>/dev/null; then
+			sed -i "s/^www-data:\([^:]*\):[0-9]*:/www-data:\1:${gid}:/" /etc/group 2>/dev/null
+		fi
+		;;
+	esac
+	if [ -n "$gid" ]; then
+		sed -i "s/^www-data:\([^:]*\):[0-9]*:[0-9]*:/www-data:\1:${uid}:${gid}:/" /etc/passwd 2>/dev/null
+	else
+		sed -i "s/^www-data:\([^:]*\):[0-9]*:/www-data:\1:${uid}:/" /etc/passwd 2>/dev/null
+	fi
+	return 0
+}
+
 hull_fix_perms() {
 	dir="${HULL_APP_DIR:-/var/www/html}"
 	[ -d "$dir" ] || return 0
-	[ -n "${HULL_WRITABLE_PATHS:-}" ] || return 0
 
 	# Same resolution the wordpress image uses, including the "#1000" numeric
 	# form Apache accepts. Falls back to www-data, which is correct for the PHP
@@ -36,6 +73,12 @@ hull_fix_perms() {
 	user="${user#\#}"
 	group="${group#\#}"
 
+	# Do this before anything else and regardless of the writable-path list: a
+	# server that cannot become the run user is a worse problem than a directory
+	# with the wrong mode, and it is invisible until someone tries to edit a file.
+	hull_name_uid "$user" "$group"
+
+	[ -n "${HULL_WRITABLE_PATHS:-}" ] || return 0
 	want="$(id -u "$user" 2>/dev/null)" || want=""
 	[ -n "$want" ] || want="$user"
 

@@ -8,6 +8,7 @@ import (
 	"github.com/CavenRE/hull/internal/config"
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/engine"
+	"github.com/CavenRE/hull/internal/platform"
 	"github.com/CavenRE/hull/internal/state"
 	"github.com/CavenRE/hull/internal/watch"
 )
@@ -27,18 +28,23 @@ var autoReloadInterval = 10 * time.Second
 // the host, where filesystem events are immediate, gives both: the speed of not
 // revalidating, and edits showing up on the next refresh.
 //
-// Only PHP projects are watched, because only they have an opcode cache worth
-// clearing; the other runtimes either reload themselves or cache nothing.
+// Only PHP projects on a slow Windows mount are watched, because that is exactly
+// the set Hull stops revalidating for. Other runtimes have no opcode cache worth
+// clearing, and a project inside WSL is fast enough to revalidate normally (and
+// cannot be watched from Windows anyway, since a UNC path reports no events).
 type autoReloader struct {
 	cfg    *config.Config
 	eng    *engine.Engine
 	logf   func(string, ...any)
 	mu     sync.Mutex
 	active map[string]*watch.Watcher // project name -> watcher
+	// failed remembers projects whose watch could not be started, so a permanent
+	// failure is reported once rather than on every reconcile.
+	failed map[string]bool
 }
 
 func newAutoReloader(cfg *config.Config, eng *engine.Engine, logf func(string, ...any)) *autoReloader {
-	return &autoReloader{cfg: cfg, eng: eng, logf: logf, active: map[string]*watch.Watcher{}}
+	return &autoReloader{cfg: cfg, eng: eng, logf: logf, active: map[string]*watch.Watcher{}, failed: map[string]bool{}}
 }
 
 // run reconciles until ctx is cancelled, then drops every watcher.
@@ -76,7 +82,12 @@ func (a *autoReloader) reconcile(ctx context.Context) {
 	want := map[string]*state.Project{}
 	for i := range projects {
 		p := &projects[i]
-		if up[p.Name] && engine.IsPHPProject(p) {
+		// Watch only what the watcher exists for. It is the half that makes it
+		// safe to stop PHP revalidating files, and Hull only stops that on a
+		// project whose files are on a slow Windows mount. A project inside WSL
+		// is fast enough to revalidate normally, so watching it would buy
+		// nothing, and it cannot be watched from here anyway.
+		if up[p.Name] && engine.IsPHPProject(p) && platform.OnWindowsFilesystem(p.Dir) {
 			want[p.Name] = p
 		}
 	}
@@ -96,9 +107,15 @@ func (a *autoReloader) reconcile(ctx context.Context) {
 		project := *p // captured by the callback, which outlives this loop
 		w, err := watch.New(project.Dir, func() { a.reload(&project) })
 		if err != nil {
-			a.logf("auto-reload: cannot watch %s: %v", name, err)
+			// Reconcile runs every few seconds, so a permanent failure would
+			// otherwise fill the log forever. Say it once.
+			if !a.failed[name] {
+				a.failed[name] = true
+				a.logf("auto-reload: cannot watch %s: %v", name, err)
+			}
 			continue
 		}
+		delete(a.failed, name)
 		a.active[name] = w
 		a.logf("auto-reload: watching %s (%s)", name, project.Dir)
 	}

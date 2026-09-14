@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -56,6 +57,12 @@ func init() {
 				},
 			); err != nil {
 				return err
+			}
+			// A project registered individually (imported in place, or moved
+			// into WSL) leaves an entry behind pointing at a folder that is now
+			// gone. Harmless but untidy, and it accumulates.
+			if err := a.deregisterProject(cmd.Context(), p.Dir); err != nil {
+				fmt.Fprintf(os.Stderr, "hull: %s is gone but its entry could not be removed from the project list: %v\n", p.Name, err)
 			}
 			fmt.Printf("✔ Project %q removed.\n", p.Name)
 			return nil

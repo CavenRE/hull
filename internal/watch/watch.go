@@ -17,6 +17,7 @@
 package watch
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -94,6 +95,15 @@ func New(dir string, onChange func()) (*Watcher, error) {
 	}
 	w := &Watcher{dir: dir, onChange: onChange, fsw: fsw, stop: make(chan struct{})}
 	w.addTree(dir)
+	// A watcher covering nothing is worse than no watcher: it reports success and
+	// then never fires, so an edit silently fails to appear and the reason is
+	// invisible. Some filesystems simply cannot be watched from here (a WSL
+	// distro reached over UNC answers ReadDirectoryChanges with "Incorrect
+	// function"), and the caller has to be told rather than reassured.
+	if w.dirs == 0 {
+		_ = fsw.Close()
+		return nil, fmt.Errorf("cannot watch %s: the filesystem does not report changes to this process", dir)
+	}
 	go w.run()
 	return w, nil
 }

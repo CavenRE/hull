@@ -38,6 +38,11 @@ type Engine struct {
 	// label , the stop-all safety sweep. Injectable for tests; defaults to
 	// dockerx.RunningHullProjects.
 	RunningHull func(ctx context.Context) ([]string, error)
+	// LongRunning marks an engine owned by the daemon rather than by a one-shot
+	// CLI process. Background work is only safe to detach when something outlives
+	// the call: a goroutine started by a command that is about to return is killed
+	// with the process, having done nothing.
+	LongRunning bool
 }
 
 func New(cfg *config.Config) *Engine {
@@ -248,6 +253,9 @@ func (e *Engine) NewProject(ctx context.Context, opts NewOptions) (string, error
 		if _, _, hasDB := m.DatabaseService(); hasDB {
 			_ = e.EnsureAdminer(ctx)
 		}
+		// A brand new project is the coldest a project ever is, and creation is
+		// exactly when the user is about to click the URL Hull just printed.
+		e.warmDetached(p)
 	}
 	return dir, nil
 }
@@ -331,17 +339,28 @@ func ignoreCompose(dir string) {
 	_ = os.WriteFile(path, []byte(body), 0o644)
 }
 
-// Render regenerates compose.yaml from the manifest.
-func (e *Engine) Render(m *manifest.Manifest, dir string) error {
+// ComposeContextFor returns the render context for a project living in dir:
+// the machine settings from ComposeContext, plus everything that depends on
+// where the project actually is.
+//
+// Every caller that renders a real project on disk must use this rather than
+// ComposeContext, or it silently produces a different compose file: no
+// per-project php.ini mount, no watched-reload ini, and on a WSL project no
+// host identity, which leaves the site unable to write its own files. Pure
+// renders (tests, goldens, --stdout of a hypothetical project) keep using
+// ComposeContext, which is what makes them independent of the filesystem.
+func (e *Engine) ComposeContextFor(dir string) compose.Context {
 	ctx := e.ComposeContext()
-	// Let the renderer see the project directory so it can pick up an optional
-	// per-project php.ini, and tell it whether this project is one the daemon
-	// can keep fresh without PHP revalidating every file. Only set here, so a
-	// pure render (tests, goldens) stays independent of the filesystem.
 	ctx.ProjectDir = dir
 	ctx.SlowMount = platform.OnWindowsFilesystem(dir)
 	ctx.WatchedReload = e.Config.AutoReloadEnabled()
-	f, err := compose.Render(m, ctx)
+	applyWSLIdentity(&ctx, dir)
+	return ctx
+}
+
+// Render regenerates compose.yaml from the manifest.
+func (e *Engine) Render(m *manifest.Manifest, dir string) error {
+	f, err := compose.Render(m, e.ComposeContextFor(dir))
 	if err != nil {
 		return err
 	}
@@ -384,7 +403,12 @@ func (e *Engine) Up(ctx context.Context, p *state.Project) error {
 			e.syncAdminerNetworks(ctx)
 		}
 	}
-	return e.runHooks(ctx, p, "post_up", true)
+	err := e.runHooks(ctx, p, "post_up", true)
+	// Pay the first-request compile bill now, in the background, so the user's
+	// first click does not. Detached on purpose: the daemon passes its request
+	// context in here, and a warm-up must not delay that response or die with it.
+	e.warmDetached(p)
+	return err
 }
 
 // renderForUp prepares a non-cluster project to start: self-heal system files,
@@ -732,6 +756,10 @@ func (e *Engine) upNoHooks(ctx context.Context, p *state.Project) error {
 		}
 	}
 	e.recordStarted(p)
+	// This is the path a daemon resume at login takes, and it was the worst
+	// offender: nothing here ever touched the site, so the first visitor after a
+	// reboot got the full cold compile.
+	e.warmDetached(p)
 	return nil
 }
 

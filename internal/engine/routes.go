@@ -10,7 +10,6 @@ import (
 	"github.com/CavenRE/hull/internal/manifest"
 	"github.com/CavenRE/hull/internal/router"
 	"github.com/CavenRE/hull/internal/state"
-	"github.com/CavenRE/hull/internal/templates"
 )
 
 // PortLookup resolves the host port docker assigned to a published container
@@ -41,46 +40,8 @@ func ComputeRoutes(ctx context.Context, projects []state.Project, tld string, ru
 		if p.Manifest == nil || !running[p.Name] {
 			continue
 		}
-		m := p.Manifest
-		switch m.Type {
-		case "cluster":
-			// The host router only owns a cluster's vhosts in ingress: hull
-			// mode. none = the cluster serves itself; delegate = the in-cluster
-			// ingress container serves it (a separate loopback).
-			if m.Ingress != manifest.IngressHull {
-				continue
-			}
-			suffix := m.ClusterSuffix(tld)
-			for _, key := range m.RouteKeys() {
-				rt := m.Routes[key]
-				if !rt.Served() {
-					continue
-				}
-				reqs = append(reqs, portReq{domains: rt.Hosts(suffix), p: p, service: rt.Service, cport: rt.Port})
-			}
-		case "app":
-			for _, key := range m.ContainerKeys() {
-				c := m.Containers[key]
-				if c.Domain == "" || !c.Served() {
-					continue
-				}
-				upstream := c.Port
-				if c.Template != "" {
-					if def, ok := templates.Site(c.Template); ok && upstream == 0 {
-						upstream = def.UpstreamPort
-					}
-				}
-				reqs = append(reqs, portReq{domains: []string{c.Domain + "." + tld}, p: p, service: key, cport: upstream})
-			}
-		default: // site
-			if !m.Served() {
-				continue
-			}
-			def, ok := templates.Site(m.Template)
-			if !ok {
-				continue
-			}
-			reqs = append(reqs, portReq{domains: []string{m.Domain + "." + tld}, p: p, service: "app", cport: def.UpstreamPort})
+		for _, ep := range Endpoints(p.Manifest, tld) {
+			reqs = append(reqs, portReq{domains: ep.Hosts, p: p, service: ep.Service, cport: ep.Port})
 		}
 	}
 
@@ -177,8 +138,15 @@ func (e *Engine) Routes(ctx context.Context) []router.Route {
 	}
 	// Resolve each project's published port through the SAME compose driver
 	// (pinned -p/-f/--env-file) that Up used , see PortLookup / Compose.Port.
-	ports := func(ctx context.Context, p *state.Project, service string, containerPort int) (int, error) {
-		return e.composeFor(p).Port(ctx, service, containerPort)
-	}
-	return ComputeRoutes(ctx, projects, e.Config.TLD, running, ports)
+	return ComputeRoutes(ctx, projects, e.Config.TLD, running, e.PublishedPort)
+}
+
+// PublishedPort resolves the host port docker published for one of a project's
+// services. It goes through the project's pinned compose identity, which is the
+// only lookup that is correct for every project type: a bare `docker compose
+// port` in the directory lets compose re-derive the project name from the folder
+// name, which diverges for an adopted cluster and reports the service as not
+// running.
+func (e *Engine) PublishedPort(ctx context.Context, p *state.Project, service string, containerPort int) (int, error) {
+	return e.composeFor(p).Port(ctx, service, containerPort)
 }

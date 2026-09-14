@@ -15,7 +15,13 @@ import (
 //
 // It covers native Windows drive paths (C:\...) and the Windows drives exposed
 // inside WSL (/mnt/c/...), which are the same slow mount seen from the other
-// side. A project under the WSL2 Linux filesystem is correctly not matched.
+// side.
+//
+// A \\wsl.localhost\<distro>\... path is deliberately NOT matched, and that is
+// not an oversight to be tidied up later. Docker reaches such a path through the
+// distro's own mount service rather than the 9p share, and it measures as fast
+// as the container's own disk, so a project there needs none of the mitigations
+// this predicate switches on. Use OnWSLFilesystem to ask the opposite question.
 func OnWindowsFilesystem(root string) bool {
 	if vol := filepath.VolumeName(root); len(vol) == 2 && vol[1] == ':' {
 		return true // C:\ on native Windows

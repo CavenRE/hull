@@ -125,3 +125,15 @@ func TestWatcherPicksUpNewDirectories(t *testing.T) {
 		t.Error("edits in a newly created directory should trigger a reload")
 	}
 }
+
+// A watcher that covers nothing must say so. It used to be created happily with
+// zero directories watched, which reported success and then never fired: the
+// exact shape of failure that is hardest to notice, because everything looks
+// fine until an edit quietly does not appear.
+func TestNewRefusesAnUnwatchableDirectory(t *testing.T) {
+	w, err := New(filepath.Join(t.TempDir(), "does-not-exist"), func() {})
+	if err == nil {
+		w.Close()
+		t.Fatal("New succeeded on a directory it cannot watch, want an error")
+	}
+}

@@ -44,6 +44,7 @@ var engineModes = map[string]string{
 	"hull rebuild":        engineEnsure,
 	"hull reset":          engineEnsure,
 	"hull rm":             engineEnsure,
+	"hull move":           engineEnsure,
 	"hull new":            engineEnsure,
 	"hull import":         engineEnsure,
 	"hull link":           engineEnsure,
@@ -65,6 +66,7 @@ var engineModes = map[string]string{
 	// message. Never launch Docker for a read: it is slow and surprising, and
 	// `hull status` starting the thing it reports on would be absurd.
 	"hull status": engineCheck,
+	"hull url":    engineNone,
 	"hull logs":   engineCheck,
 
 	// Deliberately engineNone even though they touch Docker.

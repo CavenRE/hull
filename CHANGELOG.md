@@ -7,6 +7,83 @@ All notable changes to Hull are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **`hull move <project> --to-wsl`, which is the actual fix for Windows, not
+  another workaround.** Docker's engine runs inside a Linux VM and reaches a
+  Windows drive over a mount costing milliseconds per file operation. Moving the
+  files into a WSL2 distribution instead removes that boundary entirely.
+  Measured on a 1,059 file WordPress tree, a container reads it in **4,450 ms**
+  from `W:\` and **10 ms** from a distro, which is as fast as the container's own
+  disk (20 ms). A stock WordPress site went from **1,010 ms to 50 ms** per page.
+
+  It costs almost nothing structurally. Docker Desktop serves a
+  `\\wsl.localhost\<distro>\...` path through a per-distro mount service, and
+  Compose resolves a relative `./` mount against wherever the compose file sits,
+  so a project living at such a path needs no new rendering and no daemon inside
+  the distro. Hull keeps running on Windows and keeps owning DNS, the router and
+  the ports. Docker identifies containers and volumes by project name rather than
+  folder, so databases and data volumes come through untouched.
+
+  The command stops the project, copies it with the distro's own `cp -a` (which
+  writes ext4 directly instead of paying the crossing twice), verifies the copy,
+  renames the old folder aside rather than deleting it, moves the project's
+  registration and group membership across, and starts it again at the new path.
+  It refuses up front if Docker Desktop's WSL integration is off for the distro,
+  because without that a bind mount from there cannot work at all.
+
+  One thing had to change for this to be correct rather than merely fast. A
+  Windows bind mount hides file ownership; a WSL one does not, so a container
+  running as `www-data` could read a moved project but not write a single file
+  in it. Hull now passes the distro user's identity into the render, which turns
+  on the same remapping it has always used on native Linux. Apache additionally
+  refuses to drop privileges to a uid with no passwd entry (it logs `AH02155` and
+  silently leaves every worker running as root, so the site then writes
+  root-owned files nobody can edit), so Hull's boot script now gives that uid a
+  name first. Verified on both image families: PHP runs as the distro user, files
+  it creates are owned by that user, and the editor can still edit them.
+- **`hull doctor` measures the problem instead of asserting it, and `--fix`
+  treats what it safely can.** On a Windows machine doctor now times 200 file
+  operations inside a throwaway container, against both your project root and the
+  container's own filesystem, and reports both: "W:\Sites costs 1.05 ms per file
+  operation, against under 0.05 ms on a filesystem the same container owns
+  (21x)". It also prints the exact `Add-MpPreference` antivirus exclusions for
+  this machine, including wherever Docker actually keeps its disk images, and
+  says whether a WSL distribution is available to move projects into and whether
+  Docker's integration is switched on for it.
+
+  `--fix` applies the remedies Hull is confident about (creating a missing
+  project root, turning `auto_reload` back on where it actually costs something)
+  and reports each one. The bar for membership is deliberately high: anything
+  needing elevation, touching security settings, or moving files stays out and
+  is printed as a command instead. The measured probe never reports `fail`, so a
+  closed engine still cannot break a scripted health gate, and it is skipped for
+  a root that does not exist yet, since Docker would otherwise create the very
+  directory the check above just reported as missing.
+
+  The measurements belong to the terminal, not the daemon: `GET /v1/doctor` runs
+  the same checks minus the ones that start a container or wake a WSL
+  distribution, so opening the GUI's Settings panel stays instant instead of
+  waiting on a benchmark nobody asked for.
+- **`hull url [name]`**, printing a project's URL undecorated for piping into
+  scripts. `--direct` gives the container's own `http://127.0.0.1:<port>`,
+  skipping the router, TLS and DNS entirely, which is what a health check or a
+  benchmark wants and what tells you whether a problem is the app or the routing
+  in front of it. That port is assigned by Docker at container start and changes
+  on every restart, so ask for it each time rather than saving it.
+- **A warm-up request after the daemon starts a project, so your first click
+  does not pay for it.** PHP compiles every file it loads on the first request
+  after a start, and on a slow mount that first page can take 14 to 19 seconds
+  and may surface as a router 502 while it does. Hull already avoided this on
+  one path by accident, because the CLI polls the site after `hull up` and sits
+  through the compile. Nothing else did: a project brought up by the daemon at
+  login or by the GUI answered its first real visitor cold. The daemon now makes
+  that request itself, retrying until the container is actually listening, since
+  `compose up -d` returns well before the application does.
+
+  The request goes straight to the container's published port with an explicit
+  Host header, so it depends on none of TLS, the local CA, the hosts file or the
+  route sync being correct yet. The CLI's own probe now follows redirects too:
+  it used to stop at the first one, which for WordPress or Laravel meant
+  compiling the bootstrap and leaving the actual page cold.
 - **PHP pages are about a third faster on Windows, and edits still show up.**
   PHP normally checks the modification time of every file it has cached on
   every request. Over the 9p mount Docker uses for a Windows drive, each of
@@ -53,6 +130,16 @@ All notable changes to Hull are documented here. The format follows
   Docker create a directory where PHP expects a file.
 
 ### Fixed
+- **`hull rm` no longer leaves a dangling entry in the project list.** A project
+  registered individually (imported in place, or moved into WSL) kept its
+  `config.Projects` entry after being destroyed, pointing at a folder that no
+  longer existed. Harmless, but it accumulated, and moving projects makes that
+  list far more common than it used to be.
+- **`hull exec php -i` now says what it actually reports.** The CLI SAPI ignores
+  per-directory values and loads a different set of ini files, so a setting can
+  look wrong there while being correct in the browser, or the other way round.
+  The command's help now says so and points at how to ask the web server
+  instead.
 - **Projects no longer connect to each other's database.** Docker Compose adds a
   service's name as an alias on *every* network it joins, and Hull put each
   project's dedicated database on the shared `caddy` network. That made the name

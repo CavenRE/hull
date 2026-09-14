@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/CavenRE/hull/internal/config"
 )
 
 func TestConfigRoundTrip(t *testing.T) {
@@ -222,5 +224,45 @@ func TestDoctorEndpoint(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("daemon check missing/not ok: %v", checks)
+	}
+}
+
+// A config PUT must not undo a setting the API does not carry. auto_reload is
+// written straight to the file by `hull doctor --fix`, so a daemon that started
+// before that write still holds the old value in memory; saving its own view
+// back would quietly re-disable the thing the user just fixed.
+func TestConfigPutPreservesFileOnlySettings(t *testing.T) {
+	s, client, _ := testServer(t)
+
+	var cfg ConfigInfo
+	if err := client.do(context.Background(), http.MethodGet, "/v1/config", nil, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the CLI writing the file behind this daemon's back.
+	onDisk, err := config.Load(s.Config.HullHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	off := false
+	onDisk.AutoReload = &off
+	onDisk.Services.Aliases = map[string]string{"mysql": "mysql-8.4"}
+	if err := onDisk.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg.Defaults.Editor = "code"
+	if err := client.do(context.Background(), http.MethodPut, "/v1/config", cfg, &ConfigInfo{}); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := config.Load(s.Config.HullHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.AutoReloadEnabled() {
+		t.Error("the config PUT clobbered auto_reload, which the API does not carry")
+	}
+	if after.Services.Aliases["mysql"] != "mysql-8.4" {
+		t.Errorf("the config PUT clobbered the service aliases: %+v", after.Services.Aliases)
 	}
 }

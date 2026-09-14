@@ -23,7 +23,14 @@ func init() {
 			"otherwise interpret. The container must be up (start it with hull up).\n\n" +
 			"Use --service to target a different compose service, for example a\n" +
 			"queue worker or a scheduler container instead of the web app. For\n" +
-			"Laravel artisan specifically, the hull artisan shortcut is shorter.",
+			"Laravel artisan specifically, the hull artisan shortcut is shorter.\n\n" +
+			"One trap worth knowing: `hull exec php -i` reports the CLI's settings,\n" +
+			"which are not the ones your pages run under. The CLI SAPI ignores\n" +
+			"per-directory .htaccess values and loads a different set of ini files, so\n" +
+			"a setting can look wrong here while being correct in the browser, or the\n" +
+			"other way round. To see what a page actually gets, ask the web server:\n" +
+			"put `<?php phpinfo();` in the project and open it, or\n" +
+			"`curl -s $(hull url --direct)/info.php`.",
 		Example: "  hull exec composer install\n" +
 			"  hull exec php -v\n" +
 			"  hull exec --service worker php artisan queue:work",

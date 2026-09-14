@@ -113,9 +113,14 @@ func (s *Server) lockProject(name string) func() {
 
 // NewServer wires a server around a config.
 func NewServer(cfg *config.Config, token string) *Server {
+	eng := engine.New(cfg)
+	// The daemon outlives any one request, so background work it starts (the
+	// warm-up after a project comes up) actually gets to finish here, unlike in a
+	// CLI process that is about to exit.
+	eng.LongRunning = true
 	return &Server{
 		Config:          cfg,
-		Engine:          engine.New(cfg),
+		Engine:          eng,
 		Jobs:            jobs.NewManager(),
 		Token:           token,
 		RunningProjects: dockerx.RunningComposeProjects,

@@ -59,7 +59,19 @@ func waitSiteReady(ctx context.Context, name, url string) {
 			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 		},
 		// A redirect already proves the app answered; do not chase it.
-		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+		// Follow a hop or two rather than stopping at the first redirect. A
+		// redirect does prove the app answered, which is all readiness needs, but
+		// this request is also the only thing that warms the site on the CLI
+		// path, and a framework's first response is usually a redirect (WordPress
+		// to its installer, Laravel to a canonical host). Stopping there compiles
+		// the bootstrap and leaves the actual page cold, so the user still pays
+		// for it on their first click.
+		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
+			if len(via) >= 3 {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
 	}
 	ctx, cancel := context.WithTimeout(ctx, upReadyTimeout)
 	defer cancel()

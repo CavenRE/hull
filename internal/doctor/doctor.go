@@ -34,6 +34,14 @@ type Check struct {
 	Name   string `json:"name"`
 	Status Status `json:"status"`
 	Detail string `json:"detail"`
+	// Fix describes what `hull doctor --fix` would do about this check, and is
+	// empty when Hull cannot fix it automatically. Naming the remedy on the
+	// check is what stops the flag being a black box.
+	Fix string `json:"fix,omitempty"`
+	// Commands are ready-to-run commands for something Hull will not do itself,
+	// such as an antivirus exclusion that needs an elevated shell and is the
+	// user's decision to make.
+	Commands []string `json:"commands,omitempty"`
 }
 
 // Deps injects the environment probes (real in production, stubs in tests).
@@ -43,6 +51,14 @@ type Deps struct {
 	// DaemonVersion is non-empty when a daemon is known to be running
 	// (the API server passes its own version; the CLI probes first).
 	DaemonVersion string
+	// Measure opts into the checks that cost real time and do real work: the
+	// container benchmark (which starts a container and writes a temporary
+	// directory into a project root) and the WSL queries (which can boot a
+	// distribution). Off by default, and deliberately so: the daemon serves
+	// GET /v1/doctor with no deadline, so a GUI opening its Settings panel must
+	// not be made to wait a minute and a half for a benchmark it did not ask
+	// for. The CLI turns it on, where the user typed the command and is waiting.
+	Measure bool
 }
 
 // Run executes all checks.
@@ -51,9 +67,14 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 	add := func(status Status, name, detail string) {
 		checks = append(checks, Check{Name: name, Status: status, Detail: detail})
 	}
+	// addFix is add for a check Hull can act on, so the existing twenty-odd call
+	// sites stay as they are.
+	addFix := func(status Status, name, detail, fix string) {
+		checks = append(checks, Check{Name: name, Status: status, Detail: detail, Fix: fix})
+	}
 
 	// Container engine.
-	dockerFound := false
+	dockerFound, engineUp := false, false
 	if _, err := deps.LookPath("docker"); err != nil {
 		add(Fail, "docker CLI", "not in PATH , install Docker (or a docker-compatible engine)")
 	} else {
@@ -66,6 +87,7 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 				add(Fail, "container engine", "not responding , is it running?")
 			}
 		} else {
+			engineUp = true
 			add(OK, "container engine", "server "+v)
 		}
 		if v, err := deps.Output(ctx, "", "docker", "compose", "version", "--short"); err != nil {
@@ -79,7 +101,7 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 	add(OK, "config", fmt.Sprintf("tld=%s home=%s", cfg.TLD, cfg.HullHome))
 	for _, root := range cfg.Roots {
 		if info, err := os.Stat(root); err != nil || !info.IsDir() {
-			add(Warn, "root "+root, "does not exist yet")
+			addFix(Warn, "root "+root, "does not exist yet", "create it")
 		} else {
 			add(OK, "root "+root, "ok")
 		}
@@ -87,21 +109,89 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 
 	// Windows / WSL bind-mount performance. Docker serves files from the Windows
 	// filesystem to Linux containers over a slow 9p mount, so PHP page loads run
-	// multiple seconds and a cold start can 502 until the app warms. Warn when a
-	// root is on a Windows drive (a drive letter on Windows, or /mnt/<drive> when
-	// Hull runs inside WSL), say what Hull already does about it, and point at
-	// the real fix.
+	// multiple seconds and a cold start can 502 until the app warms.
+	var slowRoots []string
 	for _, root := range cfg.Roots {
 		if platform.OnWindowsFilesystem(root) {
-			msg := "root " + root + " is on the Windows filesystem, which Docker serves to containers over a slow 9p mount (multi-second PHP page loads; a 502 on a cold start until the app warms). "
-			if cfg.AutoReloadEnabled() {
-				msg += "Hull already takes the biggest cost off it: PHP no longer re-checks every cached file on each request, and the daemon watches your sources and clears the opcode cache when you save. "
-			} else {
-				msg += "auto_reload is off in config.yaml, so PHP re-checks every cached file on every request, which roughly doubles a page load here; turn it back on unless you run your own watcher. "
+			slowRoots = append(slowRoots, root)
+		}
+	}
+	if len(slowRoots) > 0 {
+		msg := "root " + strings.Join(slowRoots, ", ") + " is on the Windows filesystem, which Docker serves to containers over a slow 9p mount (multi-second PHP page loads; a 502 on a cold start until the app warms). "
+		if len(slowRoots) > 1 {
+			msg = "roots " + strings.Join(slowRoots, ", ") + " are on the Windows filesystem, which Docker serves to containers over a slow 9p mount (multi-second PHP page loads; a 502 on a cold start until the app warms). "
+		}
+		fix := ""
+		if cfg.AutoReloadEnabled() {
+			msg += "Hull already takes the biggest cost off it: PHP no longer re-checks every cached file on each request, and the daemon watches your sources and clears the opcode cache when you save. "
+		} else {
+			msg += "auto_reload is off in config.yaml, so PHP re-checks every cached file on every request, which roughly doubles a page load here. "
+			fix = "turn auto_reload back on"
+		}
+		msg += "The real fix is to move projects into the WSL2 Linux filesystem, which is not merely faster but as fast as the container's own disk: `hull move <project> --to-wsl`."
+		addFix(Warn, "performance", msg, fix)
+
+		// Measure it rather than asserting it. A number the user can compare
+		// against a native filesystem is far harder to argue with than prose,
+		// and it is the number that explains where the seconds go.
+		// Skip a root that is not there yet. Docker creates a missing bind
+		// source rather than refusing, so probing one would quietly conjure the
+		// very directory the check above just reported as missing, and the two
+		// lines would contradict each other.
+		probeRoot := ""
+		for _, root := range slowRoots {
+			if info, err := os.Stat(root); err == nil && info.IsDir() {
+				probeRoot = root
+				break
 			}
-			msg += "The real fix is to keep sites in the WSL2 Linux filesystem (ext4): run Hull inside WSL with projects under your Linux home. Also exclude the sites folder and Docker's data VHDX from Windows Defender."
-			add(Warn, "performance", msg)
-			break
+		}
+		// Gated on the engine ANSWERING, not merely on the docker binary being
+		// installed: running a container against a closed engine only produces a
+		// failure this check already reported one line above.
+		if deps.Measure && engineUp && probeRoot != "" {
+			speed, err := MountProbe(ctx, deps, probeRoot)
+			switch {
+			case err != nil:
+				// Never Fail: doctor's exit code is a health gate, and a
+				// machine with the engine closed is not unhealthy.
+				add(Warn, "mount speed", "could not measure "+probeRoot+" ("+err.Error()+")")
+			case !speed.Writable:
+				add(Warn, "mount speed", probeRoot+" is not writable from a container, so it could not be measured")
+			default:
+				detail := fmt.Sprintf("%s costs %.2f ms per file operation, against %s ms on a filesystem the same container owns (%.0fx). A page that opens 2,000 files spends about %.1f s of its load in the filesystem alone.",
+					probeRoot, speed.MsPerOp, speed.NativeText(), speed.Ratio(), speed.MsPerOp*2000/1000)
+				if speed.MsPerOp >= slowMsPerOp {
+					add(Warn, "mount speed", detail)
+				} else {
+					add(OK, "mount speed", detail)
+				}
+			}
+		}
+
+		// Antivirus. Real-time scanning of every file read compounds the mount
+		// cost and is the usual explanation for a page that normally takes 7
+		// seconds occasionally taking 16. Hull hands over the commands rather
+		// than touching anyone's security settings.
+		if cmds := platform.DefenderCommands(cfg.Roots); len(cmds) > 0 {
+			checks = append(checks, Check{
+				Name:     "antivirus",
+				Status:   Warn,
+				Detail:   "if you use Microsoft Defender, excluding your sites and Docker's disk images stops it scanning every file a container reads. Run these in an elevated PowerShell (Hull will not change your security settings for you):",
+				Commands: cmds,
+			})
+		}
+
+		// The paved road out. Only worth mentioning when the machine can
+		// actually take it.
+		if deps.Measure && platform.WSLAvailable() {
+			if distros := platform.WSLDistros(ctx); len(distros) > 0 {
+				d := distros[0]
+				if platform.WSLDockerIntegration(ctx, d) {
+					add(OK, "wsl", "distro "+d+" is available with Docker integration on, so `hull move <project> --to-wsl` will make that project as fast as a native Linux setup")
+				} else {
+					add(Warn, "wsl", "distro "+d+" is available but Docker Desktop's WSL integration is off for it, which is what a fast project mount needs. Turn it on in Docker Desktop: Settings > Resources > WSL Integration > "+d+", then Apply & Restart. After that, `hull move <project> --to-wsl`")
+				}
+			}
 		}
 	}
 
