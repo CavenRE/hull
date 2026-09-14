@@ -6,6 +6,17 @@ All notable changes to Hull are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-09-14
+
+### Fixed
+- **`hull update` no longer fails with "github returned 504 Gateway Timeout".**
+  It downloaded the release binary from the `browser_download_url` vanity host
+  (`github.com/<repo>/releases/download/...`), which intermittently answers 504
+  even when the asset is perfectly fine. It now fetches through the GitHub API
+  asset endpoint with `Accept: application/octet-stream`, which redirects
+  straight to the asset CDN and does not have that problem, and retries a few
+  times on a transient server error rather than giving up on the first one.
+
 ## [0.17.0] - 2026-09-14
 
 ### Added

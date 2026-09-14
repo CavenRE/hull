@@ -317,7 +317,14 @@ func fetchLatestReleaseAssets(ctx context.Context) (string, map[string]string, e
 		TagName string `json:"tag_name"`
 		Assets  []struct {
 			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
+			// The API asset URL, deliberately NOT browser_download_url. GET this
+			// with Accept: application/octet-stream and GitHub redirects to the
+			// asset CDN. The browser_download_url vanity host
+			// (github.com/<repo>/releases/download/...) intermittently answers
+			// 504 Gateway Timeout while the asset itself is perfectly fine, which
+			// is what broke `hull update` right after the v0.17.0 release; the
+			// API endpoint does not have that problem.
+			URL string `json:"url"`
 		} `json:"assets"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
@@ -336,19 +343,11 @@ func fetchLatestReleaseAssets(ctx context.Context) (string, map[string]string, e
 func downloadFile(ctx context.Context, url, dst string) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("User-Agent", "hull-update")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := getAsset(ctx, url)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("github returned %s", resp.Status)
-	}
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
 	if err != nil {
 		return err
@@ -366,6 +365,46 @@ func downloadFile(ctx context.Context, url, dst string) error {
 		return fmt.Errorf("downloaded file is too small (%d bytes); the release asset may be missing", n)
 	}
 	return nil
+}
+
+// getAsset fetches a release asset, following the redirect to the CDN and
+// riding out a transient server error. GitHub sometimes answers an asset
+// download with a 5xx (a 504 for a while after a publish, or under load) even
+// though the asset is fine, so a few spaced retries turn a flaky download into
+// a reliable one instead of failing the whole update. The Accept header is what
+// makes an api.github.com asset URL redirect to the binary rather than return
+// its JSON metadata; it is harmless on any other host.
+func getAsset(ctx context.Context, url string) (*http.Response, error) {
+	var lastErr error
+	for attempt := 0; attempt < 4; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(time.Duration(attempt*attempt) * time.Second):
+			}
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", "hull-update")
+		req.Header.Set("Accept", "application/octet-stream")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if resp.StatusCode == http.StatusOK {
+			return resp, nil
+		}
+		resp.Body.Close()
+		lastErr = fmt.Errorf("github returned %s", resp.Status)
+		if resp.StatusCode < 500 {
+			return nil, lastErr // a real 4xx will not fix itself; do not retry
+		}
+	}
+	return nil, lastErr
 }
 
 // isSemver reports whether s parses as a vMAJOR.MINOR.PATCH version.
