@@ -6,6 +6,8 @@ All notable changes to Hull are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-14
+
 ### Added
 - **`hull move <project> --to-wsl`, which is the actual fix for Windows, not
   another workaround.** Docker's engine runs inside a Linux VM and reaches a
