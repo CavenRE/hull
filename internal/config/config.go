@@ -41,6 +41,10 @@ type Config struct {
 	// Defaults are user preferences applied to new things.
 	Defaults Defaults `yaml:"defaults,omitempty"`
 	// HullHome is the resolved Hull home directory (not stored in the file).
+	// AutoReload lets the daemon watch running PHP projects and clear their
+	// opcode cache when sources change. Unset means enabled.
+	AutoReload *bool `yaml:"auto_reload,omitempty"`
+
 	HullHome string `yaml:"-"`
 }
 
@@ -65,6 +69,14 @@ type ServicesConfig struct {
 // database is attached. Defaults to true when unset.
 func (c *Config) AutoAdminerEnabled() bool {
 	return c.Services.AutoAdminer == nil || *c.Services.AutoAdminer
+}
+
+// AutoReloadEnabled reports whether the daemon watches running PHP projects and
+// clears their opcode cache when sources change. Defaults to true when unset,
+// because it is what makes skipping per-request file revalidation safe. Turn it
+// off (auto_reload: false) if you run your own watcher.
+func (c *Config) AutoReloadEnabled() bool {
+	return c.AutoReload == nil || *c.AutoReload
 }
 
 // Defaults are user preferences (Settings page).

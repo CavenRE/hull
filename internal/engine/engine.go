@@ -19,6 +19,7 @@ import (
 	"github.com/CavenRE/hull/internal/envfile"
 	"github.com/CavenRE/hull/internal/ledger"
 	"github.com/CavenRE/hull/internal/manifest"
+	"github.com/CavenRE/hull/internal/platform"
 	"github.com/CavenRE/hull/internal/services"
 	"github.com/CavenRE/hull/internal/state"
 	"github.com/CavenRE/hull/internal/templates"
@@ -334,9 +335,12 @@ func ignoreCompose(dir string) {
 func (e *Engine) Render(m *manifest.Manifest, dir string) error {
 	ctx := e.ComposeContext()
 	// Let the renderer see the project directory so it can pick up an optional
-	// per-project php.ini. Only set here, so a pure render (tests, goldens)
-	// stays independent of the filesystem.
+	// per-project php.ini, and tell it whether this project is one the daemon
+	// can keep fresh without PHP revalidating every file. Only set here, so a
+	// pure render (tests, goldens) stays independent of the filesystem.
 	ctx.ProjectDir = dir
+	ctx.SlowMount = platform.OnWindowsFilesystem(dir)
+	ctx.WatchedReload = e.Config.AutoReloadEnabled()
 	f, err := compose.Render(m, ctx)
 	if err != nil {
 		return err

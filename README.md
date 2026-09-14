@@ -200,6 +200,7 @@ Run `hull <command> --help` for full flags on any command, `hull help routing` f
 | `hull up [name...]` | Start the current project, named ones, `--all`, or pick interactively. |
 | `hull down [name...]` | Stop projects (data preserved). |
 | `hull restart [name]` | Restart a project's containers. |
+| `hull reload [name]` | Clear a PHP project's opcode cache in place (a second, against the many a restart costs). Usually automatic, see "Watched reload". |
 | `hull rebuild [name]` | Rebuild images and bring the project back up (`--no-cache`). |
 | `hull reset [name]` | Wipe the project's data volumes and start fresh. |
 | `hull repair [name]` | Recreate a project from a clean slate to fix a wedged or detached state (keeps data). |
@@ -321,6 +322,8 @@ defaults:
   php: "8.4"
   editor: code
   db_tool: tableplus
+auto_reload: true             # watch PHP sources and clear the opcode cache on
+                              # save (default). See "Watched reload" below.
 ```
 
 **Per project** , `hull.yaml` (the source of truth):
@@ -346,7 +349,13 @@ services:
 1. **Keep your sites in the WSL2 Linux filesystem.** Run Hull inside your WSL distro with roots under the Linux home, or store projects under `\\wsl$\<distro>\...`. Native-VM files are commonly 10x to 50x faster for this workload.
 2. **Exclude the sites folder and Docker's data from Windows Defender.** Real-time scanning of every file read compounds the cost. Add exclusions for your sites directory and Docker Desktop's data (its `ext4.vhdx`).
 
-`hull doctor` warns when a project root is on the Windows filesystem. Hull also enables and tunes PHP OPcache for every PHP container (Laravel, WordPress, and plain sites, plus custom `app` images that set `php_tune: true`) so repeated requests skip recompilation, and new WordPress sites disable page-load wp-cron to speed up the dashboard.
+`hull doctor` warns when a project root is on the Windows filesystem, and `hull new` says so the moment you create a project there. Hull also enables and tunes PHP OPcache for every PHP container (Laravel, WordPress, and plain sites, plus custom `app` images that set `php_tune: true`) so repeated requests skip recompilation, and new WordPress sites disable page-load wp-cron to speed up the dashboard.
+
+**Watched reload.** On a Windows drive Hull goes one step further: PHP stops checking the modification time of every cached file on every request, which is the largest remaining per-request cost there (a WordPress page went from a mean of 1483 ms to a steady 985 ms in testing). That is only safe because the daemon watches the project from the host and clears the opcode cache when you save, so an edit still appears on the next refresh, typically well under a second later. It applies only to PHP projects on a Windows drive, ignores `vendor`, `node_modules`, `.git` and build output, and debounces a burst of saves into one reload. Your project's own `.hull/php.ini` still loads last if you want the check back for one project. To turn the whole thing off, for example if you run your own watcher:
+
+```yaml
+auto_reload: false            # in ~/.hull/config.yaml
+```
 
 **Linux , privileged ports.** The embedded router binds `:80`/`:443` directly (no container). Grant the capability once during install, or lower the unprivileged-port threshold system-wide:
 

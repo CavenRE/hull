@@ -7,6 +7,29 @@ All notable changes to Hull are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **PHP pages are about a third faster on Windows, and edits still show up.**
+  PHP normally checks the modification time of every file it has cached on
+  every request. Over the 9p mount Docker uses for a Windows drive, each of
+  those checks crosses the VM boundary and costs milliseconds, so a WordPress
+  page touching thousands of files spends about a second doing nothing but
+  asking whether files changed. Measured on a stock WordPress site with roots on
+  `W:\`: page loads alternated between 980 ms and 1980 ms (mean 1483 ms), and
+  are now a steady 985 ms, with the once-every-two-seconds stall gone.
+
+  Hull can only do this because it now watches the project from the host, where
+  filesystem events are immediate, and clears the opcode cache the moment you
+  save. Turning the check off on its own would have meant edits never appearing.
+  Measured worst case from save to a fresh page is under a second. It applies
+  only where both halves hold: the project is on a Windows drive (so the check
+  actually costs something), and the daemon is watching it. Everything else is
+  untouched, as is the project's own `.hull/php.ini`, which still loads last if
+  you want the check back. Set `auto_reload: false` in `~/.hull/config.yaml` to
+  opt out of both halves, for example if you run your own watcher.
+
+  The watcher deliberately ignores `vendor`, `node_modules`, `.git`,
+  `wp-includes`, `wp-admin`, and build output, watches only `.php` files, caps
+  itself at 2000 directories, and debounces a burst of saves into one reload, so
+  a large project does not turn into a stream of restarts.
 - **`hull reload`.** Clears a project's PHP opcode cache in place, in about a
   second, instead of the many seconds a container restart costs. It detects the
   server rather than the image, so it works on both families Hull ships: a

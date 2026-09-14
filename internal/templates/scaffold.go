@@ -18,6 +18,9 @@ var xdebugINI string
 //go:embed assets/opcache.ini
 var opcacheINI string
 
+//go:embed assets/opcache-watched.ini
+var opcacheWatchedINI string
+
 //go:embed assets/hull-composer-install.sh
 var composerInstallSH string
 
@@ -55,10 +58,13 @@ func EnsureSystemFiles(hullHome string) error {
 		// version of them; without this a bug fix in one of these scripts could
 		// never reach a machine that already has the old copy. The ini files are
 		// deliberately NOT managed: they are documented as user-tunable.
+		// opcache-watched.ini is the exception, being Hull machinery a project
+		// overrides through its own .hull/php.ini rather than by editing.
 		managed bool
 	}
 	files := map[string]sysFile{
 		filepath.Join(hullHome, "system", "php", "opcache.ini"):              {opcacheINI, 0o644, false},
+		filepath.Join(hullHome, "system", "php", "opcache-watched.ini"):      {opcacheWatchedINI, 0o644, true},
 		filepath.Join(hullHome, "system", "php", "xdebug.ini"):               {xdebugINI, 0o644, false},
 		filepath.Join(hullHome, "system", "php", "hull-composer-install.sh"): {composerInstallSH, 0o755, true},
 		filepath.Join(hullHome, "system", "php", "hull-fix-perms.sh"):        {fixPermsSH, 0o755, true},

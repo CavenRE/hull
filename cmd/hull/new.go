@@ -8,9 +8,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CavenRE/hull/internal/api"
-	"github.com/CavenRE/hull/internal/doctor"
 	"github.com/CavenRE/hull/internal/engine"
 	"github.com/CavenRE/hull/internal/manifest"
+	"github.com/CavenRE/hull/internal/platform"
 	"github.com/CavenRE/hull/internal/services"
 	"github.com/CavenRE/hull/internal/templates"
 )
@@ -275,7 +275,7 @@ func setupPrompts(template string) (db string, redis bool, err error) {
 // touch thousands of files take seconds. Deliberately one line: the full
 // explanation and the fixes live in doctor.
 func warnWindowsFilesystem(dir string) {
-	if !doctor.OnWindowsFilesystem(dir) {
+	if !platform.OnWindowsFilesystem(dir) {
 		return
 	}
 	fmt.Printf("  ! %s is on the Windows filesystem, which Docker serves over a slow 9p mount, so PHP pages can take seconds. Run `hull doctor` for the fixes.\n", dir)

@@ -32,6 +32,14 @@ type Context struct {
 	// per-project php.ini. Left empty by pure renders (tests and goldens), which
 	// keeps Render independent of the filesystem.
 	ProjectDir string
+	// SlowMount marks a project whose files Docker serves over a slow bind
+	// mount (a Windows drive over 9p), where a stat() costs milliseconds.
+	// WatchedReload says the daemon is watching source files and will reset the
+	// opcode cache when they change. Together they are what makes it safe to
+	// stop PHP revalidating every cached file on every request; see
+	// opcacheWatchedMount. Both are set by the engine, never by a pure render.
+	SlowMount     bool
+	WatchedReload bool
 }
 
 // projectPHPIni is the conventional per-project PHP config. It lives with the
@@ -242,6 +250,11 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 	// the template's own image command.
 	if def.IsPHP() {
 		svc.Volumes = append(svc.Volumes, opcacheMount(ctx))
+		// On a slow mount with the daemon watching, stop PHP re-checking every
+		// cached file on every request; the watcher resets the cache on save.
+		if mount := opcacheWatchedMount(ctx); mount != "" {
+			svc.Volumes = append(svc.Volumes, mount)
+		}
 		// A project can drop its own settings in .hull/php.ini (upload limits,
 		// memory, opcache tuning) without touching the machine-wide file.
 		if mount := projectPHPIniMount(ctx); mount != "" {
@@ -461,6 +474,30 @@ func caddyLabels(fqdn string, upstreamPort int) []string {
 func opcacheMount(ctx Context) string {
 	host := ctx.HullHome + "/system/php/opcache.ini"
 	return host + ":" + templates.PHPConfDir + "/zz-hull-opcache.ini:ro"
+}
+
+// opcacheWatchedMount returns the read-only bind mount that turns off
+// per-request file revalidation, or "" when that would not be safe or would not
+// pay. PHP otherwise stat()s every cached file on every request; over a 9p
+// mount each of those crosses the VM boundary, so a framework request touching
+// a thousand files spends seconds doing nothing but asking whether files
+// changed. Hull only drops the check when the daemon is watching the project
+// from the host and resets the cache on save, so an edit still shows up on the
+// next refresh.
+//
+// The target sorts after zz-hull-opcache.ini ("w" after "o") so it overrides
+// the shared file's validate_timestamps=1, and before zzz-hull-project.ini so a
+// project's own php.ini still has the final word.
+//
+// Only the project's own app service gets it. Extra containers and php_tune
+// images keep revalidating, because the reload the watcher fires targets "app"
+// and nothing would ever clear their cache.
+func opcacheWatchedMount(ctx Context) string {
+	if !ctx.SlowMount || !ctx.WatchedReload {
+		return ""
+	}
+	host := ctx.HullHome + "/system/php/opcache-watched.ini"
+	return host + ":" + templates.PHPConfDir + "/zz-hull-watched.ini:ro"
 }
 
 // composerInstallMount returns the read-only bind mount that drops Hull's

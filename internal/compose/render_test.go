@@ -790,3 +790,61 @@ func TestProjectPHPIniMount(t *testing.T) {
 		t.Errorf("static must not get a php.ini: %v", fs.Services["app"].Volumes)
 	}
 }
+
+// TestWatchedOpcacheMount locks in when Hull is willing to stop PHP checking
+// file timestamps on every request. It needs both halves to be true: the
+// project is on a slow mount (so the check actually costs something) and the
+// daemon is watching it (so an edit still shows up). Either one alone must not
+// mount it, or edits would silently go stale.
+func TestWatchedOpcacheMount(t *testing.T) {
+	const want = "/home/test/.hull/system/php/opcache-watched.ini:/usr/local/etc/php/conf.d/zz-hull-watched.ini:ro"
+	render := func(t *testing.T, src string, mutate func(*Context)) *File {
+		t.Helper()
+		m, err := manifest.Parse([]byte(src))
+		if err != nil {
+			t.Fatalf("parse: %v", err)
+		}
+		ctx := testCtx
+		mutate(&ctx)
+		f, err := Render(m, ctx)
+		if err != nil {
+			t.Fatalf("render: %v", err)
+		}
+		return f
+	}
+	const site = "schema: 1\nname: site\ntype: site\ntemplate: laravel\n"
+
+	cases := []struct {
+		name    string
+		mutate  func(*Context)
+		mounted bool
+	}{
+		{"slow mount and watched", func(c *Context) { c.SlowMount, c.WatchedReload = true, true }, true},
+		{"slow mount, auto-reload off", func(c *Context) { c.SlowMount = true }, false},
+		{"watched but fast mount", func(c *Context) { c.WatchedReload = true }, false},
+		{"neither (a pure render)", func(c *Context) {}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := render(t, site, tc.mutate)
+			vols := strings.Join(f.Services["app"].Volumes, " ")
+			if got := strings.Contains(vols, want); got != tc.mounted {
+				t.Errorf("watched ini mounted = %v, want %v: %v", got, tc.mounted, f.Services["app"].Volumes)
+			}
+			// The project's own php.ini must still load last so it can put the
+			// timestamp check back.
+			if i, j := strings.Index(vols, "zz-hull-watched.ini"), strings.Index(vols, "zzz-hull-project.ini"); i >= 0 && j >= 0 && i > j {
+				t.Errorf("zz-hull-watched.ini must be mounted before the project ini: %v", f.Services["app"].Volumes)
+			}
+		})
+	}
+
+	// Non-PHP templates have no opcode cache to leave stale, and must not pick
+	// the file up just because the project is on a slow mount.
+	f := render(t, "schema: 1\nname: site\ntype: site\ntemplate: static\n", func(c *Context) {
+		c.SlowMount, c.WatchedReload = true, true
+	})
+	if vols := strings.Join(f.Services["app"].Volumes, " "); strings.Contains(vols, "opcache-watched") {
+		t.Errorf("static must not get the watched ini: %v", f.Services["app"].Volumes)
+	}
+}

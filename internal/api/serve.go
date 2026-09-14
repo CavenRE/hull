@@ -13,7 +13,6 @@ import (
 	"github.com/CavenRE/hull/internal/dockerx"
 )
 
-
 // Serve runs the daemon on 127.0.0.1 with a fresh token, records the
 // discovery file, and blocks until ctx is canceled or a client requests
 // shutdown. Used by both hulld and `hull daemon run`.
@@ -64,6 +63,15 @@ func Serve(ctx context.Context, cfg *config.Config, logf func(format string, a .
 	}
 	defer stopNet()
 	server.SyncRoutes = syncNow
+
+	// Watch running PHP projects and clear their opcode cache when sources
+	// change. This is what lets Hull skip per-request file revalidation (the
+	// largest PHP cost on a slow bind mount) without edits going stale.
+	if cfg.AutoReloadEnabled() {
+		arCtx, stopAR := context.WithCancel(ctx)
+		defer stopAR()
+		go newAutoReloader(cfg, server.Engine, logf).run(arCtx)
+	}
 
 	// Bring up autostart projects and shared instances, then refresh routes so
 	// they are served. Runs in the background so the listener is up immediately
