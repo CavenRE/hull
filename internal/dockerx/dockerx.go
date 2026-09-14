@@ -176,6 +176,34 @@ func PublishedPort(ctx context.Context, dir, service string, containerPort int) 
 // EnsureNetwork creates the named docker network if it does not exist. The
 // result is memoized for the process (ensuredNetworks), so repeated lifecycle
 // actions skip the `docker network ls` probe after the first confirmation.
+// ContainerNetworks returns the networks a container is attached to, so callers
+// can reconcile attachments with a single inspect instead of shelling out once
+// per candidate network.
+func ContainerNetworks(ctx context.Context, container string) (map[string]bool, error) {
+	out, err := Output(ctx, "", "docker", "inspect", container,
+		"--format", "{{range $net, $cfg := .NetworkSettings.Networks}}{{$net}}\n{{end}}")
+	if err != nil {
+		return nil, err
+	}
+	nets := map[string]bool{}
+	for _, line := range strings.Split(out, "\n") {
+		if n := strings.TrimSpace(line); n != "" {
+			nets[n] = true
+		}
+	}
+	return nets, nil
+}
+
+// ConnectNetwork attaches a container to a network. Callers use this
+// best-effort: an already-attached container and a network that does not exist
+// yet (because that project is not running) are both expected, not failures.
+// It captures output rather than streaming it, so those expected misses do not
+// print "network <x> not found" at a user who did nothing wrong.
+func ConnectNetwork(ctx context.Context, network, container string) error {
+	_, err := Output(ctx, "", "docker", "network", "connect", network, container)
+	return err
+}
+
 func EnsureNetwork(ctx context.Context, name string) error {
 	if _, ok := ensuredNetworks.Load(name); ok {
 		return nil

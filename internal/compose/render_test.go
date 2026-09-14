@@ -666,3 +666,61 @@ func TestWritablePathsFix(t *testing.T) {
 		}
 	}
 }
+
+// TestDedicatedServicesStayOffSharedNetwork locks in the fix for a real
+// cross-project bug. Compose adds a service's name as an alias on EVERY network
+// it joins, so when each project's dedicated `db` also joined the shared
+// network, that one name resolved to every project's database at random: an app
+// would connect to a different project's database and fail with "Unknown
+// database". Dedicated services must therefore stay on their own project
+// network. Adminer reaches them by unique container name instead, via
+// Engine.syncAdminerNetworks.
+func TestDedicatedServicesStayOffSharedNetwork(t *testing.T) {
+	m, err := manifest.Parse([]byte("schema: 1\nname: app\ntype: site\ntemplate: laravel\nservices:\n  db:\n    engine: postgres\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := Render(m, testCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := f.Services["db"]
+	if db == nil {
+		t.Fatal("no db service rendered")
+	}
+	for _, n := range db.Networks {
+		if n == caddyNetwork {
+			t.Errorf("dedicated db must not join the shared network (its %q alias would collide across projects): %v", "db", db.Networks)
+		}
+	}
+	if len(db.Networks) != 1 || db.Networks[0] != "default" {
+		t.Errorf("dedicated db should be on its project network only, got %v", db.Networks)
+	}
+
+	// The app still needs the shared network to reach shared instances.
+	hasCaddy := false
+	for _, n := range f.Services["app"].Networks {
+		if n == caddyNetwork {
+			hasCaddy = true
+		}
+	}
+	if !hasCaddy {
+		t.Errorf("app should remain on the shared network for shared instances, got %v", f.Services["app"].Networks)
+	}
+
+	// A dedicated service with a UI (mailpit) is the same class and must also
+	// stay off it; its UI is routed by published port, not by the network.
+	mp, err := manifest.Parse([]byte("schema: 1\nname: app2\ntype: site\ntemplate: plain\nservices:\n  mailpit:\n    engine: mailpit\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f2, err := Render(mp, testCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range f2.Services["mailpit"].Networks {
+		if n == caddyNetwork {
+			t.Errorf("dedicated mailpit must not join the shared network: %v", f2.Services["mailpit"].Networks)
+		}
+	}
+}

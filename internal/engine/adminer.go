@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/manifest"
 	"github.com/CavenRE/hull/internal/services"
 	"github.com/CavenRE/hull/internal/state"
@@ -151,6 +152,50 @@ func (e *Engine) EnsureAdminer(ctx context.Context) error {
 	// The image is still adminer:latest via the template's defaultTag; passing
 	// "latest" here spun up a second "adminer-latest" instance that fought the
 	// manual one for the db.<tld> route.
-	_, err := m.EnsureUp(ctx, "adminer", "")
-	return err
+	if _, err := m.EnsureUp(ctx, "adminer", ""); err != nil {
+		return err
+	}
+	e.syncAdminerNetworks(ctx)
+	return nil
+}
+
+// syncAdminerNetworks attaches the Adminer container to each project network
+// that holds a dedicated database, so Adminer keeps its single-point-of-access
+// view of every database.
+//
+// This is what replaces putting dedicated services on the shared network.
+// Compose adds a service's name as an alias on every network it joins, so when
+// each project's `db` sat on the shared network that name became ambiguous:
+// an app resolved `db` to another project's database at random and failed with
+// "Unknown database". Adminer addresses databases by their unique container
+// name (<project>-<service>-1), so joining the project's own network is enough.
+//
+// Best-effort by design: one inspect, then a connect only for what is missing.
+// A stopped project has no network yet and an already-attached one is a no-op,
+// and neither should ever fail a caller.
+func (e *Engine) syncAdminerNetworks(ctx context.Context) {
+	container := templates.InstanceContainerName("adminer", "")
+	have, err := dockerx.ContainerNetworks(ctx, container)
+	if err != nil {
+		return // Adminer is not running, so there is nothing to attach.
+	}
+	projects, err := state.Scan(e.Config.Roots, e.Config.Projects...)
+	if err != nil {
+		return
+	}
+	for i := range projects {
+		p := &projects[i]
+		if p.Manifest == nil {
+			continue
+		}
+		_, db, has := p.Manifest.DatabaseService()
+		if !has || db.Mode == manifest.ModeShared {
+			continue // shared instances already live on the shared network
+		}
+		network := projectName(p) + "_default"
+		if have[network] {
+			continue
+		}
+		_ = dockerx.ConnectNetwork(ctx, network, container)
+	}
 }

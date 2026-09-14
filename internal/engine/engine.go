@@ -366,6 +366,15 @@ func (e *Engine) Up(ctx context.Context, p *state.Project) error {
 		}
 	}
 	e.recordStarted(p)
+	// A project that has just come up has a brand new network, so reattach
+	// Adminer to it. Dedicated databases no longer sit on the shared network, so
+	// without this Adminer could not reach a project started after it. Cheap (one
+	// inspect, then only the missing attachments) and best-effort.
+	if p.Manifest != nil {
+		if _, db, has := p.Manifest.DatabaseService(); has && db.Mode == manifest.ModeDedicated {
+			e.syncAdminerNetworks(ctx)
+		}
+	}
 	return e.runHooks(ctx, p, "post_up", true)
 }
 

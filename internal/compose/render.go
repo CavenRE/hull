@@ -118,15 +118,21 @@ func Render(m *manifest.Manifest, ctx Context) (*File, error) {
 		if !ok {
 			return nil, fmt.Errorf("service %q: unknown engine %q", key, s.Engine)
 		}
-		networks := []string{"default"}
-		if eng.JoinsCaddy {
-			networks = append(networks, caddyNetwork)
-		}
+		// A dedicated service stays on its own project network. It must NOT join
+		// the shared network: Compose adds the service name as an alias on every
+		// network a service joins, so putting each project's `db` there made the
+		// name ambiguous across projects. An app would then resolve `db` to
+		// another project's database at random and fail with "Unknown database".
+		// Nothing needs them there any more: the router reaches sites and service
+		// UIs through published loopback ports, and Adminer is attached to each
+		// project's own network instead (see Engine.syncAdminerNetworks), where it
+		// addresses databases by their unique container name. JoinsCaddy still
+		// governs SHARED instances, which are rendered separately and do need it.
 		svc := &ServiceDef{
 			Image:       eng.Image(s.Version),
 			Command:     eng.Command,
 			Environment: eng.Env(s.Database),
-			Networks:    networks,
+			Networks:    []string{"default"},
 		}
 		if len(eng.HealthTest) > 0 {
 			svc.HealthCheck = dbHealthCheck(eng.HealthTest)

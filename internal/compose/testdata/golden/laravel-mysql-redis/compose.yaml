@@ -39,7 +39,6 @@ services:
       - com.hull.managed=true
     networks:
       - default
-      - caddy
     healthcheck:
       test:
         - CMD-SHELL

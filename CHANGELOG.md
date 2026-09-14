@@ -6,6 +6,20 @@ All notable changes to Hull are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **Projects no longer connect to each other's database.** Docker Compose adds a
+  service's name as an alias on *every* network it joins, and Hull put each
+  project's dedicated database on the shared `caddy` network. That made the name
+  `db` ambiguous across projects: with two projects running, an app resolved
+  `db` to a different project's database at random and failed with "Unknown
+  database", showing up as a site that alternates between working and HTTP 500.
+  Dedicated services now stay on their own project network. Nothing needed them
+  on the shared one: the router reaches sites and service UIs through published
+  loopback ports, and Adminer is now attached to each project's network instead,
+  where it addresses databases by their unique container name. Shared instances
+  are unaffected and still live on the shared network, which is what lets
+  several projects share one database server on purpose.
+
 ## [0.16.2] - 2026-09-06
 
 ### Fixed
