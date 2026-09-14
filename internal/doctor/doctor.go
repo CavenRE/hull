@@ -91,7 +91,7 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 	// root is on a Windows drive (a drive letter on Windows, or /mnt/<drive> when
 	// Hull runs inside WSL) and point at the real fix plus a stopgap.
 	for _, root := range cfg.Roots {
-		if onWindowsFilesystem(root) {
+		if OnWindowsFilesystem(root) {
 			opcache := filepath.Join(cfg.HullHome, "system", "php", "opcache.ini")
 			add(Warn, "performance", "root "+root+" is on the Windows filesystem, which Docker serves to containers over a slow 9p mount (multi-second PHP page loads; a 502 on a cold start until the app warms). The real fix is to keep sites in the WSL2 Linux filesystem (ext4): run Hull inside WSL with projects under your Linux home. Stopgap: set opcache.validate_timestamps=0 in "+opcache+" to stop the per-request re-stat spikes (then restart a container after editing PHP). Also exclude the sites folder and Docker's data VHDX from Windows Defender.")
 			break
@@ -216,7 +216,10 @@ func isDockerPermissionErr(err error) bool {
 // filesystem, which Docker shares to containers over a slow 9p mount: a
 // drive-letter path on native Windows (C:\...), or a /mnt/<drive> path when Hull
 // runs inside a WSL distro.
-func onWindowsFilesystem(root string) bool {
+// OnWindowsFilesystem reports whether a path lives on the Windows filesystem,
+// which Docker serves to containers over a slow 9p mount. Exported so the CLI
+// can warn at the moment a project is created, not only inside `hull doctor`.
+func OnWindowsFilesystem(root string) bool {
 	if vol := filepath.VolumeName(root); len(vol) == 2 && vol[1] == ':' {
 		return true // C:\ on native Windows
 	}

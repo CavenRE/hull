@@ -7,6 +7,18 @@ All notable changes to Hull are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **`hull reload`.** Clears a project's PHP opcode cache in place, in about a
+  second, instead of the many seconds a container restart costs. It detects the
+  server rather than the image, so it works on both families Hull ships: a
+  graceful restart on Apache with mod_php, or SIGUSR2 to the PHP-FPM master.
+  This is the companion to turning off per-request file revalidation, which is
+  the single largest PHP cost on a Windows bind mount.
+- **A warning when a project lands on the Windows filesystem.** `hull new` now
+  says so at the moment you create the project, rather than leaving it to be
+  discovered later in `hull doctor`. Docker serves Windows paths to containers
+  over a 9p mount where every file operation costs milliseconds, which is why a
+  PHP page touching thousands of files takes seconds. One line, with the fixes
+  still in doctor.
 - **Per-project PHP settings.** Drop a `.hull/php.ini` in a project and Hull
   mounts it into the container's PHP scan directory, loaded after Hull's own
   tuning so your values win. Previously the only options were a `.htaccess`

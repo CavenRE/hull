@@ -16,18 +16,18 @@ func TestOnWindowsFilesystem(t *testing.T) {
 	// /mnt/<drive> is detected on every OS (a plain string check), so the
 	// warning fires when Hull runs inside WSL against a project on a Windows drive.
 	for _, r := range []string{"/mnt/c/Sites/app", "/mnt/d/x"} {
-		if !onWindowsFilesystem(r) {
-			t.Errorf("onWindowsFilesystem(%q) = false, want true", r)
+		if !OnWindowsFilesystem(r) {
+			t.Errorf("OnWindowsFilesystem(%q) = false, want true", r)
 		}
 	}
 	for _, r := range []string{"/home/me/app", "/mnt/wsl/x", "/mnt/", "/srv/c", "/mntfoo/c/x"} {
-		if onWindowsFilesystem(r) {
-			t.Errorf("onWindowsFilesystem(%q) = true, want false", r)
+		if OnWindowsFilesystem(r) {
+			t.Errorf("OnWindowsFilesystem(%q) = true, want false", r)
 		}
 	}
 	// Drive letters are only recognized by the OS-specific VolumeName on Windows.
-	if runtime.GOOS == "windows" && !onWindowsFilesystem(`C:\Sites\app`) {
-		t.Error(`onWindowsFilesystem("C:\\Sites\\app") = false on windows, want true`)
+	if runtime.GOOS == "windows" && !OnWindowsFilesystem(`C:\Sites\app`) {
+		t.Error(`OnWindowsFilesystem("C:\\Sites\\app") = false on windows, want true`)
 	}
 }
 

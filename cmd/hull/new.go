@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CavenRE/hull/internal/api"
+	"github.com/CavenRE/hull/internal/doctor"
 	"github.com/CavenRE/hull/internal/engine"
 	"github.com/CavenRE/hull/internal/manifest"
 	"github.com/CavenRE/hull/internal/services"
@@ -157,6 +158,11 @@ func init() {
 					return err
 				}
 				fmt.Printf("✔ Project %q created.\n", name)
+				// The daemon does not report the directory back, and the root is
+				// what decides the filesystem anyway.
+				if len(a.Config.Roots) > 0 {
+					warnWindowsFilesystem(a.Config.Roots[0])
+				}
 			} else {
 				opts := engine.NewOptions{
 					Name:          name,
@@ -189,6 +195,7 @@ func init() {
 					}
 				}
 				fmt.Printf("✔ Project created at %s\n", dir)
+				warnWindowsFilesystem(dir)
 			}
 			if !noStart {
 				// The routed domain is the slugged name (e.g. "My App" -> my-app).
@@ -259,6 +266,19 @@ func setupPrompts(template string) (db string, redis bool, err error) {
 		return "", false, err
 	}
 	return db, redis, nil
+}
+
+// warnWindowsFilesystem flags the single biggest performance trap on Windows at
+// the moment the user picks where a project lives, rather than leaving it to be
+// discovered later in `hull doctor`. Docker serves a Windows path to containers
+// over 9p, where every file operation costs milliseconds, so PHP pages that
+// touch thousands of files take seconds. Deliberately one line: the full
+// explanation and the fixes live in doctor.
+func warnWindowsFilesystem(dir string) {
+	if !doctor.OnWindowsFilesystem(dir) {
+		return
+	}
+	fmt.Printf("  ! %s is on the Windows filesystem, which Docker serves over a slow 9p mount, so PHP pages can take seconds. Run `hull doctor` for the fixes.\n", dir)
 }
 
 // pickInfra is the interactive infrastructure selector (v1's fzf flow).
