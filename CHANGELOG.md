@@ -6,6 +6,32 @@ All notable changes to Hull are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.17.2] - 2026-09-22
+
+### Fixed
+- **The shared Adminer console (`db.<tld>`) could get permanently stuck after a
+  routine `hull down`.** Hull attaches Adminer to each dedicated-database
+  project's network at runtime and never pruned those attachments, so once such
+  a project was torn down Docker treated the now-missing network as fatal, and
+  Adminer refused to start again with no reason shown anywhere. `hull services
+  start adminer` now force-recreates the stateless container to shed the stale
+  attachments and reattaches the running projects' networks, so it recovers in
+  one command, and `hull doctor` now reports a dead Adminer as a blocking
+  problem instead of reading green.
+- **`hull doctor` no longer presumes Microsoft Defender is your antivirus.** On a
+  machine running a third-party antivirus or EDR its Defender-only commands
+  simply errored. Doctor now says to set the equivalent exclusions in whatever
+  product is active, notes that a managed or corporate machine may not let you
+  change it yourself, and is honest that an exclusion removes scan overhead but
+  not the underlying 9p mount cost.
+- **`hull doctor` stops recommending `hull move --to-wsl` when there is no WSL
+  distribution to move into**, giving the install-a-distro prerequisite as an
+  explicit first step instead.
+- **`hull doctor` names which directory a duplicate project name resolves to**,
+  rather than saying only that Hull uses one of them, and points a configured
+  root that no longer exists at `hull config roots rm` so the warning can be
+  cleared either way.
+
 ## [0.17.1] - 2026-09-14
 
 ### Fixed
