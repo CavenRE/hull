@@ -6,6 +6,33 @@ All notable changes to Hull are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.17.3] - 2026-09-22
+
+### Added
+- **A second OPcache lever for Windows/WSL2 mounts: `opcache.enable_file_override`.**
+  On a project Hull is watching for changes, PHP now answers `file_exists()`,
+  `is_file()` and `is_readable()` from OPcache for any script it has already
+  compiled, instead of issuing a `stat()` that crosses the VM boundary. Over a
+  9p bind mount those calls cost milliseconds each, and WordPress, WooCommerce and
+  Elementor make thousands of them during startup, so this is a large cut to
+  plugin bootstrap time. It rides the same watched-mount config as
+  `validate_timestamps=0` and is safe for the same reason: OPcache is already the
+  trusted source of truth for those scripts, and Hull resets it on save. A bigger
+  realpath cache (16M, 1h TTL) rides along. Restart your projects (`hull restart`)
+  to pick it up.
+
+### Fixed
+- **`hull doctor`'s mount-speed number is now the median of several passes, not a
+  single cold reading.** One timed pass over a 9p mount swings roughly 2x run to
+  run, so the old single number read cold-biased and unstable; the median is the
+  figure that predicts steady-state page time.
+- **The shared Adminer console is restored when you bring a database project back
+  up.** After a machine or Docker restart, `hull up <project>` reattached the
+  project network but left `hull-adminer` stopped, so `db.<tld>` stayed dead until
+  a manual `hull services start adminer`. Bringing a database project up (on the
+  CLI, on a daemon resume, or via an autostart-marked Adminer instance) now
+  ensures the console is running and reattached.
+
 ## [0.17.2] - 2026-09-22
 
 ### Fixed
