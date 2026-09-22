@@ -99,6 +99,33 @@ func TestSetProjectFieldsAutostart(t *testing.T) {
 	}
 }
 
+// TestRestoreAdminerSkipsDBlessProject verifies that bringing up a project with
+// no database does not try to start the shared Adminer console (the guard on the
+// restore-on-up path added for the after-restart fix).
+func TestRestoreAdminerSkipsDBlessProject(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "site")
+	mustWrite(t, dir, "schema: 1\nname: site\ntemplate: plain\n")
+	m, err := manifest.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := New(&config.Config{TLD: "test", Roots: []string{root}, HullHome: t.TempDir()})
+	var calls []string
+	e.Run = func(ctx context.Context, dir, name string, args ...string) error {
+		calls = append(calls, dir+" "+name+" "+strings.Join(args, " "))
+		return nil
+	}
+	e.EnsureNet = func(ctx context.Context, name string) error { return nil }
+
+	e.restoreAdminerForProject(context.Background(), &state.Project{Name: "site", Dir: dir, Manifest: m})
+	for _, c := range calls {
+		if strings.Contains(c, "adminer") {
+			t.Errorf("a DB-less project must not bring up adminer; call: %s", c)
+		}
+	}
+}
+
 func mustWrite(t *testing.T, dir, manifestYAML string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {

@@ -394,15 +394,10 @@ func (e *Engine) Up(ctx context.Context, p *state.Project) error {
 		}
 	}
 	e.recordStarted(p)
-	// A project that has just come up has a brand new network, so reattach
-	// Adminer to it. Dedicated databases no longer sit on the shared network, so
-	// without this Adminer could not reach a project started after it. Cheap (one
-	// inspect, then only the missing attachments) and best-effort.
-	if p.Manifest != nil {
-		if _, db, has := p.Manifest.DatabaseService(); has && db.Mode == manifest.ModeDedicated {
-			e.syncAdminerNetworks(ctx)
-		}
-	}
+	// Bring the shared Adminer console back (it is not auto-restored on daemon
+	// boot) and reattach it to this project's freshly-created network, so db.<tld>
+	// works after a restart without a separate `hull services start adminer`.
+	e.restoreAdminerForProject(ctx, p)
 	err := e.runHooks(ctx, p, "post_up", true)
 	// Pay the first-request compile bill now, in the background, so the user's
 	// first click does not. Detached on purpose: the daemon passes its request
@@ -713,6 +708,12 @@ func (e *Engine) StartEnabled(ctx context.Context) (int, error) {
 		} else {
 			started++
 		}
+		if name == "adminer" {
+			// Manager.Start force-recreates adminer (to shed stale networks), which
+			// brings it up on caddy only; reattach the running dedicated-DB project
+			// networks so db.<tld> is reachable after a boot restore.
+			e.syncAdminerNetworks(ctx)
+		}
 	}
 
 	return started, errors.Join(errs...)
@@ -756,6 +757,9 @@ func (e *Engine) upNoHooks(ctx context.Context, p *state.Project) error {
 		}
 	}
 	e.recordStarted(p)
+	// A daemon resume brings the DB project up but must also bring its Adminer
+	// console back, or db.<tld> stays dead after a reboot.
+	e.restoreAdminerForProject(ctx, p)
 	// This is the path a daemon resume at login takes, and it was the worst
 	// offender: nothing here ever touched the site, so the first visitor after a
 	// reboot got the full cold compile.

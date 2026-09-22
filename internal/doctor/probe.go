@@ -76,7 +76,11 @@ func (m MountSpeed) NativeText() string {
 }
 
 // probeScript creates a known number of files on the mount, stats them once to
-// warm any cache, then times a second pass.
+// warm any cache, then times the pass several times and reports the median.
+//
+// A single timed pass on a 9p mount swings roughly 2x run to run, so one number
+// is not reproducible and reads cold-biased; the median over a few passes is the
+// figure that actually predicts steady-state page time.
 //
 // Timing comes from /proc/uptime because busybox's date has no %N, so the
 // obvious `date +%s%N` silently returns zero and every measurement reads as
@@ -90,9 +94,11 @@ measure() {
   mkdir -p "$d" 2>/dev/null || return 1
   i=0; while [ $i -lt $n ]; do : > "$d/f$i"; i=$((i+1)); done
   stat -c %Y "$d"/f* > /dev/null 2>&1
-  s=$(now); stat -c %Y "$d"/f* > /dev/null 2>&1; e=$(now)
+  med=$({ p=0; while [ $p -lt 5 ]; do
+    s=$(now); stat -c %Y "$d"/f* > /dev/null 2>&1; e=$(now); echo $((e-s)); p=$((p+1));
+  done; } | sort -n | awk '{v[NR]=$1} END{print v[int((NR+1)/2)]}')
   rm -rf "$d" 2>/dev/null || true
-  echo $((e-s))
+  echo "$med"
 }
 mount=$(measure /probe/` + probeDirPlaceholder + `) || { echo HULL_PROBE_READONLY; exit 0; }
 native=$(measure /tmp/` + probeDirPlaceholder + `) || native=0

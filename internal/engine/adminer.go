@@ -159,6 +159,31 @@ func (e *Engine) EnsureAdminer(ctx context.Context) error {
 	return nil
 }
 
+// restoreAdminerForProject brings the shared Adminer console back and reattaches
+// it to a DB project's network when the project comes up. Adminer is not
+// auto-restored on daemon boot, so after a restart db.<tld> stays dead until a
+// DB project is brought up; EnsureAdminer starts and reattaches it when
+// auto-provisioning is on, and the explicit reattach also covers a manually-run
+// Adminer that is already up (EnsureAdminer skips the reattach when
+// auto-provisioning is off). Best-effort; a DB-less project is a no-op.
+func (e *Engine) restoreAdminerForProject(ctx context.Context, p *state.Project) {
+	if p.Manifest == nil {
+		return
+	}
+	_, db, has := p.Manifest.DatabaseService()
+	if !has {
+		return
+	}
+	_ = e.EnsureAdminer(ctx)
+	// EnsureAdminer already reattaches when auto-provisioning is on. When it is
+	// off it returns without touching Adminer, so reattach a manually-run one to
+	// this project's own network here (shared-mode DBs sit on the shared network
+	// and need no per-project attach).
+	if !e.Config.AutoAdminerEnabled() && db.Mode == manifest.ModeDedicated {
+		e.syncAdminerNetworks(ctx)
+	}
+}
+
 // ReattachAdminer reconnects a running Adminer container to the networks of
 // the currently-running dedicated-DB projects. `hull services start adminer`
 // force-recreates the container to shed stale per-project endpoints that would
