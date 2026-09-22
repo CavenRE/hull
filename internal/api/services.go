@@ -108,6 +108,11 @@ func (s *Server) handleServiceAction(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err)
 			return
 		}
+		if name == "adminer" {
+			// Start force-recreates Adminer, dropping its live per-project network
+			// attachments; re-add them (the CLI start path does the same).
+			s.Engine.ReattachAdminer(r.Context())
+		}
 	case "stop":
 		if err := s.Services().Stop(r.Context(), name); err != nil {
 			writeError(w, http.StatusInternalServerError, err)

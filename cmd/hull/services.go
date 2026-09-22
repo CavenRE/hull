@@ -139,12 +139,20 @@ func init() {
 			// so a running daemon (which may not know a freshly-added alias) is
 			// handed the real name.
 			name := services.NewManager(a.Config).Canonical(args[0])
-			return a.withDaemon(
+			if err := a.withDaemon(
 				func(c *api.Client) error { return c.ServiceAction(cmd.Context(), name, "start") },
 				func() error {
 					return services.NewManager(a.Config).Start(cmd.Context(), name)
 				},
-			)
+			); err != nil {
+				return err
+			}
+			if name == "adminer" {
+				// Start force-recreates Adminer, which drops its live per-project
+				// network attachments; re-add them so it can reach running DBs.
+				a.Engine.ReattachAdminer(cmd.Context())
+			}
+			return nil
 		},
 	})
 

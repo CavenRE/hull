@@ -96,7 +96,11 @@ func Scan(roots []string, extra ...string) ([]Project, error) {
 // is a real debugging trap (hull then operates on a directory you did not mean).
 type Collision struct {
 	Name string
-	Dirs []string
+	// Winner is the directory Scan actually resolves this name to (the rest are
+	// silently shadowed). Taken from Scan itself so it always matches, including
+	// the case where a plain folder outranks the managed copies.
+	Winner string
+	Dirs   []string
 }
 
 // Collisions reports project names found in more than one directory across the
@@ -146,6 +150,28 @@ func Collisions(roots []string, extra ...string) []Collision {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	// Name the winner from Scan itself rather than re-deriving its tie-break
+	// (roots order, then ReadDir order, then extras, and a plain folder can win),
+	// so the reported winner can never drift from the directory Hull actually uses.
+	winners := map[string]string{}
+	if len(out) > 0 {
+		if projects, err := Scan(roots, extra...); err == nil {
+			for i := range projects {
+				if _, ok := winners[projects[i].Name]; !ok {
+					winners[projects[i].Name] = projects[i].Dir
+				}
+			}
+		}
+	}
+	for i := range out {
+		// Fall back to the first sorted dir if Scan was unavailable, so the winner
+		// is never blank (Dirs always has at least two entries here).
+		if w := winners[out[i].Name]; w != "" {
+			out[i].Winner = w
+		} else {
+			out[i].Winner = out[i].Dirs[0]
+		}
+	}
 	return out
 }
 

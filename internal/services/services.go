@@ -179,6 +179,22 @@ func (m *Manager) Add(ctx context.Context, engineName, version string) (string, 
 	return name, m.Run(ctx, dir, "docker", "compose", "up", "-d")
 }
 
+// startUp is the Start path. Adminer is force-recreated, not reused: the engine
+// attaches it to each dedicated-DB project network at runtime, Docker persists
+// those endpoints, and once such a project is torn down its network is gone and
+// Docker treats the missing network as fatal on Adminer's next start (the
+// bricked db.<tld> console). Recreating from the compose spec (caddy only) sheds
+// the stale endpoints, so `hull services start adminer` recovers it; Adminer is
+// stateless, so recreation is safe. Add deliberately stays a plain idempotent
+// `up -d` so routine EnsureAdminer calls do not bounce a healthy console.
+func (m *Manager) startUp(ctx context.Context, dir, instance string) error {
+	args := []string{"compose", "up", "-d"}
+	if instance == "adminer" {
+		args = append(args, "--force-recreate")
+	}
+	return m.Run(ctx, dir, "docker", args...)
+}
+
 // EnsureUp boots an existing instance (creating it if needed).
 func (m *Manager) EnsureUp(ctx context.Context, engineName, version string) (string, error) {
 	return m.Add(ctx, engineName, version)
@@ -231,7 +247,7 @@ func (m *Manager) Start(ctx context.Context, instance string) error {
 	if err := m.exists(instance); err != nil {
 		return err
 	}
-	return m.Run(ctx, m.Dir(instance), "docker", "compose", "up", "-d")
+	return m.startUp(ctx, m.Dir(instance), instance)
 }
 
 // Stop stops an instance (data preserved).

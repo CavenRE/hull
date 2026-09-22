@@ -37,6 +37,43 @@ func TestCollisions(t *testing.T) {
 	if len(cols[0].Dirs) != 2 {
 		t.Errorf("expected 2 colliding dirs, got %v", cols[0].Dirs)
 	}
+	// The reported winner must be the directory Scan actually resolves the name
+	// to, so the doctor warning names the dir Hull really uses.
+	projects, _ := Scan([]string{root})
+	var scanWinner string
+	for _, p := range projects {
+		if p.Name == "dash" {
+			scanWinner = p.Dir
+		}
+	}
+	if cols[0].Winner == "" || cols[0].Winner != scanWinner {
+		t.Errorf("winner = %q, want Scan's resolved dir %q", cols[0].Winner, scanWinner)
+	}
+}
+
+func TestCollisionWinnerMatchesScanIncludingUnmanaged(t *testing.T) {
+	root := t.TempDir()
+	// A plain folder literally named "foo" outranks the managed copies in scan
+	// order (ReadDir is filename-sorted, "foo" < "foo-a"), so Scan resolves the
+	// name to it even though it is Unmanaged and absent from the collision Dirs.
+	if err := os.MkdirAll(filepath.Join(root, "foo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, "foo-a", "hull.yaml"), "schema: 1\nname: foo\ntemplate: plain\n")
+	writeFile(t, filepath.Join(root, "foo-b", "hull.yaml"), "schema: 1\nname: foo\ntemplate: plain\n")
+
+	cols := Collisions([]string{root})
+	if len(cols) != 1 || cols[0].Name != "foo" {
+		t.Fatalf("expected one 'foo' collision, got %+v", cols)
+	}
+	if cols[0].Winner != filepath.Join(root, "foo") {
+		t.Errorf("winner = %q, want the Unmanaged folder Scan resolves to", cols[0].Winner)
+	}
+	for _, d := range cols[0].Dirs {
+		if d == cols[0].Winner {
+			t.Errorf("the Unmanaged winner must not appear among the shadowed Dirs: %v", cols[0].Dirs)
+		}
+	}
 }
 
 func TestScanMixedRoots(t *testing.T) {

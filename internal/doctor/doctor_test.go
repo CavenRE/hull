@@ -110,6 +110,49 @@ func TestRunDaemonDownOKWhenRouterDisabled(t *testing.T) {
 	}
 }
 
+func TestRunFlagsBrickedAdminer(t *testing.T) {
+	cfg := &config.Config{TLD: "test", HullHome: t.TempDir(), Roots: []string{t.TempDir()}}
+	deps := func(inspect string) Deps {
+		return Deps{
+			LookPath: func(string) (string, error) { return "/usr/bin/docker", nil },
+			Output: func(_ context.Context, _, _ string, args ...string) (string, error) {
+				switch {
+				case len(args) > 0 && args[0] == "compose":
+					return "v2.29.0", nil
+				case len(args) > 0 && args[0] == "version":
+					return "27.0.3", nil
+				case len(args) > 0 && args[0] == "inspect":
+					if inspect == "" {
+						return "", errors.New("No such object: hull-adminer")
+					}
+					return inspect, nil
+				default:
+					return "", nil
+				}
+			},
+		}
+	}
+
+	// A stale-network start failure is surfaced as blocking.
+	checks := Run(context.Background(), cfg, deps("exited\tnetwork dash_default not found"))
+	if c, ok := findCheck(checks, "adminer"); !ok || c.Status != Fail || !strings.Contains(c.Detail, "network dash_default not found") {
+		t.Fatalf("adminer check = %+v (ok=%v), want a Fail naming the error", c, ok)
+	}
+	if !Fatal(checks) {
+		t.Error("a bricked adminer should make doctor Fatal")
+	}
+
+	// A clean engine shutdown (exited, empty .State.Error) must NOT be flagged.
+	if c, ok := findCheck(Run(context.Background(), cfg, deps("exited\t")), "adminer"); ok {
+		t.Errorf("adminer check present for a clean stop: %+v", c)
+	}
+
+	// An absent container (inspect errors) must NOT be flagged.
+	if _, ok := findCheck(Run(context.Background(), cfg, deps("")), "adminer"); ok {
+		t.Error("adminer check present when the container does not exist")
+	}
+}
+
 func TestRunMissingRootWarns(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "not-created")
 	cfg := &config.Config{TLD: "test", HullHome: t.TempDir(), Roots: []string{missing}}

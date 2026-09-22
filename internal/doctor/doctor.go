@@ -97,11 +97,26 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 		}
 	}
 
+	// A managed service container that exited with an error is invisible to the
+	// running/compose checks yet leaves a user-facing feature dead: the shared
+	// Adminer console at db.<tld> failing to start (a stale project network is
+	// the known cause) is silent otherwise. Gate on .State.Error, not the exit
+	// code: a normal engine shutdown leaves a non-zero code with no error.
+	if engineUp {
+		if out, err := deps.Output(ctx, "", "docker", "inspect", "hull-adminer",
+			"--format", "{{.State.Status}}\t{{.State.Error}}"); err == nil {
+			status, errMsg, _ := strings.Cut(strings.TrimSpace(out), "\t")
+			if errMsg = strings.TrimSpace(errMsg); status != "running" && errMsg != "" {
+				add(Fail, "adminer", "the shared Adminer console (db.<tld>) is down and cannot start: "+errMsg+". Recover with: hull services start adminer")
+			}
+		}
+	}
+
 	// Config + roots.
 	add(OK, "config", fmt.Sprintf("tld=%s home=%s", cfg.TLD, cfg.HullHome))
 	for _, root := range cfg.Roots {
 		if info, err := os.Stat(root); err != nil || !info.IsDir() {
-			addFix(Warn, "root "+root, "does not exist yet", "create it")
+			addFix(Warn, "root "+root, "does not exist yet. If you no longer want it, remove it from config with: hull config roots rm '"+root+"'", "create it")
 		} else {
 			add(OK, "root "+root, "ok")
 		}
@@ -174,9 +189,9 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 		// than touching anyone's security settings.
 		if cmds := platform.DefenderCommands(cfg.Roots); len(cmds) > 0 {
 			checks = append(checks, Check{
-				Name:     "antivirus",
-				Status:   Warn,
-				Detail:   "if you use Microsoft Defender, excluding your sites and Docker's disk images stops it scanning every file a container reads. Run these in an elevated PowerShell (Hull will not change your security settings for you):",
+				Name:   "antivirus",
+				Status: Warn,
+				Detail: "if Microsoft Defender is your active antivirus, excluding your sites and Docker's disk images stops it scanning every file a container reads. Run these in an elevated PowerShell (Hull will not change your security settings for you). If a third-party antivirus or EDR is active instead, the Defender commands below will error, so set the equivalent path exclusions in that product. On a managed or corporate machine you may not be able to change this yourself and will need whoever manages the device to do it. This removes the scan overhead and some of the load-time jitter; it does not remove the underlying 9p mount cost:",
 				Commands: cmds,
 			})
 		}
@@ -191,6 +206,12 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 				} else {
 					add(Warn, "wsl", "distro "+d+" is available but Docker Desktop's WSL integration is off for it, which is what a fast project mount needs. Turn it on in Docker Desktop: Settings > Resources > WSL Integration > "+d+", then Apply & Restart. After that, `hull move <project> --to-wsl`")
 				}
+			} else {
+				// The recommendation above points at `hull move --to-wsl`, but there
+				// is no distro to move into yet. Name the prerequisite as an explicit
+				// first step so the two lines agree (the same install example `hull
+				// move` gives when it hits this).
+				add(Warn, "wsl", "no WSL distribution is installed, so `hull move <project> --to-wsl` has nowhere to move a project yet. Install one (for example: wsl --install -d Debian), enable Docker Desktop's WSL integration for it (Settings > Resources > WSL Integration), then run `hull move <project> --to-wsl`")
 			}
 		}
 	}
@@ -199,7 +220,17 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 	// skips the rest, so a stray copy of a hull.yaml (a backup folder, a clone)
 	// can make Hull operate on the wrong directory with no warning anywhere.
 	for _, c := range state.Collisions(cfg.Roots, cfg.Projects...) {
-		add(Warn, "duplicate name "+c.Name, "resolves to more than one directory; Hull uses one and silently ignores the rest: "+strings.Join(c.Dirs, ", "))
+		rest := make([]string, 0, len(c.Dirs))
+		for _, d := range c.Dirs {
+			if d != c.Winner {
+				rest = append(rest, d)
+			}
+		}
+		detail := "resolves to more than one directory; Hull uses " + c.Winner
+		if len(rest) > 0 {
+			detail += " and ignores: " + strings.Join(rest, ", ")
+		}
+		add(Warn, "duplicate name "+c.Name, detail)
 	}
 
 	// System files (self-healing).

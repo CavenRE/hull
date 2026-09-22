@@ -273,6 +273,40 @@ func TestAddSearchAndStorageEngines(t *testing.T) {
 	}
 }
 
+func TestStartForceRecreatesAdminerOnly(t *testing.T) {
+	f := &fake{}
+	m := f.manager(t.TempDir())
+	if _, err := m.Add(context.Background(), "adminer", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Add(context.Background(), "postgres", "16"); err != nil {
+		t.Fatal(err)
+	}
+	// Add must stay a plain idempotent up so routine EnsureAdminer calls never
+	// bounce a healthy console; only an explicit Start force-recreates.
+	for _, c := range f.commands {
+		if strings.Contains(c, "--force-recreate") {
+			t.Errorf("Add force-recreated (churn regression): %s", c)
+		}
+	}
+
+	f.commands = nil
+	if err := m.Start(context.Background(), "adminer"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.commands) != 1 || f.commands[0] != "docker compose up -d --force-recreate" {
+		t.Errorf("start adminer = %v, want force-recreate", f.commands)
+	}
+
+	f.commands = nil
+	if err := m.Start(context.Background(), "postgres-16"); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.commands) != 1 || f.commands[0] != "docker compose up -d" {
+		t.Errorf("start postgres = %v, want plain up", f.commands)
+	}
+}
+
 func TestCreateDatabaseRejectsRedis(t *testing.T) {
 	f := &fake{}
 	m := f.manager(t.TempDir())

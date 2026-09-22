@@ -159,6 +159,13 @@ func (e *Engine) EnsureAdminer(ctx context.Context) error {
 	return nil
 }
 
+// ReattachAdminer reconnects a running Adminer container to the networks of
+// the currently-running dedicated-DB projects. `hull services start adminer`
+// force-recreates the container to shed stale per-project endpoints that would
+// otherwise make it fail to start, which also drops its live attachments, so
+// they must be re-added; EnsureAdminer already does this on the provision path.
+func (e *Engine) ReattachAdminer(ctx context.Context) { e.syncAdminerNetworks(ctx) }
+
 // syncAdminerNetworks attaches the Adminer container to each project network
 // that holds a dedicated database, so Adminer keeps its single-point-of-access
 // view of every database.
