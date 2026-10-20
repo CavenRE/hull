@@ -6,6 +6,82 @@ All notable changes to Hull are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-20
+
+### Added
+- **`hull db export` and `hull db import`.** Dump one database of a project to a
+  `.sql` or `.sql.gz` file, or load a dump into it, without moving the whole
+  project. Import checks that the dump comes from the same kind of database,
+  drops the statements and clauses that would aim it at another database or
+  owner (`CREATE DATABASE`, `USE`, `\connect`, `OWNER TO`, `DEFINER`), changes MySQL 8
+  collations for MariaDB, and creates a missing linked database first. MySQL and
+  MariaDB dumps now include stored routines, events and triggers, in
+  `hull export` bundles too.
+- **`hull allow`: approve a project before Hull runs it.** Hull runs a project's
+  containers and hooks only once you approve it, and asks again when the files
+  that decide what it runs change: `hull.yaml`, and for a cluster its compose
+  files and their `.env`. `hull up` shows what the project will run and asks.
+  Projects Hull created or imported, and the ones it ran before this release,
+  are already approved.
+- **Signed releases.** Each release's `SHA256SUMS` carries an ed25519 signature,
+  and `hull update` installs a download only when its signature and checksum
+  match.
+- **Its own database login for each project.** A new database gets a generated
+  root password, and a project linked to a shared instance gets a user that can
+  reach only its own database. Older databases keep their passwordless root
+  until you recreate them; `hull doctor` names them. Adminer now asks for a login.
+
+### Changed
+- **Saving a PHP file no longer makes the next page slow.** On a site Hull
+  watches (one on a Windows drive), a save now drops only the saved files from
+  PHP's opcode cache instead of emptying it, so the next page compiles one file
+  instead of the whole site. Deleting or renaming PHP files still clears the
+  cache. Run `hull restart <site>` once for each running site to pick this up.
+- **Sites compile before the first visit.** When a watched site starts, or the
+  daemon starts, Hull compiles the site's PHP in the background and then warms
+  it, so the first pages, wp-admin included, are fast.
+- **The Windows watcher covers the whole site.** One handle watches every
+  folder, so a large site no longer has folders past a 2000-folder limit whose
+  edits went unseen.
+- **A bigger opcode cache: 512 MB, 32 MB of strings and 65000 files.** An
+  `opcache.ini` you never edited is updated; an edited one stays as it is.
+- **The daemon follows Docker's events** instead of polling every few seconds.
+- **On Linux, a project on a Windows drive (`/mnt/c`) keeps PHP's file checks
+  on**, because a Linux daemon cannot see edits made from Windows.
+- **Hull serves only names under your TLD or a reserved local TLD**, and refuses
+  a public TLD (`dev`, `com`, a two-letter code) as the Hull TLD.
+- **Cluster compose files are pinned.** Hull reads `COMPOSE_FILE` itself and
+  passes each file with `-f`, so no other file can join a stack unseen.
+- **`hull export` leaves out the other `.env.*` files, Hull's `*.hull-backup`
+  copies and symbolic links**, and strips more secrets: passwords in URLs and
+  PEM blocks.
+- **`pre_up` hooks run in a one-off container**, and a hook's `service` must be
+  one of the project's services.
+- **`hull uninstall` also removes Hull's CA** from the trust store and the DNS
+  setup for the Hull TLD (on Windows, also the hosts block).
+- **Ctrl-C on a daemon job** (`hull rm`, `hull cluster create`) now cancels it.
+
+### Fixed
+- **`hull uninstall` on Windows could delete the folder `hull.exe` ran from**,
+  with every file in it. It now removes only Hull's own files. `get.ps1
+  -Uninstall` had the same problem with its prefix.
+- **Settings could be lost when two commands wrote at once.** The config,
+  groups, the started ledger and edits to `hull.yaml` now take file locks and
+  write atomically.
+- **The CLI could talk to another program on the daemon's old port.** It now
+  checks the daemon's identity before it sends its token.
+- **A bundle import could overwrite files or unpack without limit.** Extraction
+  now refuses to overwrite, caps entries and size, and refuses a name already in
+  use before anything is written.
+
+### Security
+- **Elevated commands quote every value.** Linux runs `sudo` with argument lists,
+  Windows passes scripts with `-EncodedCommand` and checks the hosts file's hash
+  before it installs it, and macOS installs from a root-owned, checked copy.
+- **The local API compares its token in constant time**, caps request bodies,
+  and lets only the desktop app read its responses from another origin.
+- **Adminer's Hull plugin no longer signs in without a password.**
+
 ## [0.17.3] - 2026-09-22
 
 ### Added
