@@ -23,7 +23,7 @@ import (
 func runDaemon(cfg *config.Config) error {
 	logw := io.Writer(os.Stdout)
 	if f := openDaemonLog(cfg.HullHome); f != nil {
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		logw = io.MultiWriter(os.Stdout, f)
 	}
 	logger := log.New(logw, "", log.LstdFlags)

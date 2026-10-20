@@ -1,4 +1,4 @@
-// Package watch notices source edits inside a project so Hull can clear that
+// Package watch notices source edits inside a project so Hull can refresh that
 // project's PHP opcode cache.
 //
 // Why this exists: on a Windows or macOS bind mount, having PHP re-check every
@@ -6,104 +6,112 @@
 // each file operation crosses a slow filesystem boundary. Turning that check off
 // removes the cost but leaves PHP serving compiled copies until something tells
 // it to let go. Hull's daemon runs on the host, where filesystem events are
-// cheap and immediate, so it can watch for edits there and reload the container
-// instead. That gives the speed of not revalidating and the behaviour of
-// revalidating.
-//
-// It watches only what a developer actually edits. Dependency and framework
-// trees are skipped, which is both what makes the watch count small (a real
-// WordPress project drops from 513 directories to 102) and a fair reflection of
-// reality: people edit their own code, not vendor/ or wp-includes/.
+// cheap and immediate, so it can watch for edits there and tell the container
+// exactly which files changed. That gives the speed of not revalidating and the
+// behaviour of revalidating, without recompiling the files nobody touched.
 package watch
 
 import (
-	"fmt"
+	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
-
-	"github.com/fsnotify/fsnotify"
 )
 
-// ignoredDirs are never watched. They are large, machine-generated, and not
-// edited by hand. Skipping them is what keeps the watch count low enough to be
-// free; editing something in here still works, it just needs `hull reload`.
+// Change is one settled batch of edits.
+type Change struct {
+	// Files are the PHP files (host paths) written or created in the batch:
+	// the only entries the opcode cache has to drop.
+	Files []string
+	// Reset means a PHP file or a folder was deleted or renamed away, or the OS
+	// lost events. The opcode cache cannot drop the entry of a path that no
+	// longer exists, so it has to be emptied.
+	Reset bool
+}
+
+// ignoredDirs are never watched: no site includes PHP from them, and their
+// churn (an npm install) would flood the watcher. Folders such as cache or
+// build stay watched, since Laravel's bootstrap/cache and a block plugin's
+// build/render.php are PHP a site runs.
 var ignoredDirs = map[string]bool{
-	"vendor":       true, // composer, and on Laravel it is a volume anyway
 	"node_modules": true,
-	".git":         true,
-	"wp-includes":  true, // WordPress core
-	"wp-admin":     true,
-	"cache":        true,
-	"tmp":          true,
-	"dist":         true,
-	"build":        true,
-	".idea":        true,
-	".vscode":      true,
 }
 
-// watchedExts are the extensions worth a reload. The opcode cache only holds
-// compiled PHP, so a CSS or image edit must not cost a reload.
-var watchedExts = map[string]bool{
-	".php": true,
+// debounce is how long to wait for edits to settle. Editors write several
+// events for a single save (and some write a temp file then rename it), so the
+// batch is judged once the burst is over. maxBatch caps how long a batch can
+// keep growing: a site that writes files on every request (sessions, logs)
+// must not postpone a save's refresh for as long as it is busy.
+const (
+	debounce = 300 * time.Millisecond
+	maxBatch = time.Second
+)
+
+type op uint8
+
+const (
+	opCreate op = 1 << iota
+	opRenamedIn
+	opWrite
+	opGone
+)
+
+type event struct {
+	path     string
+	op       op
+	overflow bool
 }
 
-// maxDirs bounds how many directories a single project may watch, so one
-// pathological tree cannot exhaust handles. Real projects measured well under
-// this; when it trips, the watch is still useful, just partial.
-const maxDirs = 2000
-
-// debounce is how long to wait for edits to settle before reloading. Editors
-// write several events for a single save (and some write a temp file then
-// rename), so reloading per event would reload many times per save.
-const debounce = 300 * time.Millisecond
-
-// Watcher reloads a project when its PHP sources change.
+// Watcher reports settled PHP source changes under one project directory.
 type Watcher struct {
 	dir      string
-	onChange func()
+	skip     map[string]bool
+	onChange func(Change)
+	logf     func(string, ...any)
 
-	fsw  *fsnotify.Watcher
-	stop chan struct{}
-	once sync.Once
-	// dirs counts the directories watched so far, across the initial walk and
-	// every subtree added later, so maxDirs bounds the watcher's lifetime rather
-	// than each walk. Only touched before run() starts and then from run().
-	dirs int
+	events       chan event
+	stop         chan struct{}
+	done         chan struct{}
+	once         sync.Once
+	closeBackend func()
+	// dirs holds the folders below dir, so a removal can be told apart: a
+	// removed folder may have held cached scripts, a removed asset did not.
+	dirs map[string]bool
+	dead atomic.Bool
 }
 
-// skipDir reports whether a directory name should never be watched: the
-// machine-generated trees above, and hidden directories, which hold editor and
-// tool state rather than source. .hull is the exception, since a project's own
-// Hull config lives there.
-func skipDir(name string) bool {
-	if ignoredDirs[name] {
-		return true
+// New starts watching dir. skip lists folders (relative, slash-separated) the
+// container does not read from dir, such as a vendor/ a named volume covers.
+// onChange runs on the watcher's goroutine for each settled batch, so it must
+// not block. A missing refresh is a stale page, never a broken site, so errors
+// after start are not fatal.
+func New(dir string, skip []string, onChange func(Change), logf func(string, ...any)) (*Watcher, error) {
+	if logf == nil {
+		logf = func(string, ...any) {}
 	}
-	return strings.HasPrefix(name, ".") && name != ".hull"
-}
-
-// New starts watching dir. onChange is called, debounced, whenever a watched
-// PHP file changes. It never blocks the caller: watching happens on its own
-// goroutine and errors are non-fatal, because a missing reload is a slow edit
-// loop, not a broken site.
-func New(dir string, onChange func()) (*Watcher, error) {
-	fsw, err := fsnotify.NewWatcher()
+	w := &Watcher{
+		dir:      dir,
+		skip:     map[string]bool{},
+		onChange: onChange,
+		logf:     logf,
+		events:   make(chan event, 256),
+		stop:     make(chan struct{}),
+		done:     make(chan struct{}),
+		dirs:     map[string]bool{},
+	}
+	for _, s := range skip {
+		w.skip[path.Clean(s)] = true
+	}
+	closeBackend, err := startBackend(w)
 	if err != nil {
 		return nil, err
 	}
-	w := &Watcher{dir: dir, onChange: onChange, fsw: fsw, stop: make(chan struct{})}
-	w.addTree(dir)
-	// A watcher covering nothing is worse than no watcher: it reports success and
-	// then never fires, so an edit silently fails to appear and the reason is
-	// invisible. Some filesystems simply cannot be watched from here (a WSL
-	// distro reached over UNC answers ReadDirectoryChanges with "Incorrect
-	// function"), and the caller has to be told rather than reassured.
-	if w.dirs == 0 {
-		_ = fsw.Close()
-		return nil, fmt.Errorf("cannot watch %s: the filesystem does not report changes to this process", dir)
-	}
+	w.closeBackend = closeBackend
+	w.addDirs(dir)
 	go w.run()
 	return w, nil
 }
@@ -115,39 +123,93 @@ func (w *Watcher) Dir() string { return w.dir }
 func (w *Watcher) Close() {
 	w.once.Do(func() {
 		close(w.stop)
-		_ = w.fsw.Close()
+		w.closeBackend()
+		<-w.done
 	})
 }
 
-// addTree walks dir and watches every directory that is not ignored. fsnotify
-// watches a single directory per call, so a subtree means walking it; the
-// ignore list is what keeps that cheap.
-func (w *Watcher) addTree(dir string) {
-	var walk func(string)
-	walk = func(p string) {
-		if w.dirs >= maxDirs {
-			return
-		}
-		if err := w.fsw.Add(p); err != nil {
-			return
-		}
-		w.dirs++
-		entries, err := readDirNames(p)
-		if err != nil {
-			return
-		}
-		for _, name := range entries {
-			if skipDir(name) {
-				continue
-			}
-			walk(filepath.Join(p, name))
-		}
-	}
-	walk(dir)
+// Alive reports whether the watcher still receives changes. A dead one must be
+// replaced: edits from then on go unseen.
+func (w *Watcher) Alive() bool { return !w.dead.Load() }
+
+// fail records that the backend stopped, and asks for a reset for what it may
+// have missed.
+func (w *Watcher) fail(err error) {
+	w.logf("watch: %s stopped reporting changes: %v", w.dir, err)
+	w.dead.Store(true)
+	w.emit(event{overflow: true})
 }
 
-// run turns raw filesystem events into debounced reloads.
+// emit hands an event from the backend to run, giving up once Close starts.
+func (w *Watcher) emit(ev event) bool {
+	select {
+	case w.events <- ev:
+		return true
+	case <-w.stop:
+		return false
+	}
+}
+
+// skipped reports whether p lies in an ignored folder: one named in
+// ignoredDirs, a hidden one (except .hull, a project's own Hull config), or a
+// folder the caller skips.
+func (w *Watcher) skipped(p string) bool {
+	rel, err := filepath.Rel(w.dir, p)
+	if err != nil || rel == "." {
+		return false
+	}
+	rel = filepath.ToSlash(rel)
+	for prefix := range w.skip {
+		if rel == prefix || strings.HasPrefix(rel, prefix+"/") {
+			return true
+		}
+	}
+	for _, name := range strings.Split(rel, "/") {
+		if ignoredDirs[name] || (strings.HasPrefix(name, ".") && name != ".hull") {
+			return true
+		}
+	}
+	return false
+}
+
+func (w *Watcher) addDirs(root string) {
+	if w.skipped(root) {
+		return
+	}
+	if root != w.dir {
+		w.dirs[root] = true
+	}
+	names, err := readDirNames(root)
+	if err != nil {
+		return
+	}
+	for _, name := range names {
+		w.addDirs(filepath.Join(root, name))
+	}
+}
+
+// forgetDir drops p and the folders below it, and reports whether p was a
+// folder.
+func (w *Watcher) forgetDir(p string) bool {
+	if !w.dirs[p] {
+		return false
+	}
+	below := p + string(filepath.Separator)
+	for d := range w.dirs {
+		if d == p || strings.HasPrefix(d, below) {
+			delete(w.dirs, d)
+		}
+	}
+	return true
+}
+
+// run collects events into batches and reports each once it settles.
 func (w *Watcher) run() {
+	defer close(w.done)
+	// pending maps a path to whether its first event in the batch created it.
+	pending := map[string]bool{}
+	lost := false
+	var started time.Time
 	var timer *time.Timer
 	var fire <-chan time.Time
 	for {
@@ -157,38 +219,69 @@ func (w *Watcher) run() {
 				timer.Stop()
 			}
 			return
-
-		case event, ok := <-w.fsw.Events:
-			if !ok {
-				return
-			}
-			// A new directory needs its own watch, or edits inside it are missed.
-			if event.Has(fsnotify.Create) && isDir(event.Name) && !skipDir(filepath.Base(event.Name)) {
-				w.addTree(event.Name)
-			}
-			if !watchedExts[strings.ToLower(filepath.Ext(event.Name))] {
+		case ev := <-w.events:
+			if !ev.overflow && w.skipped(ev.path) {
 				continue
 			}
-			// Chmod alone does not change content, and Windows emits it liberally.
-			if event.Op == fsnotify.Chmod {
-				continue
+			if len(pending) == 0 && !lost {
+				started = time.Now()
+			}
+			if ev.overflow {
+				lost = true
+			} else {
+				if ev.op&(opCreate|opRenamedIn) != 0 && isDir(ev.path) {
+					w.addDirs(ev.path)
+				}
+				if _, seen := pending[ev.path]; !seen {
+					pending[ev.path] = ev.op&opCreate != 0
+				}
 			}
 			if timer != nil {
 				timer.Stop()
 			}
-			timer = time.NewTimer(debounce)
+			timer = time.NewTimer(min(debounce, max(maxBatch-time.Since(started), 0)))
 			fire = timer.C
-
 		case <-fire:
 			fire = nil
-			w.onChange()
-
-		case _, ok := <-w.fsw.Errors:
-			if !ok {
-				return
+			ch := w.settle(pending, lost)
+			pending, lost = map[string]bool{}, false
+			if ch.Reset || len(ch.Files) > 0 {
+				w.onChange(ch)
 			}
-			// Non-fatal: keep watching. A dropped event costs a stale page until
-			// the next edit, not a broken project.
 		}
 	}
+}
+
+// settle judges a batch by what is on disk once it is over, not by the events
+// on the way: a save that renames the old file away and a new one into place
+// ends with the file present, which is an edit, not a deletion.
+func (w *Watcher) settle(pending map[string]bool, lost bool) Change {
+	ch := Change{Reset: lost}
+	for p, created := range pending {
+		if info, err := os.Stat(p); err == nil {
+			if info.Mode().IsRegular() && isPHP(p) {
+				ch.Files = append(ch.Files, p)
+			}
+			continue
+		}
+		wasDir := w.forgetDir(p)
+		// A path created and removed within one batch was never cached. A
+		// rename into place is not a creation: it may have replaced a file
+		// that was.
+		if !created && (wasDir || isPHP(p)) {
+			ch.Reset = true
+		}
+	}
+	sort.Strings(ch.Files)
+	return ch
+}
+
+// isPHP reports whether PHP may have cached p: the extensions PHP code is
+// included from.
+func isPHP(p string) bool {
+	switch strings.ToLower(filepath.Ext(p)) {
+	case ".php", ".phtml", ".inc":
+		return true
+	}
+	return false
 }

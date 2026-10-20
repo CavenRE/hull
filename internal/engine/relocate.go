@@ -132,6 +132,8 @@ func (e *Engine) RelocateToWSL(ctx context.Context, p *state.Project, opts Reloc
 	newDir = platform.UNCPath(opts.Distro, opts.Dest)
 	if _, err := os.Stat(newDir); err == nil {
 		return "", "", fmt.Errorf("%s already exists inside %s; move it aside or pass a different --dest", opts.Dest, opts.Distro)
+	} else if !os.IsNotExist(err) {
+		return "", "", fmt.Errorf("could not check whether %s exists inside %s: %w", opts.Dest, opts.Distro, err)
 	}
 
 	// Stop before copying. A running WordPress or Laravel writes caches and
@@ -164,20 +166,13 @@ func (e *Engine) RelocateToWSL(ctx context.Context, p *state.Project, opts Reloc
 		}
 	}
 	if copyErr != nil {
-		// Clear the half-written destination. Leaving it would make the obvious
-		// next step (run the command again) fail on "already exists", and the
-		// user would have to work out for themselves that the leftover is
-		// incomplete rather than a second copy of their project.
 		// Put the project back the way it was found. Stopping it was Hull's
 		// doing, so leaving it down after a failure that changed nothing else
 		// would be a second, unrelated problem for the user to notice.
 		if upErr := e.Up(context.WithoutCancel(ctx), p); upErr != nil {
 			logf("could not start %s again after the failed move: %v", p.Name, upErr)
 		}
-		if rmErr := wslRemove(context.WithoutCancel(ctx), opts.Distro, opts.Dest); rmErr != nil {
-			return "", "", fmt.Errorf("%w. A partial copy was left at %s and could not be cleaned up (%v); delete it before trying again. Your original is untouched at %s", copyErr, newDir, rmErr, p.Dir)
-		}
-		return "", "", fmt.Errorf("%w. The partial copy has been cleaned up and your project is still running from %s", copyErr, p.Dir)
+		return "", "", fmt.Errorf("%w. Hull never deletes inside the distro, so check %s and delete any partial copy before trying again. Your original is untouched at %s", copyErr, newDir, p.Dir)
 	}
 
 	// Take the original out of Hull's sight without deleting anything.
@@ -240,9 +235,10 @@ func retireMarkers(dir string) error {
 }
 
 // wslCopy runs the copy inside the distro, preserving ownership, timestamps and
-// symlinks.
+// symlinks. dest is created with a plain mkdir, so the copy fails rather than
+// merging into a folder that already exists.
 func wslCopy(ctx context.Context, distro, source, dest string) error {
-	script := fmt.Sprintf("set -e; mkdir -p %s; cp -a %s/. %s/", shellQuote(path.Dir(dest)), shellQuote(source), shellQuote(dest))
+	script := fmt.Sprintf("set -e; mkdir -p %s; mkdir %s; cp -a %s/. %s/", platform.ShellQuote(path.Dir(dest)), platform.ShellQuote(dest), platform.ShellQuote(source), platform.ShellQuote(dest))
 	if out, err := platform.WSLRun(ctx, distro, script); err != nil {
 		detail := strings.TrimSpace(out)
 		if detail == "" {
@@ -251,27 +247,6 @@ func wslCopy(ctx context.Context, distro, source, dest string) error {
 		return fmt.Errorf("copying into %s failed: %s", distro, detail)
 	}
 	return nil
-}
-
-// wslRemove deletes a directory inside a distro. Used only to clear a
-// destination Hull created itself and then failed to fill, which is why it can
-// be this blunt: the path is one Hull chose and refused to reuse if it already
-// existed, so there is nothing of the user's inside it.
-func wslRemove(ctx context.Context, distro, dir string) error {
-	if !strings.HasPrefix(dir, "/") || dir == "/" {
-		return fmt.Errorf("refusing to remove %q", dir)
-	}
-	if _, err := platform.WSLRun(ctx, distro, "rm -rf "+shellQuote(dir)); err != nil {
-		return err
-	}
-	return nil
-}
-
-// shellQuote wraps a path for a POSIX shell. Project paths routinely contain
-// spaces on Windows ("My Site"), and an unquoted one silently copies the wrong
-// thing rather than failing.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // applyWSLIdentity gives the render the host identity a project inside WSL must

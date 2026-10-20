@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/CavenRE/hull/internal/config"
 	"github.com/CavenRE/hull/internal/engine"
 	"github.com/CavenRE/hull/internal/platform"
 	"github.com/CavenRE/hull/internal/services"
@@ -126,21 +127,22 @@ func setAutostart(name string, on bool) error {
 // updateAutostartInstance adds or removes a shared instance from the
 // services.autostart config list and persists it.
 func updateAutostartInstance(a *app, instance string, on bool) error {
-	list := append([]string{}, a.Config.Services.Autostart...)
-	has := slices.Contains(list, instance)
-	switch {
-	case on && !has:
-		list = append(list, instance)
-	case !on && has:
-		list = slices.DeleteFunc(list, func(s string) bool { return s == instance })
-	default:
-		return nil // already in the desired state
+	next, err := config.Update(a.Config.HullHome, func(c *config.Config) error {
+		list := slices.DeleteFunc(slices.Clone(c.Services.Autostart), func(s string) bool { return s == instance })
+		if on {
+			list = append(list, instance)
+		}
+		if len(list) == 0 {
+			list = nil
+		}
+		c.Services.Autostart = list
+		return nil
+	})
+	if err != nil {
+		return err
 	}
-	if len(list) == 0 {
-		list = nil
-	}
-	a.Config.Services.Autostart = list
-	return a.Config.Save()
+	*a.Config = *next
+	return nil
 }
 
 // listAutostart prints the projects and shared instances marked for autostart.

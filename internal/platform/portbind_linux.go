@@ -5,8 +5,11 @@ package platform
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 // unprivilegedPortStart returns net.ipv4.ip_unprivileged_port_start , ports at
@@ -54,6 +57,19 @@ func EnsurePortBind(ports []int) (string, error) {
 		return "", err
 	}
 	return "granted CAP_NET_BIND_SERVICE to " + exe + " for privileged port(s) " + joinInts(privileged), nil
+}
+
+// PortBindCapable reports whether exe carries CAP_NET_BIND_SERVICE. The
+// capability belongs to the file, so replacing the binary drops it.
+func PortBindCapable(exe string) bool { return hasPortBindCap(exe) }
+
+// WritableCapped reports whether exe carries CAP_NET_BIND_SERVICE while the
+// current user can write the file or its folder.
+func WritableCapped(exe string) bool {
+	if !hasPortBindCap(exe) {
+		return false
+	}
+	return unix.Access(exe, unix.W_OK) == nil || unix.Access(filepath.Dir(exe), unix.W_OK) == nil
 }
 
 // hasPortBindCap reports whether exe already carries cap_net_bind_service, so a

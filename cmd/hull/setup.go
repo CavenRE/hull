@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -369,8 +368,6 @@ type setupChoices struct {
 	noPrompt bool
 }
 
-var tldLabelRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
-
 // collectSetupConfig fills the projects folder, local domain, and loopback
 // endpoint on cfg. It prompts interactively (defaulting to the current values)
 // unless a flag supplies the value, --yes is set, or there is no terminal. The
@@ -419,8 +416,10 @@ func collectSetupConfig(cfg *config.Config, ch setupChoices) error {
 	if tld == "" {
 		tld = cfg.TLD
 	}
-	if !tldLabelRE.MatchString(tld) {
-		return fmt.Errorf("invalid domain %q; use a single label like test or local", tld)
+	if tld != cfg.TLD {
+		if err := config.ValidateTLD(tld); err != nil {
+			return err
+		}
 	}
 	cfg.TLD = tld
 

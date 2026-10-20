@@ -18,7 +18,7 @@ $verFlags = "-X github.com/CavenRE/hull/internal/version.Version=$VER -X github.
 Write-Host 'Building hull...' -ForegroundColor Cyan
 $bin = Join-Path $root 'bin'
 New-Item -ItemType Directory -Force -Path $bin | Out-Null
-go build -ldflags "-s -w $verFlags" -o (Join-Path $bin 'hull.exe') ./cmd/hull
+go build -trimpath -ldflags "-s -w $verFlags" -o (Join-Path $bin 'hull.exe') ./cmd/hull
 
 Write-Host ''
 Write-Host "Built bin\hull.exe ($VER)" -ForegroundColor Green

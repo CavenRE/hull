@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -68,7 +69,7 @@ func init() {
 			if !direct {
 				for _, ep := range eps {
 					for _, host := range ep.Hosts {
-						fmt.Printf("https://%s\n", host)
+						fmt.Println(a.siteURL(host))
 					}
 				}
 				return nil
@@ -125,4 +126,13 @@ func containsString(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// siteURL is the https URL the router serves host on, with the port when the
+// router does not listen on 443.
+func (a *app) siteURL(host string) string {
+	if port := a.Config.Router.HTTPSPort; port != 0 && port != 443 {
+		return "https://" + host + ":" + strconv.Itoa(port)
+	}
+	return "https://" + host
 }

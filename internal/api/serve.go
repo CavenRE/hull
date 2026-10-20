@@ -26,8 +26,8 @@ func Serve(ctx context.Context, cfg *config.Config, logf func(format string, a .
 	}
 	server := NewServer(cfg, token)
 
-	// Single-daemon lock: refuse to start a second daemon (or take over a
-	// stale lock from a crash) before touching the discovery file or ports.
+	// Single-daemon lock: refuse to start a second daemon before touching the
+	// discovery file or ports.
 	guard, err := acquireInstance(cfg.HullHome, func() bool {
 		_, ok := Connect(cfg.HullHome)
 		return ok
@@ -43,7 +43,7 @@ func Serve(ctx context.Context, cfg *config.Config, logf func(format string, a .
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
 
-	if err := WriteDaemonFile(cfg.HullHome, DaemonInfo{Port: port, Token: token, PID: os.Getpid()}); err != nil {
+	if err := WriteDaemonFile(cfg.HullHome, DaemonInfo{Port: port, Token: token, PID: os.Getpid(), Hello: true}); err != nil {
 		_ = ln.Close()
 		return err
 	}
@@ -55,7 +55,7 @@ func Serve(ctx context.Context, cfg *config.Config, logf func(format string, a .
 		once.Do(func() { close(shutdownCh) })
 	}
 
-	stopNet, syncNow, err := startNetworking(ctx, cfg, server.Engine, logf)
+	stopNet, syncNow, err := startNetworking(ctx, server.cfg, server.Engine, logf)
 	if err != nil {
 		_ = ln.Close()
 		RemoveDaemonFile(cfg.HullHome)
@@ -63,6 +63,12 @@ func Serve(ctx context.Context, cfg *config.Config, logf func(format string, a .
 	}
 	defer stopNet()
 	server.SyncRoutes = syncNow
+	// Deferred after stopNet, so it stops first: onChange drives the router.
+	stopEvents := watchEngine(ctx, dockerx.ContainerEvents, func() {
+		syncNow()
+		server.eventHub().poke()
+	}, logf)
+	defer stopEvents()
 
 	// Watch running PHP projects and clear their opcode cache when sources
 	// change. This is what lets Hull skip per-request file revalidation (the
@@ -70,7 +76,7 @@ func Serve(ctx context.Context, cfg *config.Config, logf func(format string, a .
 	if cfg.AutoReloadEnabled() {
 		arCtx, stopAR := context.WithCancel(ctx)
 		defer stopAR()
-		go newAutoReloader(cfg, server.Engine, logf).run(arCtx)
+		go newAutoReloader(server.cfg, server.Engine, logf).run(arCtx)
 	}
 
 	// Bring up autostart projects and shared instances, then refresh routes so
@@ -78,14 +84,6 @@ func Serve(ctx context.Context, cfg *config.Config, logf func(format string, a .
 	// even while `docker compose up` runs; best-effort (failures are logged).
 	// Only spun up when something is actually marked, so the default (nothing
 	// marked) never pays the wait-for-Docker cost.
-	// Always report the engine state at boot. This is a fast probe that never
-	// waits, and it is what makes `hull start` able to say Hull is running but
-	// Docker is not, instead of claiming everything is fine. The expensive
-	// start-and-wait below stays gated on there being something to bring up.
-	if err := dockerx.EngineCheck(ctx); err != nil {
-		logf("docker: %v", err)
-	}
-
 	if server.Engine.HasAutostart() {
 		go func() {
 			// Docker may be closed, or still starting at login. Start it if needed
@@ -104,11 +102,25 @@ func Serve(ctx context.Context, cfg *config.Config, logf func(format string, a .
 		}()
 	}
 
-	httpServer := &http.Server{Handler: server.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	// The write timeout is long because a start waits for `compose up`, which
+	// may pull images; the SSE streams clear it for themselves.
+	httpServer := &http.Server{
+		Handler:           server.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      15 * time.Minute,
+		IdleTimeout:       2 * time.Minute,
+	}
 	errCh := make(chan error, 1)
 	go func() { errCh <- httpServer.Serve(ln) }()
 
 	logf("hulld listening on 127.0.0.1:%d (home %s)", port, cfg.HullHome)
+
+	// After Serve starts: the probe can take seconds when Docker is unwell, and
+	// clients must not queue behind it.
+	if err := dockerx.EngineCheck(ctx); err != nil {
+		logf("docker: %v", err)
+	}
 
 	select {
 	case <-ctx.Done():
@@ -121,5 +133,11 @@ func Serve(ctx context.Context, cfg *config.Config, logf func(format string, a .
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	return httpServer.Shutdown(shutdownCtx)
+	if err = httpServer.Shutdown(shutdownCtx); err != nil {
+		err = httpServer.Close()
+	}
+	// Stop running jobs (each sees its context canceled) and give them a moment
+	// to finish the step they are on before the process exits under them.
+	server.Jobs.Shutdown(20 * time.Second)
+	return err
 }

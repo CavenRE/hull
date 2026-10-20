@@ -47,6 +47,10 @@ func (c Compose) args(sub ...string) []string {
 	return append(full, sub...)
 }
 
+// Command is the docker argument list for a compose subcommand under this
+// project's identity, for callers that run docker themselves (log streaming).
+func (c Compose) Command(sub ...string) []string { return c.args(sub...) }
+
 func (c Compose) run(ctx context.Context, args ...string) error {
 	runner := c.Run
 	if runner == nil {
@@ -158,4 +162,10 @@ func (c Compose) ExecIn(ctx context.Context, service string, cmd ...string) erro
 // a terminal). Used by post-create steps like `artisan migrate`.
 func (c Compose) ExecNoTTY(ctx context.Context, service string, cmd ...string) error {
 	return c.run(ctx, append([]string{"exec", "-T", service}, cmd...)...)
+}
+
+// RunOneOff runs cmd in a new, throwaway container of service without its
+// dependencies, for work that must happen before the project is up.
+func (c Compose) RunOneOff(ctx context.Context, service string, cmd ...string) error {
+	return c.run(ctx, append([]string{"run", "--rm", "--no-deps", "-T", service}, cmd...)...)
 }

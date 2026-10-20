@@ -3,6 +3,8 @@ package api
 import (
 	"bufio"
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,7 +17,9 @@ import (
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/engine"
 	"github.com/CavenRE/hull/internal/jobs"
+	"github.com/CavenRE/hull/internal/manifest"
 	"github.com/CavenRE/hull/internal/services"
+	"github.com/CavenRE/hull/internal/state"
 )
 
 type recorded struct {
@@ -74,14 +78,22 @@ func testServer(t *testing.T) (*Server, *Client, *recorded) {
 	return s, client, rec
 }
 
-func writeProject(t *testing.T, root, name string) {
+// writeProject writes an approved plain project under the server's first root.
+func writeProject(t *testing.T, s *Server, name string) {
 	t.Helper()
-	dir := filepath.Join(root, name)
+	dir := filepath.Join(s.Config.Roots[0], name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := "schema: 1\nname: " + name + "\ntemplate: plain\n"
-	if err := os.WriteFile(filepath.Join(dir, "hull.yaml"), []byte(manifest), 0o644); err != nil {
+	src := "schema: 1\nname: " + name + "\ntemplate: plain\n"
+	if err := os.WriteFile(filepath.Join(dir, "hull.yaml"), []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := manifest.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Engine.Trust(&state.Project{Name: name, Dir: dir, Manifest: m}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -100,22 +112,33 @@ func TestAuthRequired(t *testing.T) {
 func TestQueryTokenAndCORS(t *testing.T) {
 	_, client, _ := testServer(t)
 
-	// SSE-style query token authenticates.
-	resp, err := client.HTTP.Get(client.BaseURL + "/v1/status?token=secret-token")
+	// A query token authenticates the SSE routes only (EventSource cannot set
+	// headers); /v1/logs with no target is a 400 once authenticated.
+	for path, want := range map[string]int{
+		"/v1/logs?token=secret-token":   http.StatusBadRequest,
+		"/v1/logs?token=wrong":          http.StatusUnauthorized,
+		"/v1/status?token=secret-token": http.StatusUnauthorized,
+	} {
+		resp, err := client.HTTP.Get(client.BaseURL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != want {
+			t.Errorf("%s: status = %d, want %d", path, resp.StatusCode, want)
+		}
+	}
+
+	// Only the desktop app's origins may read responses cross-origin.
+	other, _ := http.NewRequest(http.MethodOptions, client.BaseURL+"/v1/projects", nil)
+	other.Header.Set("Origin", "https://evil.example")
+	resp, err := client.HTTP.Do(other)
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("query token status = %d", resp.StatusCode)
-	}
-	resp, err = client.HTTP.Get(client.BaseURL + "/v1/status?token=wrong")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Errorf("wrong query token status = %d", resp.StatusCode)
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("a web page's origin was allowed: %q", got)
 	}
 
 	// CORS preflight needs no token and reflects the origin.
@@ -158,8 +181,8 @@ func TestStatus(t *testing.T) {
 
 func TestProjectsAndRunningState(t *testing.T) {
 	s, client, _ := testServer(t)
-	writeProject(t, s.Config.Roots[0], "alpha")
-	writeProject(t, s.Config.Roots[0], "beta")
+	writeProject(t, s, "alpha")
+	writeProject(t, s, "beta")
 
 	infos, err := client.Projects(context.Background())
 	if err != nil {
@@ -181,12 +204,12 @@ func TestProjectsAndRunningState(t *testing.T) {
 
 func TestProjectAction(t *testing.T) {
 	s, client, rec := testServer(t)
-	writeProject(t, s.Config.Roots[0], "alpha")
+	writeProject(t, s, "alpha")
 
 	if err := client.ProjectAction(context.Background(), "alpha", "start"); err != nil {
 		t.Fatal(err)
 	}
-	if len(rec.commands) != 1 || rec.commands[0] != "docker compose up -d" {
+	if len(rec.commands) != 1 || rec.commands[0] != "docker compose -p alpha -f compose.yaml up -d" {
 		t.Errorf("commands = %v", rec.commands)
 	}
 	if err := client.ProjectAction(context.Background(), "ghost", "start"); err == nil {
@@ -326,7 +349,7 @@ func TestServicesEndpoints(t *testing.T) {
 	}
 
 	// Link a project to it.
-	writeProject(t, s.Config.Roots[0], "shop")
+	writeProject(t, s, "shop")
 	if err := client.do(context.Background(), http.MethodPost, "/v1/services/mailpit/link", LinkRequest{Project: "shop"}, &ref); err != nil {
 		t.Fatal(err)
 	}
@@ -362,7 +385,7 @@ func TestServicesEndpoints(t *testing.T) {
 
 func TestJobStreamFinishedJob(t *testing.T) {
 	s, client, _ := testServer(t)
-	job := s.Jobs.Start("noop", func(log func(string)) error {
+	job := s.Jobs.Start("noop", func(_ context.Context, log func(string)) error {
 		log("hello")
 		return nil
 	})
@@ -490,5 +513,45 @@ func TestServeLifecycle(t *testing.T) {
 	}
 	if _, err := ReadDaemonFile(home); err == nil {
 		t.Error("daemon file not cleaned up")
+	}
+}
+
+func TestHelloProvesTheTokenWithoutSendingIt(t *testing.T) {
+	_, c, _ := testServer(t)
+	if !c.isOurDaemon(context.Background(), false) {
+		t.Error("the right token failed the hello check")
+	}
+	other := &Client{BaseURL: c.BaseURL, Token: "other-token", HTTP: c.HTTP}
+	if other.isOurDaemon(context.Background(), false) {
+		t.Error("a wrong token passed the hello check")
+	}
+
+	old := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, http.StatusUnauthorized, fmt.Errorf("missing or invalid token"))
+	}))
+	t.Cleanup(old.Close)
+	legacy := &Client{BaseURL: old.URL, Token: "tok", HTTP: old.Client()}
+	if !legacy.isOurDaemon(context.Background(), true) {
+		t.Error("a daemon older than /v1/hello was not recognized from its own daemon.json")
+	}
+	if legacy.isOurDaemon(context.Background(), false) {
+		t.Error("a 401 passed for a daemon.json written by a daemon that answers /v1/hello")
+	}
+}
+
+func TestRequestBodyIsCapped(t *testing.T) {
+	_, c, _ := testServer(t)
+	body := `{"groups":{"g":["` + strings.Repeat("x", maxBody) + `"]}}`
+	req, _ := http.NewRequest(http.MethodPut, c.BaseURL+"/v1/groups", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var e ErrorBody
+	_ = json.NewDecoder(resp.Body).Decode(&e)
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(e.Error, "too large") {
+		t.Errorf("status %d, error %q", resp.StatusCode, e.Error)
 	}
 }

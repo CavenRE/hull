@@ -70,6 +70,9 @@ func init() {
 			if p.Manifest == nil {
 				return fmt.Errorf("%s has no hull.yaml, so Hull does not know how to bring it back up after a move", p.Name)
 			}
+			if err := a.ensureTrusted(p); err != nil {
+				return err
+			}
 
 			if distro == "" {
 				distros := platform.WSLDistros(cmd.Context())
@@ -121,6 +124,9 @@ func init() {
 			// in-process would leave the router pointing at the old container
 			// until its next sync.
 			np := &state.Project{Name: p.Name, Dir: moved, Manifest: p.Manifest}
+			if err := a.Engine.Trust(np); err != nil {
+				return fmt.Errorf("%s now lives at %s, but Hull could not carry its approval over: %w. Run `hull allow %s` there", p.Name, moved, err, p.Name)
+			}
 			if err := a.withDaemon(
 				func(c *api.Client) error { return c.ProjectAction(cmd.Context(), p.Name, "start") },
 				func() error { return a.Engine.Up(cmd.Context(), np) },
@@ -130,7 +136,7 @@ func init() {
 
 			fmt.Printf("✔ %s now lives at %s\n", p.Name, moved)
 			if p.Manifest.Served() && p.Manifest.Domain != "" {
-				fmt.Printf("  served at https://%s.%s, same as before\n", p.Manifest.Domain, a.Config.TLD)
+				fmt.Printf("  served at %s, same as before\n", a.siteURL(p.Manifest.Domain+"."+a.Config.TLD))
 			}
 			fmt.Printf("  your old files are still there, at %s; delete that folder once you are happy\n", retired)
 			return nil

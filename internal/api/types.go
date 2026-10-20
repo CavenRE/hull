@@ -157,8 +157,8 @@ type ReapplyStep struct {
 	Manual string `json:"manual,omitempty"` // command to run when elevation is needed
 }
 
-// ReapplyResult answers POST /v1/setup/reapply: everything the daemon could
-// re-apply without elevation, plus the commands for the steps that need it.
+// ReapplyResult answers POST /v1/setup/reapply: the outcome of each setup step,
+// with the command to run in a terminal for a step that could not run.
 type ReapplyResult struct {
 	Steps []ReapplyStep `json:"steps"`
 }
@@ -261,4 +261,12 @@ type Event struct {
 // ErrorBody is the JSON error envelope.
 type ErrorBody struct {
 	Error string `json:"error"`
+}
+
+// Hello is GET /v1/hello: proof that the daemon holds the token, and which
+// process and version it is.
+type Hello struct {
+	Proof   string `json:"proof"`
+	PID     int    `json:"pid"`
+	Version string `json:"version"`
 }

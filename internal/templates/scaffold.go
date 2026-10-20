@@ -2,9 +2,13 @@ package templates
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 
 	_ "embed"
 )
@@ -20,6 +24,15 @@ var opcacheINI string
 
 //go:embed assets/opcache-watched.ini
 var opcacheWatchedINI string
+
+//go:embed assets/hull-opcache.php
+var opcacheHelperPHP string
+
+//go:embed assets/hull-opcache-cli.php
+var opcacheHelperCLI string
+
+//go:embed assets/hull-opcache-apache.conf
+var opcacheHelperApache string
 
 //go:embed assets/hull-composer-install.sh
 var composerInstallSH string
@@ -46,7 +59,7 @@ var goMain string
 var airToml string
 
 // EnsureSystemFiles writes Hull-owned support files (the shared opcache.ini and
-// xdebug.ini every PHP container mounts, Adminer's auto-login plugin) into the
+// xdebug.ini every PHP container mounts, Adminer's database picker plugin) into the
 // Hull home directory if missing, so a fresh v2 machine works without a v1
 // installation. Existing files are left untouched , they may carry user tweaks.
 func EnsureSystemFiles(hullHome string) error {
@@ -61,20 +74,34 @@ func EnsureSystemFiles(hullHome string) error {
 		// opcache-watched.ini is the exception, being Hull machinery a project
 		// overrides through its own .hull/php.ini rather than by editing.
 		managed bool
+		// shipped lists the sha256 of copies earlier Hull versions wrote. An
+		// unmanaged file still matching one was never edited, so it takes the
+		// new version.
+		shipped []string
 	}
+	php := filepath.Join(hullHome, "system", "php")
 	files := map[string]sysFile{
-		filepath.Join(hullHome, "system", "php", "opcache.ini"):              {opcacheINI, 0o644, false},
-		filepath.Join(hullHome, "system", "php", "opcache-watched.ini"):      {opcacheWatchedINI, 0o644, true},
-		filepath.Join(hullHome, "system", "php", "xdebug.ini"):               {xdebugINI, 0o644, false},
-		filepath.Join(hullHome, "system", "php", "hull-composer-install.sh"): {composerInstallSH, 0o755, true},
-		filepath.Join(hullHome, "system", "php", "hull-fix-perms.sh"):        {fixPermsSH, 0o755, true},
-		filepath.Join(hullHome, "system", "adminer", "hull-login.php"):       {adminerLogin, 0o644, false},
+		filepath.Join(php, "opcache.ini"): {content: opcacheINI, mode: 0o644, shipped: []string{
+			"2f6090a34689a403f28fcb39f4e4ffc72cbfd8f6ebde9edd996e28ee27b0708a",
+			"5c6e97ffcf3292c1ba212c0dfbb2f40b0f27a581a60b5a1927f451884928b486",
+		}},
+		filepath.Join(php, "opcache-watched.ini"):          {content: opcacheWatchedINI, mode: 0o644, managed: true},
+		filepath.Join(php, "xdebug.ini"):                   {content: xdebugINI, mode: 0o644},
+		filepath.Join(php, "hull-composer-install.sh"):     {content: composerInstallSH, mode: 0o755, managed: true},
+		filepath.Join(php, "hull-fix-perms.sh"):            {content: fixPermsSH, mode: 0o755, managed: true},
+		filepath.Join(php, "hull", "hull-opcache.php"):     {content: opcacheHelperPHP, mode: 0o644, managed: true},
+		filepath.Join(php, "hull", "hull-opcache-cli.php"): {content: opcacheHelperCLI, mode: 0o644, managed: true},
+		filepath.Join(php, "hull-opcache-apache.conf"):     {content: opcacheHelperApache, mode: 0o644, managed: true},
+		filepath.Join(hullHome, "system", "adminer", "hull-login.php"): {content: adminerLogin, mode: 0o644, shipped: []string{
+			"2c75865bc3f9dbdb9569055b0da3c2df2c10c76207f22393d81e0e99b68323a3",
+			"ccaf0c5a44a34b3acac669effb1b0fe14faad5e0d469af3bbfd425a97763c3ef",
+		}},
 	}
 	for target, f := range files {
 		if existing, err := os.ReadFile(target); err == nil {
 			// Present already: leave user config alone, and rewrite a managed
 			// file only when Hull's shipped copy actually differs.
-			if !f.managed || string(existing) == f.content {
+			if string(existing) == f.content || (!f.managed && !shippedBefore(existing, f.shipped)) {
 				continue
 			}
 		}
@@ -88,7 +115,12 @@ func EnsureSystemFiles(hullHome string) error {
 	return nil
 }
 
-// AdminerPluginPath is where the auto-login plugin lives in the Hull home.
+func shippedBefore(data []byte, sums []string) bool {
+	sum := sha256.Sum256(data)
+	return slices.Contains(sums, hex.EncodeToString(sum[:]))
+}
+
+// AdminerPluginPath is where the database picker plugin lives in the Hull home.
 func AdminerPluginPath(hullHome string) string {
 	return filepath.Join(hullHome, "system", "adminer", "hull-login.php")
 }
@@ -190,12 +222,18 @@ func scaffoldPython(opts ScaffoldOptions) error {
 	return nil
 }
 
+var laravelVersionRE = regexp.MustCompile(`^[0-9]+(\.[0-9]+){0,2}$`)
+
 func scaffoldLaravel(ctx context.Context, opts ScaffoldOptions) error {
 	if opts.Run == nil {
 		return fmt.Errorf("laravel scaffolding requires a command runner")
 	}
 	target := "laravel/laravel"
 	if opts.Version != "" && opts.Version != "latest" {
+		// It lands in a shell command line, so only a plain version number.
+		if !laravelVersionRE.MatchString(opts.Version) {
+			return fmt.Errorf("invalid laravel version %q; use a number such as 11 or 11.2", opts.Version)
+		}
 		target = fmt.Sprintf("laravel/laravel=^%s", opts.Version)
 	}
 
@@ -212,7 +250,7 @@ func scaffoldLaravel(ctx context.Context, opts ScaffoldOptions) error {
 	args = append(args, userFlag()...)
 	args = append(args,
 		"-v", mount,
-		"composer:latest",
+		"composer:2.8",
 		"sh", "-c", fmt.Sprintf("composer create-project %s /tmp/hull-build && cp -a /tmp/hull-build/. /out/", target),
 	)
 	if err := opts.Run(ctx, "", "docker", args...); err != nil {
@@ -231,7 +269,7 @@ func scaffoldLaravel(ctx context.Context, opts ScaffoldOptions) error {
 		"run", "--rm",
 		"-v", mount,
 		"-w", "/out",
-		"alpine", "sh", "-c", "chown -R 33:33 storage bootstrap/cache database",
+		"alpine:3.22", "sh", "-c", "chown -R 33:33 storage bootstrap/cache database",
 	}
 	if err := opts.Run(ctx, "", "docker", chown...); err != nil {
 		return fmt.Errorf("setting storage permissions: %w", err)

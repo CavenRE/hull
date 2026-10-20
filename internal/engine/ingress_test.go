@@ -20,7 +20,7 @@ func TestClusterIngressArtifacts(t *testing.T) {
 	if err := os.MkdirAll(core, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	os.WriteFile(filepath.Join(dir, "hull.yaml"), []byte(`schema: 1
+	writeTestFile(t, filepath.Join(dir, "hull.yaml"), `schema: 1
 name: tapkit
 type: cluster
 compose_root: core
@@ -33,15 +33,15 @@ routes:
   dash:
     service: dashboard
     port: 8080
-`), 0o644)
-	os.WriteFile(filepath.Join(core, "docker-compose.yml"), []byte(`name: tapkit
+`)
+	writeTestFile(t, filepath.Join(core, "docker-compose.yml"), `name: tapkit
 networks:
   tapkit_public: {}
   tapkit_internal: {}
 services:
   management_api: { image: x }
   dashboard: { image: y }
-`), 0o644)
+`)
 
 	m, err := manifest.Load(dir)
 	if err != nil {
@@ -113,16 +113,37 @@ services:
 	}
 }
 
-func TestClusterLoopbackDeterministic(t *testing.T) {
-	a := clusterLoopback("tapkit", "127.0.0.1")
-	b := clusterLoopback("tapkit", "127.0.0.1")
-	if a != b {
-		t.Errorf("clusterLoopback not deterministic: %q vs %q", a, b)
+func TestIngressIPAvoidsOtherClusters(t *testing.T) {
+	e, root := testEngine(t)
+	mk := func(name string) *state.Project {
+		dir := filepath.Join(root, name)
+		mustWrite(t, dir, "schema: 1\nname: "+name+"\ntype: cluster\n")
+		m, err := manifest.Load(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &state.Project{Name: name, Dir: dir, Manifest: m}
 	}
-	if a == "127.0.0.1" {
-		t.Error("clusterLoopback must not pick 127.0.0.1")
+	alpha, beta := mk("alpha"), mk("beta")
+	first, err := e.ingressIP(beta)
+	if err != nil || first == "127.0.0.1" {
+		t.Fatalf("ip = %q, %v", first, err)
 	}
-	if clusterLoopback("other", "127.0.0.1") == a {
-		t.Log("note: two names hashed to the same octet (allocation is preview-grade)")
+	// alpha's written overlay already holds beta's first choice.
+	writeTestFile(t, filepath.Join(alpha.Dir, "compose.hull.yaml"), "ports:\n  - "+first+":80:80\n")
+	if second, _ := e.ingressIP(beta); second == first {
+		t.Errorf("beta got %s, which alpha already binds", second)
+	}
+	// beta's own written overlay pins its address.
+	writeTestFile(t, filepath.Join(beta.Dir, "compose.hull.yaml"), "ports:\n  - 127.0.0.77:80:80\n")
+	if got, _ := e.ingressIP(beta); got != "127.0.0.77" {
+		t.Errorf("beta moved off its written address: %s", got)
+	}
+}
+
+func writeTestFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

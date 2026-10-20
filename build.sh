@@ -22,6 +22,6 @@ LDFLAGS="-s -w -X github.com/CavenRE/hull/internal/version.Version=${VER} -X git
 
 step "Building hull"
 mkdir -p "$ROOT/bin"
-go build -ldflags "$LDFLAGS" -o "$ROOT/bin/hull" ./cmd/hull
+go build -trimpath -ldflags "$LDFLAGS" -o "$ROOT/bin/hull" ./cmd/hull
 ok "bin/hull ($VER)"
 echo "Install into ~/.local/bin with: ./install.sh"

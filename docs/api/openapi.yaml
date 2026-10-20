@@ -42,6 +42,27 @@ tags:
   - name: system
 
 paths:
+  /v1/hello:
+    get:
+      tags: [status]
+      summary: Prove this daemon holds the token, before a client sends it
+      description: "Unauthenticated. `proof` is hex HMAC-SHA256(token, challenge); a client compares it with its own before trusting the port recorded in daemon.json."
+      security: []
+      parameters:
+        - { name: challenge, in: query, required: true, schema: { type: string, minLength: 16, maxLength: 128 } }
+      responses:
+        "200":
+          description: Proof and identity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  proof: { type: string }
+                  pid: { type: integer }
+                  version: { type: string }
+        "400": { description: Bad challenge, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
+
   /v1/status:
     get:
       tags: [status]
@@ -531,6 +552,17 @@ paths:
         - { name: id, in: path, required: true, schema: { type: string } }
       responses:
         "200": { description: SSE stream, content: { text/event-stream: { schema: { type: string } } } }
+
+  /v1/jobs/{id}/cancel:
+    post:
+      tags: [jobs]
+      summary: Ask a running job to stop
+      description: "Cancels the job's context; its current command is stopped and the job ends as failed. The CLI sends this on Ctrl-C."
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "202": { description: Cancel requested }
+        "404": { description: Unknown job, content: { application/json: { schema: { $ref: "#/components/schemas/ErrorBody" } } } }
 
   /v1/logs:
     get:

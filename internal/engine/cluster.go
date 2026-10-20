@@ -15,6 +15,7 @@ import (
 
 	"github.com/CavenRE/hull/internal/compose"
 	"github.com/CavenRE/hull/internal/manifest"
+	"github.com/CavenRE/hull/internal/safefile"
 	"github.com/CavenRE/hull/internal/state"
 	"github.com/CavenRE/hull/internal/templates"
 )
@@ -30,6 +31,8 @@ type ClusterOptions struct {
 }
 
 var composeNames = []string{"compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"}
+
+var composeOverrideNames = []string{"compose.override.yaml", "compose.override.yml", "docker-compose.override.yaml", "docker-compose.override.yml"}
 
 // ContainerSpec is one container card from the create-cluster wizard.
 type ContainerSpec struct {
@@ -82,10 +85,10 @@ func (e *Engine) NewCluster(ctx context.Context, opts NewClusterOptions) (string
 	}
 	root := opts.Root
 	if root == "" {
-		if len(e.Config.Roots) == 0 {
+		if len(e.cfg().Roots) == 0 {
 			return "", fmt.Errorf("no project roots configured")
 		}
-		root = e.Config.Roots[0]
+		root = e.cfg().Roots[0]
 	}
 	dir := filepath.Join(root, name)
 	if _, err := os.Stat(dir); err == nil {
@@ -130,26 +133,36 @@ func (e *Engine) newManagedCluster(ctx context.Context, dir, name string, opts N
 	if err != nil {
 		return "", err
 	}
-	if _, err := manifest.Parse(data); err != nil {
+	// Render from the parsed manifest: Parse fills the defaults (database
+	// names, container paths) the renderer relies on.
+	m, err = manifest.Parse(data)
+	if err != nil {
 		return "", err
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
+	if err := e.ensureLogins(m); err != nil {
+		return dir, err
+	}
 	if err := e.WriteArtifacts(m, dir); err != nil {
 		return dir, err
 	}
+	if err := e.Trust(&state.Project{Name: name, Dir: dir, Manifest: m}); err != nil {
+		return dir, err
+	}
 	if !opts.SkipStart {
-		if err := templates.EnsureSystemFiles(e.Config.HullHome); err != nil {
+		if err := templates.EnsureSystemFiles(e.cfg().HullHome); err != nil {
 			return dir, err
 		}
 		if err := e.prepareNetworks(ctx); err != nil {
 			return dir, err
 		}
-		if err := e.compose(dir).Up(ctx); err != nil {
+		p := &state.Project{Name: name, Dir: dir, Manifest: m}
+		if err := e.composeFor(p).Up(ctx); err != nil {
 			return dir, err
 		}
-		e.recordStarted(&state.Project{Name: name, Dir: dir, Manifest: m})
+		e.recordStarted(p)
 	}
 	return dir, nil
 }
@@ -181,12 +194,22 @@ func (e *Engine) newOwnedCluster(ctx context.Context, dir, name string, opts New
 			if !ok {
 				continue
 			}
-			f.Services[key+"-"+sv.Engine] = &compose.ServiceDef{
+			svcKey := key + "-" + sv.Engine
+			svc := &compose.ServiceDef{
 				Image:       eng.Image(sv.Version),
 				Command:     eng.Command,
 				Environment: eng.Env(""),
 				Networks:    []string{"default"},
 			}
+			if eng.DataPath != "" {
+				volume := svcKey + "_data"
+				svc.Volumes = []string{volume + ":" + eng.DataPath}
+				if f.Volumes == nil {
+					f.Volumes = map[string]*compose.Volume{}
+				}
+				f.Volumes[volume] = nil
+			}
+			f.Services[svcKey] = svc
 		}
 	}
 	if err := os.MkdirAll(composeDir, 0o755); err != nil {
@@ -196,7 +219,7 @@ func (e *Engine) newOwnedCluster(ctx context.Context, dir, name string, opts New
 	if err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(composeDir, "compose.yaml"), cdata, 0o644); err != nil {
+	if err := safefile.Write(filepath.Join(composeDir, "compose.yaml"), cdata, 0o644); err != nil {
 		return "", err
 	}
 
@@ -208,7 +231,10 @@ func (e *Engine) newOwnedCluster(ctx context.Context, dir, name string, opts New
 	if _, err := manifest.Parse(mdata); err != nil {
 		return dir, err
 	}
-	if err := os.WriteFile(filepath.Join(dir, manifest.Filename), mdata, 0o644); err != nil {
+	if err := safefile.Write(filepath.Join(dir, manifest.Filename), mdata, 0o644); err != nil {
+		return dir, err
+	}
+	if err := e.Trust(&state.Project{Name: name, Dir: dir, Manifest: m}); err != nil {
 		return dir, err
 	}
 	if !opts.SkipStart {
@@ -289,10 +315,14 @@ func (e *Engine) AdoptCluster(opts ClusterOptions) (*manifest.Manifest, error) {
 		return nil, err
 	}
 	// Round-trip to validate + normalize (subdomain defaults, etc.).
-	if _, err := manifest.Parse(data); err != nil {
+	parsed, err := manifest.Parse(data)
+	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(filepath.Join(abs, manifest.Filename), data, 0o644); err != nil {
+	if err := safefile.Write(filepath.Join(abs, manifest.Filename), data, 0o644); err != nil {
+		return nil, err
+	}
+	if err := e.Trust(&state.Project{Name: parsed.Name, Dir: abs, Manifest: parsed}); err != nil {
 		return nil, err
 	}
 	return m, nil
@@ -324,7 +354,7 @@ func (e *Engine) SetClusterRoute(p *state.Project, key string, spec ClusterRoute
 	// Subdomain is left empty in the written route (it defaults to the key on
 	// load), keeping the block minimal.
 	rt := &manifest.ClusterRoute{Service: spec.Service, Port: spec.Port, Aliases: spec.Aliases, Serve: spec.Serve}
-	return editClusterManifest(p.Dir, func(root *yaml.Node) error {
+	return e.editClusterManifest(p.Dir, func(root *yaml.Node) error {
 		routes := ensureMapChild(root, "routes")
 		val := &yaml.Node{}
 		if err := val.Encode(rt); err != nil {
@@ -355,7 +385,7 @@ func (e *Engine) SetClusterConfig(p *state.Project, spec ClusterConfigSpec) erro
 			return fmt.Errorf("invalid ingress %q (use none, delegate, or hull)", *spec.Ingress)
 		}
 	}
-	return editClusterManifest(p.Dir, func(root *yaml.Node) error {
+	return e.editClusterManifest(p.Dir, func(root *yaml.Node) error {
 		if spec.BaseDomain != nil {
 			setScalarOrDelete(root, "base_domain", *spec.BaseDomain)
 		}
@@ -385,7 +415,7 @@ func (e *Engine) RemoveClusterRoute(p *state.Project, key string) error {
 	if _, ok := m.Routes[key]; !ok {
 		return fmt.Errorf("cluster %s has no route %q", m.Name, key)
 	}
-	return editClusterManifest(p.Dir, func(root *yaml.Node) error {
+	return e.editClusterManifest(p.Dir, func(root *yaml.Node) error {
 		if routes := findMapChild(root, "routes"); routes != nil {
 			deleteMapEntry(routes, key)
 		}
@@ -415,7 +445,12 @@ func clusterManifest(p *state.Project) (*manifest.Manifest, error) {
 // editClusterManifest applies edit to the hull.yaml document's root mapping,
 // preserving comments and order outside the edited nodes, then re-validates and
 // writes it.
-func editClusterManifest(dir string, edit func(root *yaml.Node) error) error {
+func (e *Engine) editClusterManifest(dir string, edit func(root *yaml.Node) error) error {
+	unlock, err := e.lockManifest(dir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	file := filepath.Join(dir, manifest.Filename)
 	data, err := os.ReadFile(file)
 	if err != nil {
@@ -443,7 +478,7 @@ func editClusterManifest(dir string, edit func(root *yaml.Node) error) error {
 	if _, err := manifest.Parse(out); err != nil {
 		return err
 	}
-	return os.WriteFile(file, out, 0o644)
+	return safefile.Write(file, out, 0o644)
 }
 
 // documentRoot returns the top mapping node of a parsed YAML document.
@@ -598,39 +633,32 @@ func shortPortTarget(s string) int {
 	return n
 }
 
-// parseComposeRoutes seeds routes from the compose file when there's no
+// parseComposeRoutes seeds routes from the compose files when there's no
 // Caddyfile: one route per service that publishes a web-looking port, keyed
 // (and subdomained) by the service name. Best-effort , unparseable compose
 // yields no routes rather than an error.
 func parseComposeRoutes(composeDir string, files []string) map[string]*manifest.ClusterRoute {
-	path := firstComposeFile(composeDir, files)
-	if path == "" {
-		return nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	var doc struct {
-		Services map[string]struct {
-			Ports []portSpec `yaml:"ports"`
-		} `yaml:"services"`
-	}
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil
-	}
 	routes := map[string]*manifest.ClusterRoute{}
-	for name, svc := range doc.Services {
-		for _, p := range svc.Ports {
-			if !webPorts[p.container] {
+	for _, data := range composeDocs(composeDir, files) {
+		var doc struct {
+			Services map[string]struct {
+				Ports []portSpec `yaml:"ports"`
+			} `yaml:"services"`
+		}
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			continue
+		}
+		for name, svc := range doc.Services {
+			key := manifest.Slug(name)
+			if key == "" || routes[key] != nil {
 				continue
 			}
-			key := manifest.Slug(name)
-			if key == "" {
-				break
+			for _, p := range svc.Ports {
+				if webPorts[p.container] {
+					routes[key] = &manifest.ClusterRoute{Service: name, Port: p.container, Subdomain: key}
+					break // first web port wins
+				}
 			}
-			routes[key] = &manifest.ClusterRoute{Service: name, Port: p.container, Subdomain: key}
-			break // first web port wins
 		}
 	}
 	if len(routes) == 0 {
@@ -640,26 +668,22 @@ func parseComposeRoutes(composeDir string, files []string) map[string]*manifest.
 }
 
 // composeServiceNames returns the set of service names in a cluster's compose
-// file. Best-effort: a missing or unparseable compose yields nil, and the
+// files. Best-effort: missing or unparseable compose yields nil, and the
 // caller then skips service validation.
 func composeServiceNames(composeDir string, files []string) map[string]bool {
-	path := firstComposeFile(composeDir, files)
-	if path == "" {
+	names := map[string]bool{}
+	for _, data := range composeDocs(composeDir, files) {
+		var doc struct {
+			Services map[string]yaml.Node `yaml:"services"`
+		}
+		if yaml.Unmarshal(data, &doc) == nil {
+			for name := range doc.Services {
+				names[name] = true
+			}
+		}
+	}
+	if len(names) == 0 {
 		return nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	var doc struct {
-		Services map[string]yaml.Node `yaml:"services"`
-	}
-	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Services) == 0 {
-		return nil
-	}
-	names := make(map[string]bool, len(doc.Services))
-	for name := range doc.Services {
-		names[name] = true
 	}
 	return names
 }
@@ -674,14 +698,18 @@ func sortedKeys(set map[string]bool) string {
 	return strings.Join(keys, ", ")
 }
 
-// firstComposeFile returns the path of the first existing compose file in dir
-// (preferring explicitly-listed files), or "" if none.
-func firstComposeFile(dir string, extra []string) string {
-	for _, f := range append(append([]string{}, extra...), composeNames...) {
-		p := filepath.Join(dir, f)
-		if info, err := os.Stat(p); err == nil && !info.IsDir() {
-			return p
+// composeDocs returns the content of every compose file docker loads for the
+// stack in composeDir (stackFiles decides which), so a reader also sees the
+// services, ports and networks an override or an extra -f file adds.
+func composeDocs(composeDir string, files []string) [][]byte {
+	var docs [][]byte
+	for _, f := range stackFiles(composeDir, files, "") {
+		if !filepath.IsAbs(f) {
+			f = filepath.Join(composeDir, f)
+		}
+		if data, err := os.ReadFile(f); err == nil {
+			docs = append(docs, data)
 		}
 	}
-	return ""
+	return docs
 }

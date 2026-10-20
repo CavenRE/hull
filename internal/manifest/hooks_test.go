@@ -55,3 +55,12 @@ hooks:
 		t.Error("expected an error for a hook with no run command")
 	}
 }
+
+func TestHookServiceCannotBeAFlag(t *testing.T) {
+	for service, ok := range map[string]bool{"app": true, "web_1": true, "_x": true, "-u": false, "--privileged": false, "a b": false} {
+		data := []byte("schema: 1\nname: shop\ntemplate: plain\nhooks:\n  post_up:\n    - run: x\n      service: \"" + service + "\"\n")
+		if _, err := Parse(data); (err == nil) != ok {
+			t.Errorf("service %q: err = %v", service, err)
+		}
+	}
+}

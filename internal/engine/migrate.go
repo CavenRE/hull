@@ -34,7 +34,7 @@ func (e *Engine) MigrateV1(p *state.Project) (*manifest.Manifest, error) {
 		PHP:      info.PHP,
 	}
 	if host := info.Host; host != "" {
-		domain := strings.TrimSuffix(host, "."+e.Config.TLD)
+		domain := strings.TrimSuffix(host, "."+e.cfg().TLD)
 		if domain != p.Name && domain != host {
 			m.Domain = domain
 		}
@@ -68,6 +68,9 @@ func (e *Engine) MigrateV1(p *state.Project) (*manifest.Manifest, error) {
 		return nil, err
 	}
 	if err := e.WriteArtifacts(parsed, p.Dir); err != nil {
+		return nil, err
+	}
+	if err := e.Trust(&state.Project{Name: parsed.Name, Dir: p.Dir, Manifest: parsed}); err != nil {
 		// Restore the legacy file so the project keeps working.
 		_ = os.Rename(legacyPath+".v1-backup", legacyPath)
 		return nil, err

@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/CavenRE/hull/internal/dockerx"
-	"github.com/CavenRE/hull/internal/manifest"
 	"github.com/CavenRE/hull/internal/router"
 	"github.com/CavenRE/hull/internal/state"
 )
@@ -88,37 +87,9 @@ func loopback(port int) string {
 func AllDomains(projects []state.Project, tld string) []string {
 	var domains []string
 	for i := range projects {
-		m := projects[i].Manifest
-		if m == nil {
-			continue
+		for _, ep := range Endpoints(projects[i].Manifest, tld) {
+			domains = append(domains, ep.Hosts...)
 		}
-		if m.Type == "cluster" {
-			// Only ingress: hull clusters share the host router's domain set
-			// (hosts entries + a vhost each). delegate is served by its own
-			// container on a separate loopback; none is served by the cluster.
-			if m.Ingress != manifest.IngressHull {
-				continue
-			}
-			suffix := m.ClusterSuffix(tld)
-			for _, key := range m.RouteKeys() {
-				if rt := m.Routes[key]; rt.Served() {
-					domains = append(domains, rt.Hosts(suffix)...)
-				}
-			}
-			continue
-		}
-		if m.Type == "app" {
-			for _, key := range m.ContainerKeys() {
-				if c := m.Containers[key]; c.Domain != "" && c.Served() {
-					domains = append(domains, c.Domain+"."+tld)
-				}
-			}
-			continue
-		}
-		if !m.Served() {
-			continue
-		}
-		domains = append(domains, m.Domain+"."+tld)
 	}
 	sort.Strings(domains)
 	return domains
@@ -126,10 +97,7 @@ func AllDomains(projects []state.Project, tld string) []string {
 
 // Routes computes the live route table for this engine's config.
 func (e *Engine) Routes(ctx context.Context) []router.Route {
-	projects, err := state.Scan(e.Config.Roots, e.Config.Projects...)
-	if err != nil {
-		return nil
-	}
+	projects, _ := state.Scan(e.cfg().Roots, e.cfg().Projects...) // a bad root must not drop the others' routes
 	running := map[string]bool{}
 	if names, err := dockerx.RunningComposeProjects(ctx); err == nil {
 		for _, n := range names {
@@ -138,7 +106,7 @@ func (e *Engine) Routes(ctx context.Context) []router.Route {
 	}
 	// Resolve each project's published port through the SAME compose driver
 	// (pinned -p/-f/--env-file) that Up used , see PortLookup / Compose.Port.
-	return ComputeRoutes(ctx, projects, e.Config.TLD, running, e.PublishedPort)
+	return ComputeRoutes(ctx, e.Routable(projects), e.cfg().TLD, running, e.PublishedPort)
 }
 
 // PublishedPort resolves the host port docker published for one of a project's

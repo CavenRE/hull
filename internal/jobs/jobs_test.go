@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -21,7 +22,7 @@ func wait(t *testing.T, j *Job) Info {
 
 func TestJobSuccess(t *testing.T) {
 	m := NewManager()
-	j := m.Start("test", func(log func(string)) error {
+	j := m.Start("test", func(_ context.Context, log func(string)) error {
 		log("step 1")
 		log("step 2")
 		return nil
@@ -34,7 +35,7 @@ func TestJobSuccess(t *testing.T) {
 
 func TestJobFailure(t *testing.T) {
 	m := NewManager()
-	j := m.Start("test", func(log func(string)) error {
+	j := m.Start("test", func(_ context.Context, log func(string)) error {
 		return errors.New("boom")
 	})
 	s := wait(t, j)
@@ -45,7 +46,7 @@ func TestJobFailure(t *testing.T) {
 
 func TestJobPanicIsFailure(t *testing.T) {
 	m := NewManager()
-	j := m.Start("test", func(log func(string)) error {
+	j := m.Start("test", func(_ context.Context, log func(string)) error {
 		panic("kaboom")
 	})
 	s := wait(t, j)
@@ -57,7 +58,7 @@ func TestJobPanicIsFailure(t *testing.T) {
 func TestLinesFrom(t *testing.T) {
 	m := NewManager()
 	done := make(chan struct{})
-	j := m.Start("test", func(log func(string)) error {
+	j := m.Start("test", func(_ context.Context, log func(string)) error {
 		log("a")
 		log("b")
 		<-done
@@ -87,7 +88,7 @@ func TestLinesFrom(t *testing.T) {
 
 func TestGetAndList(t *testing.T) {
 	m := NewManager()
-	j := m.Start("alpha", func(log func(string)) error { return nil })
+	j := m.Start("alpha", func(_ context.Context, log func(string)) error { return nil })
 	wait(t, j)
 	if _, ok := m.Get(j.Snapshot().ID); !ok {
 		t.Error("Get(existing) = false")
@@ -97,5 +98,41 @@ func TestGetAndList(t *testing.T) {
 	}
 	if got := len(m.List()); got != 1 {
 		t.Errorf("List len = %d", got)
+	}
+}
+
+func TestCancelAndShutdownStopJobs(t *testing.T) {
+	m := NewManager()
+	started := make(chan struct{})
+	j := m.Start("long", func(ctx context.Context, log func(string)) error {
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	<-started
+	if !m.Cancel(j.Snapshot().ID) || m.Cancel("job-404") {
+		t.Fatal("Cancel did not find the job, or found one that does not exist")
+	}
+	if s := wait(t, j); s.Status != StatusFailed {
+		t.Errorf("cancelled job = %+v", s)
+	}
+	k := m.Start("long", func(ctx context.Context, log func(string)) error {
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	m.Shutdown(5 * time.Second)
+	if s := k.Snapshot(); s.Status == StatusRunning {
+		t.Error("Shutdown returned with a job still running")
+	}
+}
+
+func TestFinishedJobsArePruned(t *testing.T) {
+	m := NewManager()
+	for i := 0; i < keepFinished+10; i++ {
+		wait(t, m.Start("quick", func(context.Context, func(string)) error { return nil }))
+	}
+	m.Start("last", func(context.Context, func(string)) error { return nil })
+	if n := len(m.List()); n > keepFinished+1 {
+		t.Errorf("%d jobs kept, want at most %d", n, keepFinished+1)
 	}
 }

@@ -4,3 +4,5 @@
 // engine code in-process (the headless guarantee). --no-daemon forces the
 // in-process path. Run `hull --help` for the command set.
 package main
+
+//go:generate go run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0 -64 -o resource_windows_amd64.syso versioninfo.json

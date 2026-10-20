@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/CavenRE/hull/internal/platform"
+	"github.com/CavenRE/hull/internal/safefile"
 )
 
 // DaemonFileName is written into the Hull home directory by a running
@@ -19,6 +22,9 @@ type DaemonInfo struct {
 	Port  int    `json:"port"`
 	Token string `json:"token"`
 	PID   int    `json:"pid"`
+	// Hello is set by a daemon that answers /v1/hello, so a client never takes
+	// an older daemon's reply from whatever now holds this file's port.
+	Hello bool `json:"hello,omitempty"`
 }
 
 // NewToken returns a fresh random bearer token.
@@ -39,7 +45,11 @@ func WriteDaemonFile(hullHome string, info DaemonInfo) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(hullHome, DaemonFileName), data, 0o600)
+	path := filepath.Join(hullHome, DaemonFileName)
+	if err := safefile.Write(path, data, 0o600); err != nil {
+		return err
+	}
+	return platform.RestrictToUser(path) // the token is a key to the whole API
 }
 
 // ReadDaemonFile loads the discovery record, if present.

@@ -43,6 +43,11 @@ func init() {
 			if err := ensureDaemonRunning(cmd.Context(), a.Config.HullHome); err != nil {
 				return err
 			}
+			for _, p := range targets {
+				if err := a.ensureTrusted(p); err != nil {
+					return err
+				}
+			}
 			client, viaDaemon := a.client()
 			for _, p := range targets {
 				fmt.Printf("Starting %s...\n", p.Name)
@@ -139,6 +144,9 @@ func init() {
 			if err != nil {
 				return err
 			}
+			if err := a.ensureTrusted(p); err != nil {
+				return err
+			}
 			if client, viaDaemon := a.client(); viaDaemon {
 				return client.ProjectAction(cmd.Context(), p.Name, "restart")
 			}
@@ -173,6 +181,9 @@ func init() {
 			}
 			p, err := oneTarget(a, args)
 			if err != nil {
+				return err
+			}
+			if err := a.ensureTrusted(p); err != nil {
 				return err
 			}
 			if client, viaDaemon := a.client(); viaDaemon {

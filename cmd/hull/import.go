@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"bufio"
 	"compress/gzip"
 	"context"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 	"github.com/CavenRE/hull/internal/engine"
 	"github.com/CavenRE/hull/internal/manifest"
 	"github.com/CavenRE/hull/internal/state"
+	"github.com/CavenRE/hull/internal/templates"
 )
 
 func init() {
@@ -128,11 +130,11 @@ func init() {
 					return fmt.Errorf("import finished but %s is not managed by Hull", arg)
 				}
 				if !skipDumps {
-					if err := offerDumpImport(cmd.Context(), p.Manifest, p.Dir); err != nil {
+					if err := a.offerDumpImport(cmd.Context(), p.Manifest, p.Dir); err != nil {
 						return err
 					}
 				}
-				fmt.Printf("✔ %s is up at https://%s.%s\n", p.Manifest.Name, p.Manifest.Domain, a.Config.TLD)
+				fmt.Printf("✔ %s is up at %s\n", p.Manifest.Name, a.siteURL(p.Manifest.Domain+"."+a.Config.TLD))
 				return nil
 			}
 
@@ -140,6 +142,20 @@ func init() {
 			var meta *bundle.Meta
 
 			if isZip {
+				if len(a.Config.Roots) == 0 {
+					return fmt.Errorf("no project root is configured; add one with `hull park` first")
+				}
+				pre, err := bundle.ReadMeta(arg)
+				if err != nil {
+					return err
+				}
+				bm, err := manifest.Parse([]byte(pre.ProjectYAML))
+				if err != nil {
+					return fmt.Errorf("bundle manifest: %w", err)
+				}
+				if taken, err := a.findProject(bm.Name); err == nil {
+					return fmt.Errorf("a project named %q already exists at %s; rename or remove it before importing this bundle", bm.Name, taken.Dir)
+				}
 				baseName := strings.TrimSuffix(strings.TrimSuffix(filepath.Base(arg), ".zip"), "-bundle")
 				dir = filepath.Join(a.Config.Roots[0], baseName)
 				if _, err := os.Stat(dir); err == nil {
@@ -179,43 +195,33 @@ func init() {
 				return err
 			}
 			fmt.Println("✔ hull.yaml written, framework config patched (backups: *.hull-backup)")
+			p := &state.Project{Name: m.Name, Dir: dir, Manifest: m}
+			// A manifest Hull generated just now is approved. A bundle's came
+			// from somewhere else and can carry hooks, mounts and images, so the
+			// user reviews it like any other project Hull did not write.
+			if meta == nil {
+				if err := a.Engine.Trust(p); err != nil {
+					return err
+				}
+			}
 
 			if noStart {
 				fmt.Println("Skipping start (--no-start).")
 				return nil
 			}
-			p, err := a.findProject(m.Name)
-			if err != nil {
-				return err
-			}
-			// A bundle's manifest can carry lifecycle hooks that run arbitrary
-			// commands inside containers on the next `up`. Never run a
-			// downloaded bundle's hooks without explicit consent.
-			if meta != nil {
-				if hooks := bundleHookSummary(m); len(hooks) > 0 {
-					fmt.Println("This bundle defines lifecycle hooks that will run commands inside your containers:")
-					for _, h := range hooks {
-						fmt.Println("  -", h)
-					}
-					ok, err := confirm("Trust and run this bundle's hooks?")
-					if err != nil {
-						return err
-					}
-					if !ok {
-						return fmt.Errorf("import aborted, edit %s to remove the hooks, then re-run", filepath.Join(dir, manifest.Filename))
-					}
-				}
+			if err := a.ensureTrusted(p); err != nil {
+				return fmt.Errorf("%w; the files are at %s", err, dir)
 			}
 			if err := a.Engine.Up(cmd.Context(), p); err != nil {
 				return err
 			}
 
 			if !skipDumps {
-				if err := offerDumpImport(cmd.Context(), m, dir); err != nil {
+				if err := a.offerDumpImport(cmd.Context(), m, dir); err != nil {
 					return err
 				}
 			}
-			fmt.Printf("✔ %s is up at https://%s.%s\n", m.Name, m.Domain, a.Config.TLD)
+			fmt.Printf("✔ %s is up at %s\n", m.Name, a.siteURL(m.Domain+"."+a.Config.TLD))
 			return nil
 		},
 	}
@@ -261,10 +267,14 @@ func (a *app) importInPlace(ctx context.Context, dir string, overrides engine.Ne
 		if noStart {
 			return nil
 		}
-		if err := a.Engine.Up(ctx, &state.Project{Name: m.Name, Dir: dir, Manifest: m}); err != nil {
+		p := &state.Project{Name: m.Name, Dir: dir, Manifest: m}
+		if err := a.ensureTrusted(p); err != nil {
 			return err
 		}
-		fmt.Printf("✔ %s is up at https://%s.%s\n", m.Name, m.Domain, a.Config.TLD)
+		if err := a.Engine.Up(ctx, p); err != nil {
+			return err
+		}
+		fmt.Printf("✔ %s is up at %s\n", m.Name, a.siteURL(m.Domain+"."+a.Config.TLD))
 		return nil
 	}
 
@@ -303,6 +313,9 @@ func (a *app) importInPlace(ctx context.Context, dir string, overrides engine.Ne
 		return err
 	}
 	fmt.Println("✔ hull.yaml written, framework config patched (backups: *.hull-backup)")
+	if err := a.Engine.Trust(&state.Project{Name: m.Name, Dir: dir, Manifest: m}); err != nil {
+		return err
+	}
 	if err := a.registerProject(ctx, dir); err != nil {
 		return err
 	}
@@ -315,11 +328,11 @@ func (a *app) importInPlace(ctx context.Context, dir string, overrides engine.Ne
 		return err
 	}
 	if !skipDumps {
-		if err := offerDumpImport(ctx, m, dir); err != nil {
+		if err := a.offerDumpImport(ctx, m, dir); err != nil {
 			return err
 		}
 	}
-	fmt.Printf("✔ %s is up at https://%s.%s\n", m.Name, m.Domain, a.Config.TLD)
+	fmt.Printf("✔ %s is up at %s\n", m.Name, a.siteURL(m.Domain+"."+a.Config.TLD))
 	return nil
 }
 
@@ -417,25 +430,6 @@ func orderedTemplates(detected string) []string {
 	return out
 }
 
-// bundleHookSummary lists every lifecycle hook a manifest declares, as
-// "event: command", for the trust prompt on bundle import.
-func bundleHookSummary(m *manifest.Manifest) []string {
-	var out []string
-	add := func(event string, hs []manifest.Hook) {
-		for _, h := range hs {
-			out = append(out, event+": "+h.Run)
-		}
-	}
-	add("post_create", m.Hooks.PostCreate)
-	add("post_import", m.Hooks.PostImport)
-	add("pre_up", m.Hooks.PreUp)
-	add("post_up", m.Hooks.PostUp)
-	add("pre_down", m.Hooks.PreDown)
-	add("post_rebuild", m.Hooks.PostRebuild)
-	add("post_reset", m.Hooks.PostReset)
-	return out
-}
-
 func describeDB(m *manifest.Manifest) string {
 	if _, db, ok := m.DatabaseService(); ok {
 		return db.Engine
@@ -443,9 +437,9 @@ func describeDB(m *manifest.Manifest) string {
 	return "none"
 }
 
-// offerDumpImport finds SQL dumps in the project, lets the user pick one,
-// waits for the database, and restores it , the Go port of v1's flow.
-func offerDumpImport(ctx context.Context, m *manifest.Manifest, dir string) error {
+// offerDumpImport finds SQL dumps in the project, lets the user pick one, and
+// loads it into the project's first database.
+func (a *app) offerDumpImport(ctx context.Context, m *manifest.Manifest, dir string) error {
 	dbKey, _, hasDB := m.DatabaseService()
 	dumps := bundle.FindDumps(dir)
 	if !hasDB || len(dumps) == 0 {
@@ -461,37 +455,111 @@ func offerDumpImport(ctx context.Context, m *manifest.Manifest, dir string) erro
 	if err != nil || choice == "Skip import" || choice == "" {
 		return err
 	}
-	dumpPath := filepath.Join(dir, choice)
+	if err := a.restoreDump(ctx, m, dir, dbKey, filepath.Join(dir, choice)); err != nil {
+		return fmt.Errorf("%w; load it later with: hull db import %s %s", err, m.Name, choice)
+	}
+	return nil
+}
 
-	fmt.Println("Waiting for the database engine...")
-	ready, err := bundle.ReadyCommand(m, dbKey, dir)
-	if err != nil {
-		return err
-	}
-	if !waitReady(ctx, ready) {
-		fmt.Println("! Database did not become ready in time; attempting restore anyway.")
-	}
-
-	fmt.Printf("Restoring %s into %s...\n", choice, dbKey)
-	restore, err := bundle.RestoreCommand(m, dbKey, dir)
-	if err != nil {
-		return err
-	}
-	src, closer, err := openDump(dumpPath)
+// restoreDump loads a dump file into one of a project's database services. It
+// refuses a dump from the other kind of database before writing anything,
+// waits for the database, and filters the dump so it lands in this database
+// as the project's own login.
+func (a *app) restoreDump(ctx context.Context, m *manifest.Manifest, dir, key, file string) error {
+	svc := m.Services[key]
+	in, closer, err := openCheckedDump(file, svc.Engine)
 	if err != nil {
 		return err
 	}
 	defer closer()
 
+	appLogin, adminLogin := a.Engine.DBLogins(m, key)
+	fmt.Println("Waiting for the database...")
+	ready, err := bundle.ReadyCommand(m, key, dir, adminLogin)
+	if err != nil {
+		return err
+	}
+	if !waitReady(ctx, ready) {
+		return fmt.Errorf("database %s is not answering; start it with %s", key, startHint(m, key))
+	}
+	if svc.Engine == "mysql" || svc.Engine == "mariadb" {
+		undo, err := trustRoutines(ctx, m, dir, key, adminLogin)
+		if err != nil {
+			return err
+		}
+		defer undo()
+	}
+
+	restore, err := bundle.RestoreCommand(m, key, dir, appLogin)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Loading %s into %s...\n", filepath.Base(file), key)
 	pr, pw := io.Pipe()
 	go func() {
-		_ = pw.CloseWithError(bundle.FilterDump(src, pw))
+		_ = pw.CloseWithError(bundle.FilterDump(in, pw, svc.Engine))
 	}()
 	if err := dockerx.ExecStdin(ctx, restore.Dir, pr, restore.Name, restore.Args...); err != nil {
-		return fmt.Errorf("restore failed: %w", err)
+		_ = pr.CloseWithError(err)
+		return fmt.Errorf("loading %s: %w", filepath.Base(file), err)
 	}
-	fmt.Println("✔ Database restored.")
+	fmt.Println("✔ Database loaded.")
 	return nil
+}
+
+// openCheckedDump opens a dump and refuses one that the engine cannot load,
+// before anything is written to the database.
+func openCheckedDump(file, engine string) (*bufio.Reader, func(), error) {
+	src, closer, err := openDump(file)
+	if err != nil {
+		return nil, nil, err
+	}
+	in := bufio.NewReaderSize(src, 64<<10)
+	head, _ := in.Peek(16 << 10)
+	if err := bundle.CheckDumpEngine(head, engine); err != nil {
+		closer()
+		return nil, nil, fmt.Errorf("%s: %w", filepath.Base(file), err)
+	}
+	return in, closer, nil
+}
+
+// trustRoutines sets log_bin_trust_function_creators for a restore and returns
+// how to put the server back. While binary logging is on (MySQL's default) and
+// it is 0, MySQL refuses a dumped stored function that does not declare
+// DETERMINISTIC, NO SQL or READS SQL DATA, even for root, and every function
+// and trigger from a login without SUPER.
+func trustRoutines(ctx context.Context, m *manifest.Manifest, dir, key string, admin bundle.Auth) (func(), error) {
+	run := func(ctx context.Context, sql string) (string, error) {
+		c, err := bundle.MySQLCommand(m, key, dir, admin, sql)
+		if err != nil {
+			return "", err
+		}
+		return dockerx.Output(ctx, c.Dir, c.Name, c.Args...)
+	}
+	out, err := run(ctx, "SELECT @@GLOBAL.log_bin_trust_function_creators")
+	if err != nil {
+		return nil, fmt.Errorf("reading log_bin_trust_function_creators in %s: %w", key, err)
+	}
+	if strings.TrimSpace(out) == "1" {
+		return func() {}, nil
+	}
+	if _, err := run(ctx, "SET GLOBAL log_bin_trust_function_creators = 1"); err != nil {
+		return nil, fmt.Errorf("letting %s create stored routines: %w", key, err)
+	}
+	return func() {
+		// Put back even after Ctrl-C, which has cancelled ctx by then.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, _ = run(ctx, "SET GLOBAL log_bin_trust_function_creators = 0")
+	}, nil
+}
+
+// startHint is the command that starts a project's database service.
+func startHint(m *manifest.Manifest, key string) string {
+	if s := m.Services[key]; s != nil && s.Mode == manifest.ModeShared {
+		return "`hull services start " + templates.InstanceName(s.Engine, s.Version) + "`"
+	}
+	return "`hull up " + m.Name + "`"
 }
 
 func waitReady(ctx context.Context, probe bundle.Cmd) bool {
@@ -510,8 +578,9 @@ func waitReady(ctx context.Context, probe bundle.Cmd) bool {
 
 // openDump opens .sql, .sql.gz, or .zip (first .sql entry) dump files.
 func openDump(path string) (io.Reader, func(), error) {
+	lower := strings.ToLower(path)
 	switch {
-	case strings.HasSuffix(path, ".gz"):
+	case strings.HasSuffix(lower, ".gz"):
 		f, err := os.Open(path)
 		if err != nil {
 			return nil, nil, err
@@ -522,13 +591,13 @@ func openDump(path string) (io.Reader, func(), error) {
 			return nil, nil, err
 		}
 		return gz, func() { _ = gz.Close(); _ = f.Close() }, nil
-	case strings.HasSuffix(path, ".zip"):
+	case strings.HasSuffix(lower, ".zip"):
 		zr, err := zip.OpenReader(path)
 		if err != nil {
 			return nil, nil, err
 		}
 		for _, f := range zr.File {
-			if strings.HasSuffix(f.Name, ".sql") {
+			if strings.HasSuffix(strings.ToLower(f.Name), ".sql") {
 				rc, err := f.Open()
 				if err != nil {
 					_ = zr.Close()

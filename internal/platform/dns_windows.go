@@ -2,9 +2,8 @@ package platform
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
-	"syscall"
+	"strings"
 )
 
 // DNSSupported reports whether Hull can manage *.<tld> DNS on this machine.
@@ -23,11 +22,7 @@ func RegisterDNS(tld, addr string, port int) error {
 	if port != 53 {
 		return fmt.Errorf("windows NRPT cannot target a custom DNS port , keep dns.port at 53")
 	}
-	script := fmt.Sprintf(`$ErrorActionPreference = "Stop"
-Get-DnsClientNrptRule | Where-Object { $_.Namespace -eq ".%[1]s" } | ForEach-Object { Remove-DnsClientNrptRule -Name $_.Name -Force }
-Add-DnsClientNrptRule -Namespace ".%[1]s" -NameServers "%[2]s" -Comment "Hull local TLD"
-`, tld, addr)
-	return runElevated(script)
+	return runElevated(nrptRegisterScript(tld, addr))
 }
 
 // EnsureLoopbackAlias is a no-op on Windows: the loopback stack answers every
@@ -36,44 +31,26 @@ func EnsureLoopbackAlias(addr string) error { return nil }
 
 // UnregisterDNS removes Hull's NRPT rule.
 func UnregisterDNS(tld string) error {
-	script := fmt.Sprintf(`$ErrorActionPreference = "Stop"
-Get-DnsClientNrptRule | Where-Object { $_.Namespace -eq ".%s" } | ForEach-Object { Remove-DnsClientNrptRule -Name $_.Name -Force }
-`, tld)
-	return runElevated(script)
+	return runElevated(nrptUnregisterScript(tld))
 }
 
 // DNSInstructions are the manual equivalent (elevated PowerShell).
 func DNSInstructions(tld, addr string, port int) string {
-	return fmt.Sprintf(`In an elevated (Administrator) PowerShell:
-  Add-DnsClientNrptRule -Namespace ".%s" -NameServers "%s"`, tld, addr)
+	return "In an elevated (Administrator) PowerShell:\n  Add-DnsClientNrptRule -Namespace " + PSQuote("."+tld) + " -NameServers " + PSQuote(addr) + " -Comment " + PSQuote(nrptComment)
 }
 
-// runElevated writes a temp script and runs it via a UAC prompt, waiting
-// for completion.
+// runElevated runs a script through a UAC prompt and waits for it. The script
+// travels as -EncodedCommand rather than a temp file another process could
+// swap, and the elevated run's own exit code decides success.
 func runElevated(script string) error {
-	f, err := os.CreateTemp("", "hull-*.ps1")
-	if err != nil {
-		return err
-	}
-	path := f.Name()
-	defer func() { _ = os.Remove(path) }()
-	if _, err := f.WriteString(script); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-
-	cmd := exec.Command("powershell", "-NoProfile", "-Command",
-		fmt.Sprintf(`Start-Process powershell -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','%s'`, path))
+	cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", elevatedLauncher(encodePowerShell(script)))
 	// The daemon (console-less) can reach this via hosts/DNS sync; without
 	// CREATE_NO_WINDOW the outer powershell pops a console. The UAC consent
 	// dialog is a separate secure-desktop prompt, so it still appears.
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000} // CREATE_NO_WINDOW
+	hideConsole(cmd)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("elevated PowerShell failed (UAC declined?): %s", string(out))
+		return fmt.Errorf("elevated PowerShell failed (UAC declined?): %s", strings.TrimSpace(string(out)))
 	}
 	return nil
 }

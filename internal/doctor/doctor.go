@@ -15,6 +15,7 @@ import (
 
 	"github.com/CavenRE/hull/internal/certs"
 	"github.com/CavenRE/hull/internal/config"
+	"github.com/CavenRE/hull/internal/dbauth"
 	"github.com/CavenRE/hull/internal/platform"
 	"github.com/CavenRE/hull/internal/state"
 	"github.com/CavenRE/hull/internal/templates"
@@ -231,6 +232,26 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 			detail += " and ignores: " + strings.Join(rest, ", ")
 		}
 		add(Warn, "duplicate name "+c.Name, detail)
+	}
+
+	// Shared databases made before Hull kept logins: root has no password, so
+	// any project or local program can read every database in the instance.
+	if entries, err := os.ReadDir(filepath.Join(cfg.HullHome, "services")); err == nil {
+		for _, e := range entries {
+			name := e.Name()
+			engineName, _, _ := strings.Cut(name, "-")
+			def, ok := templates.Engine(engineName)
+			if !e.IsDir() || !ok || !def.IsDatabase {
+				continue
+			}
+			if _, secured := dbauth.Get(cfg.HullHome, "instance/"+name, "_root"); !secured {
+				add(Warn, "database "+name, "root has no password, so any project or local program can read every database in it. To give each project its own login: back up its databases, run `hull services rm "+name+"` and `hull services add "+engineName+"`, then link the projects again and restore")
+			}
+		}
+	}
+
+	if exe, err := os.Executable(); err == nil && platform.WritableCapped(exe) {
+		add(Warn, "port capability", exe+" may bind ports 80/443/53, yet your user can write it or its folder: anyone who can write there can swap in another program for you to run. A root-owned location such as /usr/local/bin avoids that")
 	}
 
 	// System files (self-healing).

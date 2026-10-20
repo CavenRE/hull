@@ -28,7 +28,7 @@ func (s *Server) handleServicesList(w http.ResponseWriter, r *http.Request) {
 
 	// Which projects consume which instance (manifest scan).
 	linked := map[string][]string{}
-	if projects, err := state.Scan(s.Config.Roots, s.Config.Projects...); err == nil {
+	if projects, err := state.Scan(s.cfg().Roots, s.cfg().Projects...); err == nil {
 		for i := range projects {
 			m := projects[i].Manifest
 			if m == nil {
@@ -57,7 +57,7 @@ func (s *Server) handleServicesList(w http.ResponseWriter, r *http.Request) {
 		}
 		if def, ok := templates.Engine(in.Engine); ok {
 			if def.UISubdomain != "" {
-				info.URL = "https://" + def.UISubdomain + "." + s.Config.TLD
+				info.URL = "https://" + def.UISubdomain + "." + s.cfg().TLD
 			}
 			if in.HostPort > 0 {
 				info.Host = "127.0.0.1"
@@ -85,9 +85,9 @@ func (s *Server) handleServiceAdd(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	job := s.Jobs.Start("service:"+req.Engine, func(log func(string)) error {
+	job := s.Jobs.Start("service:"+req.Engine, func(ctx context.Context, log func(string)) error {
 		log(fmt.Sprintf("provisioning shared %s...", req.Engine))
-		name, err := s.JobServices(log).Add(context.Background(), req.Engine, req.Version)
+		name, err := s.JobServices(log).Add(ctx, req.Engine, req.Version)
 		if err != nil {
 			return err
 		}
@@ -137,7 +137,7 @@ func (s *Server) handleServiceLink(w http.ResponseWriter, r *http.Request, insta
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	p, err := state.Find(s.Config.Roots, req.Project, s.Config.Projects...)
+	p, err := state.Find(s.cfg().Roots, req.Project, s.cfg().Projects...)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
@@ -162,19 +162,19 @@ func (s *Server) handleServiceLink(w http.ResponseWriter, r *http.Request, insta
 		return
 	}
 
-	job := s.Jobs.Start("link:"+req.Project, func(log func(string)) error {
+	job := s.Jobs.Start("link:"+req.Project, func(ctx context.Context, log func(string)) error {
 		defer s.lockProject(req.Project)()
 		log(fmt.Sprintf("linking %s to %s...", req.Project, instance))
 		eng := s.NewJobEngine(log)
-		if _, err := eng.Link(context.Background(), p, spec, s.JobServices(log)); err != nil {
+		if _, err := eng.Link(ctx, p, spec, s.JobServices(log)); err != nil {
 			return err
 		}
 		log("restarting " + req.Project + " to apply...")
-		fresh, err := state.Find(s.Config.Roots, req.Project, s.Config.Projects...)
+		fresh, err := state.Find(s.cfg().Roots, req.Project, s.cfg().Projects...)
 		if err != nil {
 			return err
 		}
-		if err := eng.Up(context.Background(), fresh); err != nil {
+		if err := eng.Up(ctx, fresh); err != nil {
 			return err
 		}
 		if s.SyncRoutes != nil {

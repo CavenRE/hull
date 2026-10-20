@@ -3,35 +3,31 @@
 package platform
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 )
 
-// This file holds the Linux desktop-integration helpers shared by the two
-// install routes (install.sh and the graphical installer) and the two
-// uninstall routes (uninstall.sh and `hull uninstall`). Keeping the canonical
-// paths and the file contents here means any uninstaller cleans up after any
-// installer , they must agree on every path and marker below.
+// This file holds the Linux paths and markers Hull's installers use, so
+// `hull uninstall` removes what install.sh, or an older Hull installer, put in
+// place. They must agree with install.sh and uninstall.sh on every path and
+// marker below.
 //
 // Everything lives under the user's XDG dirs (no root): a Hull install is
 // per-user, mirroring ~/.local/bin for the binaries.
 
 const (
-	// pathMarker is the comment install.sh writes above its PATH export; the
-	// Go helpers add and strip the exact same block, so either side can undo
-	// the other's edit.
+	// pathMarker is the comment install.sh writes above its PATH export;
+	// RemoveFromShellPath strips that exact block.
 	pathMarker = "# Added by Hull"
 
 	desktopFileName = "hull.desktop"
 	iconName        = "hull" // resolved from the hicolor theme by the .desktop
 )
 
-// iconSizes maps the hicolor size directory to the source icon for that size.
-// Used by RemoveIcons (to know what to delete) and as the canonical set the
-// installers fill in.
+// iconSizes are the hicolor size folders an older Hull installer put hull.png
+// in.
 var iconSizes = []string{"32x32", "128x128", "256x256", "512x512"}
 
 func home() string {
@@ -61,7 +57,7 @@ func iconAppsDir(size string) string {
 	return filepath.Join(hicolorDir(), size, "apps")
 }
 
-// DesktopEntryPath is the menu launcher Hull installs for the GUI.
+// DesktopEntryPath is the menu launcher an older Hull installer wrote for the GUI.
 func DesktopEntryPath() string { return filepath.Join(applicationsDir(), desktopFileName) }
 
 // AutostartEntryPath is the launch-at-login entry (XDG autostart).
@@ -76,72 +72,16 @@ func SystemdUserUnitPath() string {
 
 // ── desktop entry ───────────────────────────────────────────────────────────
 
-func desktopEntry(guiExe string, autostart bool) string {
-	var b strings.Builder
-	b.WriteString("[Desktop Entry]\n")
-	b.WriteString("Type=Application\n")
-	b.WriteString("Name=Hull\n")
-	b.WriteString("GenericName=Local Web Environment\n")
-	b.WriteString("Comment=A local environment for your sites & apps\n")
-	fmt.Fprintf(&b, "Exec=%s\n", guiExe)
-	fmt.Fprintf(&b, "Icon=%s\n", iconName)
-	b.WriteString("Terminal=false\n")
-	b.WriteString("Categories=Development;\n")
-	b.WriteString("StartupWMClass=Hull\n")
-	if autostart {
-		b.WriteString("X-GNOME-Autostart-enabled=true\n")
-	}
-	return b.String()
-}
-
-// WriteDesktopEntry installs the application menu launcher pointing at guiExe.
-func WriteDesktopEntry(guiExe string) error {
-	if err := os.MkdirAll(applicationsDir(), 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(DesktopEntryPath(), []byte(desktopEntry(guiExe, false)), 0o644); err != nil {
-		return err
-	}
-	refreshDesktopDB()
-	return nil
-}
-
 // RemoveDesktopEntry deletes the menu launcher (best-effort).
 func RemoveDesktopEntry() {
 	_ = os.Remove(DesktopEntryPath())
 	refreshDesktopDB()
 }
 
-// WriteAutostartEntry installs the launch-at-login entry pointing at guiExe.
-func WriteAutostartEntry(guiExe string) error {
-	dir := filepath.Dir(AutostartEntryPath())
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(AutostartEntryPath(), []byte(desktopEntry(guiExe, true)), 0o644)
-}
-
 // RemoveAutostartEntry deletes the launch-at-login entry (best-effort).
 func RemoveAutostartEntry() { _ = os.Remove(AutostartEntryPath()) }
 
 // ── icons ───────────────────────────────────────────────────────────────────
-
-// InstallIcons writes hull.png into the hicolor theme for each provided size
-// (keys are hicolor size dirs like "128x128"). Missing sizes are simply
-// skipped, so callers can pass whatever resolutions they have.
-func InstallIcons(icons map[string][]byte) error {
-	for size, data := range icons {
-		dir := iconAppsDir(size)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return err
-		}
-		if err := os.WriteFile(filepath.Join(dir, iconName+".png"), data, 0o644); err != nil {
-			return err
-		}
-	}
-	refreshIconCache()
-	return nil
-}
 
 // RemoveIcons deletes hull.png from every hicolor size Hull may have used.
 func RemoveIcons() {
@@ -152,45 +92,6 @@ func RemoveIcons() {
 }
 
 // ── PATH (shell rc) ─────────────────────────────────────────────────────────
-
-// shellRC returns the rc file Hull edits for PATH, matching install.sh's
-// selection so both write the same place.
-func shellRC() string {
-	switch sh := os.Getenv("SHELL"); {
-	case strings.HasSuffix(sh, "zsh"):
-		return filepath.Join(home(), ".zshrc")
-	case strings.HasSuffix(sh, "bash"):
-		rc := filepath.Join(home(), ".bashrc")
-		if _, err := os.Stat(rc); err != nil {
-			return filepath.Join(home(), ".bash_profile")
-		}
-		return rc
-	default:
-		return filepath.Join(home(), ".profile")
-	}
-}
-
-// AddToShellPath appends Hull's PATH block to the user's rc file if dir isn't
-// already on PATH and the block isn't already present. Returns the rc path it
-// touched (empty if nothing was changed).
-func AddToShellPath(dir string) (string, error) {
-	if onPath(dir) {
-		return "", nil
-	}
-	rc := shellRC()
-	if b, err := os.ReadFile(rc); err == nil && strings.Contains(string(b), pathMarker) {
-		return "", nil // already added on a previous install
-	}
-	f, err := os.OpenFile(rc, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	if _, err := fmt.Fprintf(f, "\n%s\nexport PATH=\"$PATH:%s\"\n", pathMarker, dir); err != nil {
-		return "", err
-	}
-	return rc, nil
-}
 
 // RemoveFromShellPath strips Hull's PATH block (the marker line and the export
 // line that follows it) from every rc file it might live in.
@@ -223,16 +124,6 @@ func RemoveFromShellPath() {
 		}
 		_ = os.WriteFile(rc, []byte(strings.Join(kept, "\n")), 0o644)
 	}
-}
-
-func onPath(dir string) bool {
-	want := strings.TrimRight(dir, "/")
-	for _, p := range strings.Split(os.Getenv("PATH"), ":") {
-		if strings.TrimRight(p, "/") == want {
-			return true
-		}
-	}
-	return false
 }
 
 // ── systemd --user unit ─────────────────────────────────────────────────────

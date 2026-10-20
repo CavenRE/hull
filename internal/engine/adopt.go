@@ -11,6 +11,7 @@ import (
 
 	"github.com/CavenRE/hull/internal/bundle"
 	"github.com/CavenRE/hull/internal/manifest"
+	"github.com/CavenRE/hull/internal/safefile"
 	"github.com/CavenRE/hull/internal/state"
 	"github.com/CavenRE/hull/internal/templates"
 	"github.com/CavenRE/hull/internal/wpconfig"
@@ -98,6 +99,14 @@ func sanitizeDBName(name string) string {
 // patches its framework config to point at Hull's services , the apply
 // half of v1's import. Original files get .hull-backup copies.
 func (e *Engine) Adopt(m *manifest.Manifest, dir string) error {
+	if _, err := os.Stat(filepath.Join(dir, manifest.Filename)); err == nil {
+		if _, err := manifest.Load(dir); err != nil {
+			return fmt.Errorf("%s already has a hull.yaml that fails to parse, and importing would overwrite it; fix or remove it first: %w", dir, err)
+		}
+	}
+	if err := e.ensureLogins(m); err != nil {
+		return err
+	}
 	if err := e.WriteArtifacts(m, dir); err != nil {
 		return err
 	}
@@ -111,7 +120,7 @@ func (e *Engine) Adopt(m *manifest.Manifest, dir string) error {
 			}
 		}
 		if m.Template == "laravel" {
-			if err := wireLaravelEnv(dir, m); err != nil {
+			if err := e.wireLaravelEnv(dir, m); err != nil {
 				return err
 			}
 		}
@@ -124,7 +133,7 @@ func (e *Engine) Adopt(m *manifest.Manifest, dir string) error {
 		if err := backup(cfgPath); err != nil {
 			return err
 		}
-		_, db, ok := m.DatabaseService()
+		dbKey, db, ok := m.DatabaseService()
 		if !ok {
 			return fmt.Errorf("wordpress manifest without database service")
 		}
@@ -132,25 +141,35 @@ func (e *Engine) Adopt(m *manifest.Manifest, dir string) error {
 		if db.Mode == manifest.ModeShared {
 			host = sharedHost(db)
 		}
+		user, password := e.dbLogin(m, dbKey, db)
 		content := string(data)
 		content = wpconfig.SetDefine(content, "DB_HOST", host)
 		content = wpconfig.SetDefine(content, "DB_NAME", db.Database)
-		content = wpconfig.SetDefine(content, "DB_USER", "root")
-		content = wpconfig.SetDefine(content, "DB_PASSWORD", "")
+		content = wpconfig.SetDefine(content, "DB_USER", user)
+		content = wpconfig.SetDefine(content, "DB_PASSWORD", password)
 		content = wpconfig.EnsureProxyFix(content)
-		if err := os.WriteFile(cfgPath, []byte(content), 0o644); err != nil {
+		if err := safefile.Write(cfgPath, []byte(content), 0o644); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+// backup copies path to path.hull-backup with the source's mode, so a 0600
+// .env never gets a world-readable copy.
 func backup(path string) error {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path+".hull-backup", data, 0o644)
+	if err := safefile.Write(path+".hull-backup", data, fi.Mode().Perm()); err != nil {
+		return err
+	}
+	return os.Chmod(path+".hull-backup", fi.Mode().Perm())
 }
 
 // ImportExisting turns an unmanaged folder or legacy v1 project into a
@@ -181,8 +200,11 @@ func (e *Engine) ImportExisting(ctx context.Context, p *state.Project, log func(
 		log("hull.yaml written, framework config patched (backups: *.hull-backup)")
 	}
 
-	fresh, err := state.Find(e.Config.Roots, p.Name, e.Config.Projects...)
+	fresh, err := state.Find(e.cfg().Roots, p.Name, e.cfg().Projects...)
 	if err != nil {
+		return err
+	}
+	if err := e.Trust(fresh); err != nil {
 		return err
 	}
 	log("starting containers...")

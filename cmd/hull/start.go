@@ -58,7 +58,9 @@ func ensureDaemonRunning(ctx context.Context, home string) error {
 	if _, ok := api.Connect(home); ok {
 		return nil
 	}
-	ok, err := confirm("Hull is not running, so your sites will not be served. Start it and continue?")
+	// Off a terminal (a script, CI) the answer defaults to no rather than
+	// failing the command; --yes starts the daemon.
+	ok, err := confirmDefault("Hull is not running, so your sites will not be served. Start it and continue?", false)
 	if err != nil {
 		return err
 	}

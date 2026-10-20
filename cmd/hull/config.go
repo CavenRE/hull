@@ -11,6 +11,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CavenRE/hull/internal/api"
+	"github.com/CavenRE/hull/internal/config"
+	"github.com/CavenRE/hull/internal/state"
 )
 
 // configInfoT aliases the API config shape the CLI reads/writes.
@@ -87,7 +89,11 @@ func init() {
 			"  hull config tld local",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return mutateConfig(cmd, func(ci *configInfoT) { ci.TLD = strings.TrimPrefix(args[0], ".") })
+			tld := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(args[0])), ".")
+			if err := config.ValidateTLD(tld); err != nil {
+				return err
+			}
+			return mutateConfig(cmd, func(ci *configInfoT) { ci.TLD = tld })
 		},
 	})
 
@@ -266,6 +272,4 @@ func dash(s string) string {
 	return s
 }
 
-func sameRoot(a, b string) bool {
-	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
-}
+func sameRoot(a, b string) bool { return state.SamePath(a, b) }

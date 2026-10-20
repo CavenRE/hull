@@ -2,6 +2,7 @@ package platform
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -32,4 +33,12 @@ func OnWindowsFilesystem(root string) bool {
 		return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 	}
 	return false
+}
+
+// SeesWindowsEdits reports whether this process gets change events for files
+// under root that Windows programs edit, which is what lets Hull stop PHP
+// revalidating them. Native Windows does. Linux inside WSL does not: inotify on
+// a /mnt/<drive> mount reports only changes made through WSL itself.
+func SeesWindowsEdits(root string) bool {
+	return runtime.GOOS == "windows" && OnWindowsFilesystem(root)
 }

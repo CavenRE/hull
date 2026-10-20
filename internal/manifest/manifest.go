@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -225,6 +227,9 @@ var (
 	domainRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$`)
 	phpRE    = regexp.MustCompile(`^[0-9]+\.[0-9]+$`)
 	envKeyRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	driveRE  = regexp.MustCompile(`^[A-Za-z]:`)
+	// A compose service name that docker compose cannot read as a flag.
+	composeServiceRE = regexp.MustCompile(`^[a-zA-Z0-9._][a-zA-Z0-9._-]*$`)
 )
 
 // ValidSubdomain reports whether s is a usable cluster route subdomain label
@@ -291,7 +296,7 @@ func Load(path string) (*Manifest, error) {
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
 		file = filepath.Join(path, Filename)
 	}
-	data, err := os.ReadFile(file)
+	data, err := readManifestFile(file)
 	if err != nil {
 		return nil, fmt.Errorf("reading manifest: %w", err)
 	}
@@ -417,13 +422,61 @@ func (m *Manifest) Validate() error {
 	m.validateServices(fail)
 	m.validateHooks(fail)
 
-	for key := range m.Env {
+	for key, val := range m.Env {
 		if !envKeyRE.MatchString(key) {
 			fail("invalid env key %q", key)
+		}
+		if strings.ContainsAny(val, "\x00\r\n") {
+			fail("env %q: the value must be a single line", key)
 		}
 	}
 
 	return errors.Join(errs...)
+}
+
+// maxManifestSize caps a hull.yaml read. Project folders are untrusted, and
+// the daemon scans them every few seconds.
+const maxManifestSize = 1 << 20
+
+// readManifestFile reads a regular file of bounded size. A symbolic link, a
+// FIFO or a device in place of hull.yaml is refused rather than followed,
+// since reading one could block or exhaust memory.
+func readManifestFile(file string) ([]byte, error) {
+	fi, err := os.Lstat(file)
+	if err != nil {
+		return nil, err
+	}
+	if !fi.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", file)
+	}
+	if fi.Size() > maxManifestSize {
+		return nil, fmt.Errorf("%s is larger than %d KiB", file, maxManifestSize>>10)
+	}
+	f, err := os.Open(file)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, maxManifestSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxManifestSize {
+		return nil, fmt.Errorf("%s is larger than %d KiB", file, maxManifestSize>>10)
+	}
+	return data, nil
+}
+
+// LocalPath reports whether p, a path from hull.yaml, stays inside the project
+// folder: relative, and no ".." step once cleaned. Backslashes count as
+// separators, so a Windows-style path cannot slip past the check.
+func LocalPath(p string) bool {
+	p = strings.ReplaceAll(p, `\`, "/")
+	if strings.HasPrefix(p, "/") || driveRE.MatchString(p) {
+		return false
+	}
+	c := path.Clean(p)
+	return c != ".." && !strings.HasPrefix(c, "../")
 }
 
 // validateHooks checks every lifecycle hook list: a command is required, and
@@ -442,6 +495,9 @@ func (m *Manifest) validateHooks(fail func(string, ...any)) {
 		for i, h := range hooks {
 			if strings.TrimSpace(h.Run) == "" {
 				fail("hook %s[%d]: 'run' command is required", event, i)
+			}
+			if h.Service != "" && !composeServiceRE.MatchString(h.Service) {
+				fail("hook %s[%d]: invalid service %q", event, i, h.Service)
 			}
 			switch h.When {
 			case "", "always", "once", "changed":
@@ -526,10 +582,19 @@ func (m *Manifest) validateApp(fail func(string, ...any)) {
 		if c.PHP != "" && !phpRE.MatchString(c.PHP) {
 			fail("container %q: invalid php version %q", key, c.PHP)
 		}
-		for envKey := range c.Env {
+		for envKey, val := range c.Env {
 			if !envKeyRE.MatchString(envKey) {
 				fail("container %q: invalid env key %q", key, envKey)
 			}
+			if strings.ContainsAny(val, "\x00\r\n") {
+				fail("container %q: env %q: the value must be a single line", key, envKey)
+			}
+		}
+		if !LocalPath(c.Path) {
+			fail("container %q: path %q must stay inside the project folder", key, c.Path)
+		}
+		if c.Build != "" && !LocalPath(c.Build) {
+			fail("container %q: build %q must stay inside the project folder", key, c.Build)
 		}
 		for _, n := range c.Networks {
 			if !keyRE.MatchString(n) {

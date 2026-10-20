@@ -9,13 +9,15 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/term"
 )
 
-// ensuredNetworks memoizes networks already confirmed to exist this process, so
-// the daemon does not run `docker network ls` on every up/restart/rebuild: an
-// external network it created cannot vanish under a running daemon.
+// ensuredNetworks memoizes, for memoTTL, the networks confirmed to exist (name
+// -> time confirmed), so a burst of up/restart/rebuild runs `docker network ls`
+// once. Not longer: a Docker reset or `docker network rm` removes one under a
+// running daemon.
 var ensuredNetworks sync.Map
 
 // Runner executes a command attached to the user's terminal. Tests inject a
@@ -174,8 +176,7 @@ func PublishedPort(ctx context.Context, dir, service string, containerPort int) 
 }
 
 // EnsureNetwork creates the named docker network if it does not exist. The
-// result is memoized for the process (ensuredNetworks), so repeated lifecycle
-// actions skip the `docker network ls` probe after the first confirmation.
+// result is memoized briefly (ensuredNetworks).
 // ContainerNetworks returns the networks a container is attached to, so callers
 // can reconcile attachments with a single inspect instead of shelling out once
 // per candidate network.
@@ -205,13 +206,13 @@ func ConnectNetwork(ctx context.Context, network, container string) error {
 }
 
 func EnsureNetwork(ctx context.Context, name string) error {
-	if _, ok := ensuredNetworks.Load(name); ok {
+	if at, ok := ensuredNetworks.Load(name); ok && time.Since(at.(time.Time)) < memoTTL {
 		return nil
 	}
 	if out, err := Output(ctx, "", "docker", "network", "ls", "--filter", "name=^"+name+"$", "--format", "{{.Name}}"); err == nil {
 		for _, line := range strings.Split(out, "\n") {
 			if strings.TrimSpace(line) == name {
-				ensuredNetworks.Store(name, struct{}{})
+				ensuredNetworks.Store(name, time.Now())
 				return nil
 			}
 		}
@@ -219,6 +220,6 @@ func EnsureNetwork(ctx context.Context, name string) error {
 	if err := Exec(ctx, "", "docker", "network", "create", name); err != nil {
 		return err
 	}
-	ensuredNetworks.Store(name, struct{}{})
+	ensuredNetworks.Store(name, time.Now())
 	return nil
 }

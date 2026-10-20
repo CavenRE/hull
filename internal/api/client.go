@@ -4,6 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -38,10 +41,50 @@ func Connect(hullHome string) (*Client, bool) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel()
+	if !c.isOurDaemon(ctx, !info.Hello) {
+		return nil, false
+	}
 	if _, err := c.Status(ctx); err != nil {
 		return nil, false
 	}
 	return c, true
+}
+
+// isOurDaemon checks, without sending the token, that whatever listens on the
+// recorded port holds it: a daemon that died leaves daemon.json behind, and
+// another program may own the port by now. With legacy set (daemon.json came
+// from a daemon older than /v1/hello), that daemon's own 401 is accepted, so
+// an upgrade does not lose the running daemon.
+func (c *Client) isOurDaemon(ctx context.Context, legacy bool) bool {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return false
+	}
+	challenge := hex.EncodeToString(buf)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+"/v1/hello?challenge="+challenge, nil)
+	if err != nil {
+		return false
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var h Hello
+		if json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&h) != nil {
+			return false
+		}
+		return hmac.Equal([]byte(h.Proof), []byte(helloProof(c.Token, challenge)))
+	case http.StatusUnauthorized:
+		if !legacy {
+			return false
+		}
+		var e ErrorBody
+		return json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&e) == nil && e.Error == "missing or invalid token"
+	}
+	return false
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body, out any) error {
@@ -100,7 +143,7 @@ func (c *Client) Projects(ctx context.Context) ([]ProjectInfo, error) {
 
 // ProjectAction starts/stops/restarts a project by name.
 func (c *Client) ProjectAction(ctx context.Context, name, action string) error {
-	return c.do(ctx, http.MethodPost, "/v1/projects/"+name+"/"+action, nil, nil)
+	return c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(name)+"/"+action, nil, nil)
 }
 
 // CreateProject starts a creation job.
@@ -115,10 +158,15 @@ func (c *Client) CreateProject(ctx context.Context, req CreateProjectRequest) (j
 // Job fetches one job snapshot.
 func (c *Client) Job(ctx context.Context, id string) (jobs.Info, error) {
 	var info jobs.Info
-	if err := c.do(ctx, http.MethodGet, "/v1/jobs/"+id, nil, &info); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/v1/jobs/"+url.PathEscape(id), nil, &info); err != nil {
 		return jobs.Info{}, err
 	}
 	return info, nil
+}
+
+// CancelJob asks the daemon to stop a running job.
+func (c *Client) CancelJob(ctx context.Context, id string) error {
+	return c.do(ctx, http.MethodPost, "/v1/jobs/"+url.PathEscape(id)+"/cancel", nil, nil)
 }
 
 // WaitJob polls a job until completion, writing new lines via print.
@@ -165,7 +213,7 @@ func (c *Client) PutConfig(ctx context.Context, req ConfigInfo) (*ConfigInfo, er
 
 // PatchProject updates a managed project's fields (php/domain/serve).
 func (c *Client) PatchProject(ctx context.Context, name string, req PatchProjectRequest) error {
-	return c.do(ctx, http.MethodPatch, "/v1/projects/"+name, req, nil)
+	return c.do(ctx, http.MethodPatch, "/v1/projects/"+url.PathEscape(name), req, nil)
 }
 
 // Groups fetches the virtual-group store.
@@ -184,7 +232,7 @@ func (c *Client) PutGroups(ctx context.Context, s *groups.Store) error {
 
 // SetProjectGroup assigns a project to a group ("" to ungroup).
 func (c *Client) SetProjectGroup(ctx context.Context, name, group string) error {
-	return c.do(ctx, http.MethodPost, "/v1/projects/"+name+"/group", map[string]string{"group": group}, nil)
+	return c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(name)+"/group", map[string]string{"group": group}, nil)
 }
 
 // Clusters lists adopted/managed clusters (reconciled with the ledger).
@@ -203,17 +251,17 @@ func (c *Client) CreateCluster(ctx context.Context, req CreateClusterRequest) (j
 
 // SetClusterConfig updates a cluster's base_domain and/or ingress.
 func (c *Client) SetClusterConfig(ctx context.Context, name string, req SetClusterConfigRequest) error {
-	return c.do(ctx, http.MethodPut, "/v1/clusters/"+name, req, nil)
+	return c.do(ctx, http.MethodPut, "/v1/clusters/"+url.PathEscape(name), req, nil)
 }
 
 // SetClusterRoute assigns a URL (subdomain key) to a cluster service.
 func (c *Client) SetClusterRoute(ctx context.Context, name, key string, req SetRouteRequest) error {
-	return c.do(ctx, http.MethodPut, "/v1/clusters/"+name+"/routes/"+key, req, nil)
+	return c.do(ctx, http.MethodPut, "/v1/clusters/"+url.PathEscape(name)+"/routes/"+url.PathEscape(key), req, nil)
 }
 
 // RemoveClusterRoute deletes a cluster route by its subdomain key.
 func (c *Client) RemoveClusterRoute(ctx context.Context, name, key string) error {
-	return c.do(ctx, http.MethodDelete, "/v1/clusters/"+name+"/routes/"+key, nil, nil)
+	return c.do(ctx, http.MethodDelete, "/v1/clusters/"+url.PathEscape(name)+"/routes/"+url.PathEscape(key), nil, nil)
 }
 
 // AdoptCluster adopts an existing compose project as a Hull cluster.
@@ -264,12 +312,12 @@ func (c *Client) jobFrom(ctx context.Context, method, path string, body any) (jo
 
 // DeleteProject starts a destroy job (containers, volumes, files).
 func (c *Client) DeleteProject(ctx context.Context, name string) (jobs.Info, error) {
-	return c.jobFrom(ctx, http.MethodDelete, "/v1/projects/"+name, nil)
+	return c.jobFrom(ctx, http.MethodDelete, "/v1/projects/"+url.PathEscape(name), nil)
 }
 
 // RebuildProject starts a rebuild job.
 func (c *Client) RebuildProject(ctx context.Context, name string, noCache bool) (jobs.Info, error) {
-	path := "/v1/projects/" + name + "/rebuild"
+	path := "/v1/projects/" + url.PathEscape(name) + "/rebuild"
 	if noCache {
 		path += "?no_cache=1"
 	}
@@ -278,13 +326,13 @@ func (c *Client) RebuildProject(ctx context.Context, name string, noCache bool) 
 
 // ResetProject starts a reset job (removes named volumes).
 func (c *Client) ResetProject(ctx context.Context, name string) (jobs.Info, error) {
-	return c.jobFrom(ctx, http.MethodPost, "/v1/projects/"+name+"/reset", nil)
+	return c.jobFrom(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(name)+"/reset", nil)
 }
 
 // Volumes lists a project's named volumes (the Reset blast radius).
 func (c *Client) Volumes(ctx context.Context, name string) ([]string, error) {
 	var vols []string
-	if err := c.do(ctx, http.MethodGet, "/v1/projects/"+name+"/volumes", nil, &vols); err != nil {
+	if err := c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(name)+"/volumes", nil, &vols); err != nil {
 		return nil, err
 	}
 	return vols, nil
@@ -306,22 +354,22 @@ func (c *Client) AddService(ctx context.Context, req AddServiceRequest) (jobs.In
 
 // ServiceAction starts or stops a shared instance.
 func (c *Client) ServiceAction(ctx context.Context, name, action string) error {
-	return c.do(ctx, http.MethodPost, "/v1/services/"+name+"/"+action, nil, nil)
+	return c.do(ctx, http.MethodPost, "/v1/services/"+url.PathEscape(name)+"/"+action, nil, nil)
 }
 
 // RemoveService destroys a shared instance and every database in it.
 func (c *Client) RemoveService(ctx context.Context, name string) error {
-	return c.do(ctx, http.MethodDelete, "/v1/services/"+name, nil, nil)
+	return c.do(ctx, http.MethodDelete, "/v1/services/"+url.PathEscape(name), nil, nil)
 }
 
 // LinkService starts a job linking a project to a shared instance.
 func (c *Client) LinkService(ctx context.Context, instance string, req LinkRequest) (jobs.Info, error) {
-	return c.jobFrom(ctx, http.MethodPost, "/v1/services/"+instance+"/link", req)
+	return c.jobFrom(ctx, http.MethodPost, "/v1/services/"+url.PathEscape(instance)+"/link", req)
 }
 
 // Unlink removes a service from a project's manifest.
 func (c *Client) Unlink(ctx context.Context, name string, req UnlinkRequest) error {
-	return c.do(ctx, http.MethodPost, "/v1/projects/"+name+"/unlink", req, nil)
+	return c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(name)+"/unlink", req, nil)
 }
 
 // Import starts a job adopting an unmanaged folder already inside a root.

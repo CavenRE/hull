@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -133,5 +134,85 @@ func TestLoopbackDefaultsTo2(t *testing.T) {
 	c.applyDefaults()
 	if c.Router.Loopback != "127.0.0.2" {
 		t.Errorf("expected default 127.0.0.2, got %q", c.Router.Loopback)
+	}
+}
+
+func TestValidateTLD(t *testing.T) {
+	for _, ok := range []string{"test", "internal", "localhost", "lan", "my-lab"} {
+		if err := ValidateTLD(ok); err != nil {
+			t.Errorf("%q refused: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"", "dev", "com", "io", "Test", "-x", "x-", "1abc", "a.b", "a b", "te$t", `t"`} {
+		if err := ValidateTLD(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
+func TestLoadRejectsUnsafeTLD(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, Filename), []byte("tld: 'x;rm -rf /'\nroots: [/tmp]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(home); err == nil {
+		t.Error("Load accepted a TLD with shell characters")
+	}
+}
+
+func TestUpdateKeepsChangesMadeSinceLoad(t *testing.T) {
+	home := t.TempDir()
+	stale, err := Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale.Roots = []string{t.TempDir()}
+	if err := stale.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Update(home, func(c *Config) error {
+		c.Services.Aliases = map[string]string{"db": "mysql-8.4"}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	next, err := Update(home, func(c *Config) error {
+		c.Defaults.Editor = "code"
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.Services.Aliases["db"] != "mysql-8.4" || next.Defaults.Editor != "code" {
+		t.Errorf("an earlier edit was lost: aliases=%v editor=%q", next.Services.Aliases, next.Defaults.Editor)
+	}
+}
+
+func TestLocalHostname(t *testing.T) {
+	for _, ok := range []string{"shop.test", "api.tapkit.local", "x.internal", "a.b.home.arpa", "shop.mytld."} {
+		if !LocalHostname(ok, "mytld") {
+			t.Errorf("%q refused", ok)
+		}
+	}
+	for _, bad := range []string{"google.com", "api.example.com", "test", "evil.dev", "x.mytld.com"} {
+		if LocalHostname(bad, "mytld") {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
+func TestLoadMakesHomePrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX modes")
+	}
+	home := filepath.Join(t.TempDir(), "hull")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(home); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(home); fi.Mode().Perm() != 0o700 {
+		t.Errorf("home mode = %v, want 0700", fi.Mode().Perm())
 	}
 }

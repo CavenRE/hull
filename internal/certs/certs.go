@@ -1,6 +1,7 @@
 package certs
 
 import (
+	"crypto/x509"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,7 +22,7 @@ func RootCertPath(routerDataDir string) string {
 func InstallTrust(routerDataDir string) error {
 	path := RootCertPath(routerDataDir)
 	if _, err := os.Stat(path); err != nil {
-		return fmt.Errorf("root certificate not found at %s , run `hulld` or `hull daemon run` once (or `hull trust` provisions it) so the CA exists", path)
+		return fmt.Errorf("root certificate not found at %s , run `hull daemon run` once (or `hull trust` provisions it) so the CA exists", path)
 	}
 	if err := truststore.InstallFile(path); err != nil {
 		return fmt.Errorf("installing trust: %w", err)
@@ -42,6 +43,20 @@ func UninstallTrust(routerDataDir string) error {
 	}
 	_ = truststore.UninstallFile(path, truststore.WithFirefox())
 	return nil
+}
+
+// RootPool returns a certificate pool holding only Hull's local CA root, for
+// clients that should trust the router and nothing else.
+func RootPool(routerDataDir string) (*x509.CertPool, error) {
+	data, err := os.ReadFile(RootCertPath(routerDataDir))
+	if err != nil {
+		return nil, err
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(data) {
+		return nil, fmt.Errorf("no certificate in %s", RootCertPath(routerDataDir))
+	}
+	return pool, nil
 }
 
 // Trusted reports whether the root certificate file exists (presence in

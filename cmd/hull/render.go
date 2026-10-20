@@ -9,6 +9,7 @@ import (
 
 	"github.com/CavenRE/hull/internal/compose"
 	"github.com/CavenRE/hull/internal/manifest"
+	"github.com/CavenRE/hull/internal/safefile"
 )
 
 func init() {
@@ -66,7 +67,7 @@ func init() {
 			if target == "" {
 				target = filepath.Join(dir, "compose.yaml")
 			}
-			if err := os.WriteFile(target, data, 0o644); err != nil {
+			if err := safefile.Write(target, data, 0o644); err != nil {
 				return err
 			}
 			fmt.Println("Wrote", target)

@@ -23,16 +23,20 @@ const enginePollInterval = 2 * time.Second
 // never gets a chance to apply.
 const probeTimeout = 5 * time.Second
 
-// engineProbe caches the last positive probe for the life of the process. A
-// single compose sequence shells out to docker a dozen times, and re-probing
-// before each one would add real latency for no new information. Only a
-// positive result is cached: once the engine is up it does not spontaneously go
-// down mid-command, whereas a negative must stay live so the poll loop in
-// EnsureEngine can observe Docker finishing its startup.
+// engineProbe caches the last positive probe for memoTTL. A single compose
+// sequence shells out to docker a dozen times, and re-probing before each one
+// would add real latency for no new information. Only a positive result is
+// cached, and only briefly: the daemon outlives a Docker restart, and a
+// negative must stay live so the poll loop in EnsureEngine can observe Docker
+// finishing its startup.
 var engineProbe struct {
 	sync.Mutex
-	up bool
+	upAt time.Time
 }
+
+// memoTTL is how long a confirmed Docker fact (the engine is up, a network
+// exists) is trusted before it is checked again.
+const memoTTL = 30 * time.Second
 
 // engineResponds runs one bounded probe against the engine.
 func engineResponds(ctx context.Context) bool {
@@ -46,17 +50,20 @@ func engineResponds(ctx context.Context) bool {
 func engineReachable(ctx context.Context) bool {
 	engineProbe.Lock()
 	defer engineProbe.Unlock()
-	if engineProbe.up {
+	if time.Since(engineProbe.upAt) < memoTTL {
 		return true
 	}
-	engineProbe.up = engineResponds(ctx)
-	return engineProbe.up
+	if !engineResponds(ctx) {
+		return false
+	}
+	engineProbe.upAt = time.Now()
+	return true
 }
 
 // markEngineUp records a confirmed-live engine so later calls skip the probe.
 func markEngineUp() {
 	engineProbe.Lock()
-	engineProbe.up = true
+	engineProbe.upAt = time.Now()
 	engineProbe.Unlock()
 }
 

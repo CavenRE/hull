@@ -1,11 +1,8 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CavenRE/hull/internal/config"
+	"github.com/CavenRE/hull/internal/safefile"
 	"github.com/CavenRE/hull/internal/version"
 )
 
@@ -71,12 +69,12 @@ func maybeOfferUpdate(cmd *cobra.Command) {
 	st := loadUpdateState(home)
 
 	if time.Since(st.CheckedAt) > updateCheckInterval {
-		latest, err := fetchLatestRelease(cmd.Context())
+		rel, err := fetchLatestRelease(cmd.Context(), updateCheckTimeout)
 		// Stamp the time either way, so an offline machine does not re-probe on
 		// every single command.
 		st.CheckedAt = time.Now()
 		if err == nil {
-			st.Latest = latest
+			st.Latest = rel.Tag
 		}
 		saveUpdateState(home, st)
 	}
@@ -117,6 +115,7 @@ func skipUpdateCheck(cmd *cobra.Command) bool {
 		"hull daemon run", // long-lived background process
 		"hull completion", // shell script output
 		"hull install",
+		"hull setup", // the installer runs it, and an update would exit before setup did
 		"hull uninstall",
 		"hull help",
 	} {
@@ -147,35 +146,7 @@ func saveUpdateState(home string, st updateState) {
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		return
 	}
-	_ = os.WriteFile(updateStatePath(home), data, 0o644)
-}
-
-// fetchLatestRelease returns the newest published release tag (e.g. "v0.15.1").
-// Short timeout: this runs in front of a command the user is waiting on.
-func fetchLatestRelease(ctx context.Context) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, updateCheckTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, latestReleaseAPI, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "hull-update-check")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("github returned %s", resp.Status)
-	}
-	var out struct {
-		TagName string `json:"tag_name"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
-		return "", err
-	}
-	return out.TagName, nil
+	_ = safefile.Write(updateStatePath(home), data, 0o644)
 }
 
 // semverRE captures the leading vMAJOR.MINOR.PATCH, ignoring any git-describe

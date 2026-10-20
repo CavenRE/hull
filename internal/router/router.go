@@ -7,6 +7,8 @@ import (
 
 	"github.com/caddyserver/caddy/v2"
 
+	"github.com/CavenRE/hull/internal/config"
+
 	// Register only the Caddy modules Hull's generated config actually
 	// references, instead of the full `modules/standard` set (which drags in
 	// every ACME issuer, DNS provider, and http middleware). This trims the
@@ -38,6 +40,9 @@ type Options struct {
 	// A non-default 127.0.0.x lets Hull coexist with another local proxy
 	// holding the same ports on a different loopback IP.
 	BindHost string
+	// TLD is the local domain; routes outside it and the reserved local TLDs
+	// are dropped (config.LocalHostname).
+	TLD string
 }
 
 // CAName is the display name of Hull's local certificate authority.
@@ -68,15 +73,20 @@ func ConfigJSON(routes []Route, o Options) ([]byte, error) {
 		o.HTTPSPort = 443
 	}
 
-	sorted := append([]Route(nil), routes...)
+	var sorted []Route
+	for _, r := range routes {
+		if r.Domain == "" {
+			return nil, fmt.Errorf("invalid route %+v", r)
+		}
+		if config.LocalHostname(r.Domain, o.TLD) {
+			sorted = append(sorted, r)
+		}
+	}
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Domain < sorted[j].Domain })
 
 	caddyRoutes := make([]map[string]any, 0, len(sorted))
 	subjects := make([]string, 0, len(sorted))
 	for _, r := range sorted {
-		if r.Domain == "" {
-			return nil, fmt.Errorf("invalid route %+v", r)
-		}
 		subjects = append(subjects, r.Domain)
 		var handle map[string]any
 		if r.Upstream == "" {

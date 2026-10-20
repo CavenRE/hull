@@ -839,6 +839,23 @@ func TestWatchedOpcacheMount(t *testing.T) {
 		})
 	}
 
+	watched := func(c *Context) { c.SlowMount, c.WatchedReload = true, true }
+	for manifestYAML, apache := range map[string]bool{
+		site: false,
+		"schema: 1\nname: blog\ntype: site\ntemplate: wordpress\nservices:\n  db:\n    engine: mariadb\n": true,
+	} {
+		vols := strings.Join(render(t, manifestYAML, watched).Services["app"].Volumes, " ")
+		if !strings.Contains(vols, "/system/php/hull:/opt/hull:ro") {
+			t.Errorf("a watched container needs the opcode cache helpers: %s", vols)
+		}
+		if got := strings.Contains(vols, "/etc/apache2/conf-enabled/zz-hull-opcache.conf:ro"); got != apache {
+			t.Errorf("Apache helper alias mounted = %v, want %v: %s", got, apache, vols)
+		}
+	}
+	if vols := strings.Join(render(t, site, func(c *Context) {}).Services["app"].Volumes, " "); strings.Contains(vols, "/opt/hull") {
+		t.Errorf("an unwatched container must not get the helpers: %s", vols)
+	}
+
 	// Non-PHP templates have no opcode cache to leave stale, and must not pick
 	// the file up just because the project is on a slow mount.
 	f := render(t, "schema: 1\nname: site\ntype: site\ntemplate: static\n", func(c *Context) {
@@ -846,5 +863,61 @@ func TestWatchedOpcacheMount(t *testing.T) {
 	})
 	if vols := strings.Join(f.Services["app"].Volumes, " "); strings.Contains(vols, "opcache-watched") {
 		t.Errorf("static must not get the watched ini: %v", f.Services["app"].Volumes)
+	}
+}
+
+func TestMountSourceStaysInProject(t *testing.T) {
+	for in, want := range map[string]string{"": "./", "./": "./", "public": "./public", "./web/": "./web"} {
+		if got, err := mountSource(in); err != nil || got != want {
+			t.Errorf("mountSource(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"../x", "/etc", `..\..\x`} {
+		if _, err := mountSource(bad); err == nil {
+			t.Errorf("mountSource(%q) left the project", bad)
+		}
+	}
+}
+
+func TestRenderUsesStoredLogins(t *testing.T) {
+	login := func(m *manifest.Manifest, key string, s *manifest.Service) (string, string) {
+		if s.Engine == "postgres" {
+			return "postgres", "pg pass/1"
+		}
+		return "root", "s3cret"
+	}
+	ctx := testCtx
+	ctx.DBLogin = login
+
+	wp, err := manifest.Parse([]byte("schema: 1\nname: blog\ntemplate: wordpress\nservices:\n  db:\n    engine: mariadb\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := Render(wp, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db := strings.Join(f.Services["db"].Environment, "\n")
+	if !strings.Contains(db, "MYSQL_ROOT_PASSWORD=s3cret") || strings.Contains(db, "MYSQL_ALLOW_EMPTY_PASSWORD") {
+		t.Errorf("dedicated db env = %v", f.Services["db"].Environment)
+	}
+	app := strings.Join(f.Services["app"].Environment, "\n")
+	if !strings.Contains(app, "WORDPRESS_DB_PASSWORD=s3cret") || !strings.Contains(app, "WORDPRESS_DB_USER=root") {
+		t.Errorf("wordpress env = %v", f.Services["app"].Environment)
+	}
+
+	py, err := manifest.Parse([]byte("schema: 1\nname: py\ntype: site\ntemplate: python\nservices:\n  db:\n    engine: postgres\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err = Render(py, ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if env := strings.Join(f.Services["app"].Environment, "\n"); !strings.Contains(env, "DATABASE_URL=postgres://postgres:pg%20pass%2F1@db:5432/py") {
+		t.Errorf("DATABASE_URL not escaped with the password: %v", f.Services["app"].Environment)
+	}
+	if env := strings.Join(f.Services["db"].Environment, "\n"); strings.Contains(env, "trust") || !strings.Contains(env, "POSTGRES_PASSWORD=pg pass/1") {
+		t.Errorf("postgres env = %v", f.Services["db"].Environment)
 	}
 }

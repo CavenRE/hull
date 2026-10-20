@@ -12,7 +12,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"sync"
+
+	"github.com/CavenRE/hull/internal/flock"
+	"github.com/CavenRE/hull/internal/safefile"
 )
 
 // Entry is one started project , enough to reconstruct its compose driver.
@@ -27,18 +29,12 @@ type Entry struct {
 
 const filename = "started.json"
 
-// mu serializes read-modify-write within a process (the daemon may start and
-// stop projects concurrently).
-var mu sync.Mutex
-
 func ledgerPath(hullHome string) string { return filepath.Join(hullHome, filename) }
 
 // List returns the recorded started projects, sorted by name. A missing or
 // unreadable ledger yields an empty slice , the caller's other stop sources
 // still apply.
 func List(hullHome string) []Entry {
-	mu.Lock()
-	defer mu.Unlock()
 	return load(hullHome)
 }
 
@@ -63,17 +59,16 @@ func save(hullHome string, entries []Entry) error {
 	if err != nil {
 		return err
 	}
-	tmp := ledgerPath(hullHome) + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, ledgerPath(hullHome))
+	return safefile.Write(ledgerPath(hullHome), data, 0o644)
 }
 
 // Add records (or updates) a started project, keyed by name.
 func Add(hullHome string, e Entry) error {
-	mu.Lock()
-	defer mu.Unlock()
+	unlock, err := flock.Home(hullHome, "ledger")
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	entries := load(hullHome)
 	for i := range entries {
 		if entries[i].Name == e.Name {
@@ -87,8 +82,11 @@ func Add(hullHome string, e Entry) error {
 
 // Remove drops a project from the ledger (no-op when absent).
 func Remove(hullHome, name string) error {
-	mu.Lock()
-	defer mu.Unlock()
+	unlock, err := flock.Home(hullHome, "ledger")
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	entries := load(hullHome)
 	out := make([]Entry, 0, len(entries))
 	for _, e := range entries {

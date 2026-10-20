@@ -1,6 +1,8 @@
 package platform
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,7 +10,10 @@ import (
 	"strings"
 )
 
-const resolverDir = "/etc/resolver"
+const (
+	resolverDir   = "/etc/resolver"
+	loopbackPlist = "/Library/LaunchDaemons/dev.hull.loopback.plist"
+)
 
 // DNSSupported reports whether Hull can manage *.<tld> DNS on this machine.
 // macOS always can, via a /etc/resolver/<tld> file. The reason string mirrors
@@ -33,8 +38,7 @@ func RegisterDNS(tld, addr string, port int) error {
 		}
 		return os.WriteFile(path, []byte(resolverContent(addr, port)), 0o644)
 	}
-	shell := fmt.Sprintf("/bin/mkdir -p %s && /usr/bin/printf '%s' > '%s'", resolverDir, resolverPrintf(addr, port), path)
-	if err := runWithAdmin(shell); err != nil {
+	if err := adminWrite(path, resolverContent(addr, port), ""); err != nil {
 		return &ManualStepsError{Instructions: DNSInstructions(tld, addr, port)}
 	}
 	return nil
@@ -48,8 +52,18 @@ func UnregisterDNS(tld string) error {
 		_ = os.Remove(path)
 		return nil
 	}
-	if err := runWithAdmin("/bin/rm -f '" + path + "'"); err != nil {
+	if err := runWithAdmin("/bin/rm -f " + ShellQuote(path)); err != nil {
 		return &ManualStepsError{Instructions: "sudo rm -f " + path}
+	}
+	return nil
+}
+
+// RevertSystemChanges removes the resolver file and the loopback-alias
+// LaunchDaemon Hull installed, in one admin prompt.
+func RevertSystemChanges(tld string) error {
+	resolver := filepath.Join(resolverDir, tld)
+	if err := runWithAdmin("/bin/rm -f " + ShellQuote(resolver) + " " + ShellQuote(loopbackPlist)); err != nil {
+		return &ManualStepsError{Instructions: "sudo rm -f " + resolver + " " + loopbackPlist}
 	}
 	return nil
 }
@@ -62,12 +76,9 @@ func DNSInstructions(tld, addr string, port int) string {
 }
 
 // runWithAdmin runs a /bin/sh command as root through osascript, which shows
-// the standard macOS administrator-password dialog. shellCmd must not contain
-// double quotes (we quote our paths with single quotes); only backslashes need
-// escaping for the AppleScript string literal.
+// the standard macOS administrator-password dialog.
 func runWithAdmin(shellCmd string) error {
-	esc := strings.ReplaceAll(shellCmd, `\`, `\\`)
-	script := `do shell script "` + esc + `" with administrator privileges`
+	script := "do shell script " + appleScriptString(shellCmd) + " with administrator privileges"
 	if out, err := exec.Command("osascript", "-e", script).CombinedOutput(); err != nil {
 		return fmt.Errorf("admin authorization failed: %v: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -82,13 +93,28 @@ func resolverContent(addr string, port int) string {
 	return fmt.Sprintf("nameserver %s\nport %d\n", addr, port)
 }
 
-// resolverPrintf is the same body as a printf format string (literal \n) for
-// embedding in the shell command run under osascript.
-func resolverPrintf(addr string, port int) string {
-	if port == 53 {
-		return `nameserver ` + addr + `\n`
+// adminWrite stages content in a temp file and copies it to dest as root,
+// after running pre (a shell command, or "") in the same admin prompt. Only
+// quoted paths reach the root shell, never the content.
+func adminWrite(dest, content, pre string) error {
+	f, err := os.CreateTemp("", "hull-*")
+	if err != nil {
+		return err
 	}
-	return fmt.Sprintf(`nameserver %s\nport %d\n`, addr, port)
+	defer func() { _ = os.Remove(f.Name()) }()
+	_, err = f.WriteString(content)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	sum := sha256.Sum256([]byte(content))
+	shell := adminInstallShell(f.Name(), hex.EncodeToString(sum[:]), dest)
+	if pre != "" {
+		shell = pre + " && " + shell
+	}
+	return runWithAdmin(shell)
 }
 
 // EnsureLoopbackAlias makes addr bindable on macOS, where only 127.0.0.1 is on
@@ -99,7 +125,6 @@ func EnsureLoopbackAlias(addr string) error {
 	if addr == "" || addr == "127.0.0.1" {
 		return nil
 	}
-	const plist = "/Library/LaunchDaemons/dev.hull.loopback.plist"
 	body := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -109,9 +134,7 @@ func EnsureLoopbackAlias(addr string) error {
 <string>/sbin/ifconfig</string><string>lo0</string><string>alias</string><string>%s</string><string>up</string>
 </array></dict></plist>`, addr)
 	// Add the alias now, and persist it for next boot.
-	shell := fmt.Sprintf("/sbin/ifconfig lo0 alias %s up && /usr/bin/printf '%s' > %s",
-		addr, strings.ReplaceAll(body, "\n", `\n`), plist)
-	if err := runWithAdmin(shell); err != nil {
+	if err := adminWrite(loopbackPlist, body, "/sbin/ifconfig lo0 alias "+ShellQuote(addr)+" up"); err != nil {
 		return &ManualStepsError{Instructions: fmt.Sprintf("sudo ifconfig lo0 alias %s up", addr)}
 	}
 	return nil

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -41,7 +42,7 @@ var rootCmd = &cobra.Command{
 		"  hull stop                     bring everything (and the daemon) down\n" +
 		"\n" +
 		"Command groups: lifecycle (up, down, restart, repair, logs, stop), projects\n" +
-		"(new, rm, rebuild, reset, render, set, import, export, migrate), services and\n" +
+		"(new, rm, rebuild, reset, render, set, import, export, db, migrate), services and\n" +
 		"linking, clusters, config and groups, daemon and diagnostics, and tooling\n" +
 		"(exec, artisan, npm). Every command has detailed `--help`.\n" +
 		"\n" +
@@ -84,8 +85,8 @@ func init() {
 			"Why prefer the daemon: it owns the embedded router, DNS, and the OS hosts\n"+
 			"block, and reconciles routes after every change. A mutation made in-process\n"+
 			"while a daemon is up would leave the daemon's view briefly stale (it self-\n"+
-			"heals on its next 3-second reconcile). A few commands are always local\n"+
-			"(status runs docker ps; render, export, migrate are in-process; daemon\n"+
+			"heals on its next reconcile). A few commands are always local\n"+
+			"(status runs docker ps; render, export, db, migrate are in-process; daemon\n"+
 			"status/stop talk to the daemon directly regardless of --no-daemon).\n"+
 			"\n"+
 			"Start a daemon with `hull daemon run` (or the desktop app); check it with\n"+
@@ -109,13 +110,14 @@ func init() {
 			"                  services/group/cluster listers). Other commands ignore it.\n"+
 			"\n"+
 			"  -y, --yes       Assume yes for confirmation prompts, so destructive commands\n"+
-			"                  (rm, reset, services rm, uninstall) run without prompting.\n"+
-			"                  Equivalent to the -f/--force flag those commands also accept.\n"+
-			"                  Off an interactive terminal, a prompt fails closed unless\n"+
-			"                  --yes is given, so scripts never hang.\n"+
+			"                  (rm, reset, db import, services rm, uninstall) run without\n"+
+			"                  prompting. Equivalent to the -f/--force flag those commands\n"+
+			"                  also accept. Off an interactive terminal, a prompt fails\n"+
+			"                  closed unless --yes is given, so scripts never hang.\n"+
 			"\n"+
-			"Ctrl-C cancels any command cleanly, including streaming ones (logs) and long\n"+
-			"jobs (rm, cluster create).")
+			"Ctrl-C cancels any command, including streaming ones (logs). For a long job\n"+
+			"the daemon runs (rm, cluster create), it asks the daemon to cancel the job,\n"+
+			"which stops the docker command the job is running.")
 }
 
 // Global flags, shared by every command via the root's persistent flag set.
@@ -179,9 +181,18 @@ func (a *app) withDaemon(viaDaemon func(*api.Client) error, inProcess func() err
 }
 
 // streamJob prints a daemon job's output live and returns its terminal error.
+// Ctrl-C (ctx canceled) cancels the job in the daemon too, rather than leaving
+// it running unseen.
 func streamJob(ctx context.Context, c *api.Client, job jobs.Info) error {
 	final, err := c.WaitJob(ctx, job.ID, func(line string) { fmt.Println(line) })
 	if err != nil {
+		if ctx.Err() != nil {
+			cctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if cerr := c.CancelJob(cctx, job.ID); cerr == nil {
+				return fmt.Errorf("cancelled; the daemon is stopping %s", job.Kind)
+			}
+		}
 		return err
 	}
 	if final.Status == jobs.StatusFailed {
@@ -262,13 +273,20 @@ func (a *app) saveConfig(ctx context.Context, ci api.ConfigInfo) error {
 		_, err := client.PutConfig(ctx, ci)
 		return err
 	}
-	a.Config.TLD = ci.TLD
-	a.Config.Roots = ci.Roots
-	a.Config.Projects = ci.Projects
-	a.Config.Defaults.PHP = ci.Defaults.PHP
-	a.Config.Defaults.Editor = ci.Defaults.Editor
-	a.Config.Defaults.DBTool = ci.Defaults.DBTool
-	return a.Config.Save()
+	next, err := config.Update(a.Config.HullHome, func(c *config.Config) error {
+		c.TLD = ci.TLD
+		c.Roots = ci.Roots
+		c.Projects = ci.Projects
+		c.Defaults.PHP = ci.Defaults.PHP
+		c.Defaults.Editor = ci.Defaults.Editor
+		c.Defaults.DBTool = ci.Defaults.DBTool
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	*a.Config = *next
+	return nil
 }
 
 // groupsView / saveGroups read and persist the virtual-group store, via the
@@ -284,7 +302,11 @@ func (a *app) saveGroups(ctx context.Context, s *groups.Store) error {
 	if client, ok := a.client(); ok {
 		return client.PutGroups(ctx, s)
 	}
-	return s.Save(a.Config.HullHome)
+	_, err := groups.Update(a.Config.HullHome, func(st *groups.Store) error {
+		*st = *s
+		return nil
+	})
+	return err
 }
 
 func main() {

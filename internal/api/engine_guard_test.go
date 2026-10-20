@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/CavenRE/hull/internal/dockerx"
 )
@@ -59,13 +60,15 @@ func TestNonContainerRoutesWorkWhenEngineDown(t *testing.T) {
 func TestShutdownWorksWhenEngineDown(t *testing.T) {
 	s, client, _ := testServer(t)
 	s.EngineCheck = func(ctx context.Context) error { return dockerx.ErrEngineDown }
-	called := false
-	s.OnShutdown = func() { called = true }
+	called := make(chan struct{})
+	s.OnShutdown = func() { close(called) }
 
 	if err := client.Shutdown(context.Background()); err != nil {
 		t.Fatalf("shutdown must work with the engine down: %v", err)
 	}
-	if !called {
+	select {
+	case <-called:
+	case <-time.After(5 * time.Second):
 		t.Error("shutdown handler not invoked")
 	}
 }

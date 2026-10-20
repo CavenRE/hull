@@ -23,3 +23,16 @@ func TestOnWindowsFilesystem(t *testing.T) {
 		t.Error(`OnWindowsFilesystem("C:\Sites\app") = false on windows, want true`)
 	}
 }
+
+func TestSeesWindowsEditsOnlyOnWindows(t *testing.T) {
+	root := `C:\Sites\shop`
+	if runtime.GOOS != "windows" {
+		root = "/mnt/c/Sites/shop"
+	}
+	if got, want := SeesWindowsEdits(root), runtime.GOOS == "windows"; got != want {
+		t.Errorf("SeesWindowsEdits(%s) = %v on %s, want %v", root, got, runtime.GOOS, want)
+	}
+	if SeesWindowsEdits("/home/me/site") {
+		t.Error("a Linux folder is not a Windows mount")
+	}
+}

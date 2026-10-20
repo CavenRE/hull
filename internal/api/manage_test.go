@@ -49,8 +49,16 @@ func TestConfigRoundTrip(t *testing.T) {
 		t.Errorf("config.yaml:\n%s", data)
 	}
 
+	// A public TLD, or one that is not a plain label, is refused.
+	for _, bad := range []string{"dev", "com", "uk", "te;st", "a b"} {
+		cfg.TLD = bad
+		if err := client.do(context.Background(), http.MethodPut, "/v1/config", cfg, &resp); err == nil {
+			t.Errorf("tld %q should be refused", bad)
+		}
+	}
+
 	// TLD change flags a restart.
-	cfg.TLD = "dev"
+	cfg.TLD = "internal"
 	if err := client.do(context.Background(), http.MethodPut, "/v1/config", cfg, &resp); err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +112,7 @@ func TestConfigProjectsMerge(t *testing.T) {
 
 func TestProjectOpen(t *testing.T) {
 	s, client, rec := testServer(t)
-	writeProject(t, s.Config.Roots[0], "alpha")
+	writeProject(t, s, "alpha")
 
 	if err := client.do(context.Background(), http.MethodPost, "/v1/projects/alpha/open", OpenRequest{Target: "folder"}, nil); err != nil {
 		t.Fatal(err)
@@ -166,7 +174,7 @@ func TestProjectPatch(t *testing.T) {
 
 func TestLogsSSE(t *testing.T) {
 	s, client, _ := testServer(t)
-	writeProject(t, s.Config.Roots[0], "alpha")
+	writeProject(t, s, "alpha")
 	s.LogStream = func(ctx context.Context, dir string, tail int, onLine func(string)) error {
 		if tail != 50 {
 			t.Errorf("tail = %d", tail)

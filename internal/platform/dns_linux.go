@@ -91,20 +91,26 @@ func RegisterDNS(tld, addr string, port int) error {
 	}
 }
 
-// sudoScript runs a privileged shell script through sudo, wiring the terminal
-// so sudo can prompt for a password interactively , the same UX as the
+// sudoSteps runs each step through sudo as argv, never as shell text, wiring
+// the terminal so sudo can prompt for a password , the same UX as the
 // cert-trust step, so DNS setup isn't the odd one out that only prints
 // commands. Returns an error when sudo is missing or there's no TTY to prompt
 // on (e.g. a daemon/GUI context), so callers fall back to manual instructions.
-func sudoScript(script string) error {
+func sudoSteps(steps []sudoStep) error {
 	if _, err := exec.LookPath("sudo"); err != nil {
 		return fmt.Errorf("sudo not found")
 	}
-	cmd := exec.Command("sudo", "sh", "-c", script)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	for _, st := range steps {
+		cmd := exec.Command("sudo", st.args...)
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+		if st.stdin != "" {
+			cmd.Stdin, cmd.Stdout = strings.NewReader(st.stdin), nil // tee: content in, no echo
+		}
+		if err := cmd.Run(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // registerResolved writes a systemd-resolved drop-in routing ~<tld> to Hull's
@@ -121,9 +127,7 @@ func registerResolved(tld, addr string, port int) error {
 		}
 		return os.WriteFile(path, []byte(dropInContent(tld, addr)), 0o644)
 	}
-	script := fmt.Sprintf("mkdir -p %s && printf '[Resolve]\\nDNS=%s\\nDomains=~%s\\n' > %s && systemctl restart systemd-resolved",
-		resolvedDropInDir, addr, tld, path)
-	if err := sudoScript(script); err != nil {
+	if err := sudoSteps(resolvedSteps(resolvedDropInDir, path, dropInContent(tld, addr))); err != nil {
 		return &ManualStepsError{Instructions: resolvedInstructions(tld, addr)}
 	}
 	return nil
@@ -149,9 +153,7 @@ func registerNMDnsmasq(tld, addr string) error {
 		}
 		return exec.Command("systemctl", "restart", "NetworkManager").Run()
 	}
-	script := fmt.Sprintf("mkdir -p %s %s && printf '[main]\\ndns=dnsmasq\\n' > %s && printf 'address=/.%s/%s\\n' > %s && systemctl restart NetworkManager",
-		nmConfDir, nmDnsmasqDir, nmDNSConfPath(), tld, addr, nmRulePath(tld))
-	if err := sudoScript(script); err != nil {
+	if err := sudoSteps(nmSteps(nmConfDir, nmDnsmasqDir, nmDNSConfPath(), nmRulePath(tld), "address=/."+tld+"/"+addr+"\n")); err != nil {
 		return &ManualStepsError{Instructions: nmInstructions(tld, addr)}
 	}
 	return nil
@@ -162,7 +164,14 @@ func registerNMDnsmasq(tld, addr string) error {
 // Only files Hull owns (hull-*) are touched; a user's own dns= line is left be.
 func UnregisterDNS(tld string) error {
 	if os.Geteuid() != 0 {
-		return &ManualStepsError{Instructions: unregisterInstructions(tld)}
+		steps := []sudoStep{
+			{args: []string{"rm", "-f", filepath.Join(resolvedDropInDir, "hull-"+tld+".conf"), nmRulePath(tld), nmDNSConfPath()}},
+			{args: []string{"systemctl", "try-restart", "systemd-resolved", "NetworkManager"}},
+		}
+		if err := sudoSteps(steps); err != nil {
+			return &ManualStepsError{Instructions: unregisterInstructions(tld)}
+		}
+		return nil
 	}
 	resolvedGone := os.Remove(filepath.Join(resolvedDropInDir, "hull-"+tld+".conf")) == nil
 	nmGone := os.Remove(nmRulePath(tld)) == nil
@@ -208,6 +217,10 @@ func unregisterInstructions(tld string) string {
 func dropInContent(tld, addr string) string {
 	return "[Resolve]\nDNS=" + addr + "\nDomains=~" + tld + "\n"
 }
+
+// RevertSystemChanges undoes the system-level changes Hull makes for name
+// resolution; on Linux that is the resolver configuration.
+func RevertSystemChanges(tld string) error { return UnregisterDNS(tld) }
 
 // EnsureLoopbackAlias makes addr usable as a bind address. On Linux the whole
 // 127.0.0.0/8 is already loopback, so this is a no-op.

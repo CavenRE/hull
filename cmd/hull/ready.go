@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/CavenRE/hull/internal/certs"
+	"github.com/CavenRE/hull/internal/engine"
 	"github.com/CavenRE/hull/internal/manifest"
 	"github.com/CavenRE/hull/internal/state"
 )
@@ -43,21 +45,25 @@ func reportUp(ctx context.Context, a *app, p *state.Project, viaDaemon bool) {
 		fmt.Printf("  started %s\n", p.Name)
 		return
 	}
-	waitSiteReady(ctx, p.Name, "https://"+m.Domain+"."+a.Config.TLD)
+	waitSiteReady(ctx, a, p.Name, a.siteURL(m.Domain+"."+a.Config.TLD))
 }
 
 // waitSiteReady polls url until the site answers or upReadyTimeout elapses. A
 // 502/503/504 counts as "not ready yet" (Caddy returns 502 for a registered
 // host whose backend has not booted); any other HTTP response means the app
 // answered. In an interactive terminal it shows a live elapsed-time line.
-func waitSiteReady(ctx context.Context, name, url string) {
+func waitSiteReady(ctx context.Context, a *app, name, url string) {
+	// Trust Hull's own CA (the trust store may not hold it yet) and only it.
+	// Without the CA file there is nothing to verify against, so the probe
+	// checks reachability alone, as it always did.
+	tlsConf := &tls.Config{InsecureSkipVerify: true}
+	if pool, err := certs.RootPool(a.Config.RouterDataDir()); err == nil {
+		tlsConf = &tls.Config{RootCAs: pool}
+	}
+	local := engine.LocalRedirects(3, a.Config.TLD)
 	client := &http.Client{
-		Timeout: reqTimeout,
-		Transport: &http.Transport{
-			// The probe checks reachability, not certificate trust: this CLI
-			// process may not have Hull's local CA installed.
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
+		Timeout:   reqTimeout,
+		Transport: &http.Transport{TLSClientConfig: tlsConf},
 		// A redirect already proves the app answered; do not chase it.
 		// Follow a hop or two rather than stopping at the first redirect. A
 		// redirect does prove the app answered, which is all readiness needs, but
@@ -66,12 +72,7 @@ func waitSiteReady(ctx context.Context, name, url string) {
 		// to its installer, Laravel to a canonical host). Stopping there compiles
 		// the bootstrap and leaves the actual page cold, so the user still pays
 		// for it on their first click.
-		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
-			if len(via) >= 3 {
-				return http.ErrUseLastResponse
-			}
-			return nil
-		},
+		CheckRedirect: local,
 	}
 	ctx, cancel := context.WithTimeout(ctx, upReadyTimeout)
 	defer cancel()

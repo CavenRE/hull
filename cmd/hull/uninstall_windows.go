@@ -44,10 +44,13 @@ func runUninstall(o uninstallOpts) error {
 	// the fresh install and the leftover hull-gui.exe would fail the check
 	// ("Unable to uninstall"). The installer re-creates registry/PATH/shortcuts.
 	if isReinstall() {
-		removeInstalledFiles(dir) // everything except the running hull.exe
+		removeInstalledFiles(dir)
 		fmt.Println("Previous version removed.")
 		return nil
 	}
+
+	untrustCA()
+	revertSystem()
 
 	fmt.Println("Removing the Apps & Features entry…")
 	if err := registry.DeleteKey(registry.CURRENT_USER, uninstallRegKey); err != nil {
@@ -68,16 +71,16 @@ func runUninstall(o uninstallOpts) error {
 	removeAutostart(dir)
 
 	if o.PurgeData {
-		if err := backupHullHome(); err != nil {
+		if bak, err := backupHullHome(); err != nil {
 			fmt.Printf("  note: %v\n", err)
-		} else {
-			fmt.Println("Moved ~/.hull -> ~/.hull.bak")
+		} else if bak != "" {
+			fmt.Printf("Moved ~/.hull -> %s\n", bak)
 		}
 	}
 
 	fmt.Println("Removing program files…")
-	removeInstalledFiles(dir) // sync , so most is gone even if the async wipe is blocked
-	scheduleDirDelete(dir)    // removes the running hull.exe + dir after we exit
+	removeInstalledFiles(dir)
+	scheduleSelfDelete(dir)
 	fmt.Println("Hull uninstalled. (Open a new terminal so the PATH change applies.)")
 	return nil
 }
@@ -104,17 +107,21 @@ func stopApp() {
 	}
 }
 
-// removeInstalledFiles deletes everything in dir except the running hull.exe
-// (which Windows won't let us delete while it's executing).
+var installedFiles = []string{"hull.exe", "hull-gui.exe", "hulld.exe"}
+
+// removeInstalledFiles deletes only the files Hull installs (and their update
+// leftovers), never the rest of dir: hull.exe may run from a folder that holds
+// other work, such as a source checkout.
 func removeInstalledFiles(dir string) {
 	self, _ := os.Executable()
-	entries, _ := os.ReadDir(dir)
-	for _, e := range entries {
-		p := filepath.Join(dir, e.Name())
-		if strings.EqualFold(p, self) {
-			continue
+	for _, name := range installedFiles {
+		for _, suffix := range []string{"", ".new", ".old"} {
+			p := filepath.Join(dir, name+suffix)
+			if strings.EqualFold(p, self) {
+				continue
+			}
+			_ = os.Remove(p)
 		}
-		_ = os.RemoveAll(p)
 	}
 }
 
@@ -124,7 +131,7 @@ func removeFromUserPath(dir string) error {
 	if err != nil {
 		return err
 	}
-	defer k.Close()
+	defer func() { _ = k.Close() }()
 	val, _, err := k.GetStringValue("Path")
 	if err != nil {
 		return err
@@ -165,7 +172,7 @@ func removeAutostart(dir string) {
 	if err != nil {
 		return
 	}
-	defer k.Close()
+	defer func() { _ = k.Close() }()
 	names, _ := k.ReadValueNames(0)
 	want := strings.ToLower(dir)
 	for _, n := range names {
@@ -176,29 +183,15 @@ func removeAutostart(dir string) {
 	}
 }
 
-func backupHullHome() error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	src := filepath.Join(home, ".hull")
-	if _, err := os.Stat(src); err != nil {
-		return nil // nothing to move
-	}
-	bak := filepath.Join(home, ".hull.bak")
-	_ = os.RemoveAll(bak)
-	return os.Rename(src, bak)
-}
-
-// scheduleDirDelete removes dir shortly after this process exits , we can't
-// delete the running hull.exe inside it, so a detached cmd waits, then deletes.
-// `ping` is the delay (timeout needs a console, which a detached process lacks);
-// the rmdir is retried once in case hull.exe is still releasing.
-func scheduleDirDelete(dir string) {
-	// Set the command line verbatim , letting Go re-quote a single script arg
-	// mangles the quoted "dir". ping is the delay (timeout needs a console);
-	// the rmdir is retried once while hull.exe finishes releasing.
-	line := `cmd /c ping 127.0.0.1 -n 4 >nul & rmdir /s /q "` + dir + `" & ping 127.0.0.1 -n 3 >nul & rmdir /s /q "` + dir + `"`
+// scheduleSelfDelete deletes the running hull.exe after this process exits,
+// then removes dir only if that left it empty (rmdir without /s). ping is the
+// delay because timeout needs a console, which a detached process lacks.
+func scheduleSelfDelete(dir string) {
+	exe := filepath.Join(dir, "hull.exe")
+	step := `del /f /q "` + exe + `" & rmdir "` + dir + `"`
+	// The command line is set verbatim: Go re-quoting a single script arg
+	// mangles the quoted paths.
+	line := `cmd /c ping 127.0.0.1 -n 4 >nul & ` + step + ` & ping 127.0.0.1 -n 3 >nul & ` + step
 	cmd := exec.Command("cmd")
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		HideWindow:    true,

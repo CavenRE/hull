@@ -90,3 +90,32 @@ func TestSearch(t *testing.T) {
 		t.Fatalf("search = %+v, err = %v", repos, err)
 	}
 }
+
+func TestTagsFollowsOnlyDockerHub(t *testing.T) {
+	var urls []string
+	c := New()
+	c.Now = time.Now
+	c.Fetch = func(ctx context.Context, url string) ([]byte, error) {
+		urls = append(urls, url)
+		return []byte(`{"next":"https://evil.example/v2/page2","results":[{"name":"1"}]}`), nil
+	}
+	if _, err := c.Tags(context.Background(), "postgres"); err != nil {
+		t.Fatal(err)
+	}
+	if len(urls) != 1 {
+		t.Errorf("fetched %v, want only the first Docker Hub page", urls)
+	}
+}
+
+func TestSearchEscapesTheQuery(t *testing.T) {
+	var got string
+	c := New()
+	c.Fetch = func(ctx context.Context, url string) ([]byte, error) {
+		got = url
+		return []byte(`{"results":[]}`), nil
+	}
+	_, _ = c.Search(context.Background(), "a&page_size=1000 b")
+	if !strings.Contains(got, "?query=a%26page_size%3D1000+b&page_size=25") {
+		t.Errorf("url = %s", got)
+	}
+}

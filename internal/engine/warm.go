@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/CavenRE/hull/internal/config"
 	"github.com/CavenRE/hull/internal/state"
 )
 
@@ -48,6 +49,21 @@ const (
 	warmRetryInterval = 1 * time.Second
 )
 
+// LocalRedirects is an http.Client CheckRedirect that follows at most max
+// redirects, and only to the first request's host or a name Hull serves, so a
+// project's redirect can never send Hull's request out to another site.
+func LocalRedirects(max int, tld string) func(*http.Request, []*http.Request) error {
+	return func(req *http.Request, via []*http.Request) error {
+		if len(via) >= max {
+			return http.ErrUseLastResponse
+		}
+		if h := req.URL.Hostname(); h != via[0].URL.Hostname() && !config.LocalHostname(h, tld) {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}
+}
+
 // WarmQuiet makes one request to each of a project's served endpoints so the
 // next visitor gets a warm opcode cache. Errors are deliberately swallowed: a
 // warm-up that fails costs a slow first page, which is exactly what the user
@@ -56,18 +72,13 @@ func (e *Engine) WarmQuiet(ctx context.Context, p *state.Project) {
 	if p == nil || p.Manifest == nil {
 		return
 	}
-	eps := Endpoints(p.Manifest, e.Config.TLD)
+	eps := Endpoints(p.Manifest, e.cfg().TLD)
 	if len(eps) == 0 {
 		return
 	}
 	client := &http.Client{
-		Timeout: warmTimeout,
-		CheckRedirect: func(_ *http.Request, via []*http.Request) error {
-			if len(via) >= warmRedirects {
-				return http.ErrUseLastResponse
-			}
-			return nil
-		},
+		Timeout:       warmTimeout,
+		CheckRedirect: LocalRedirects(warmRedirects, e.cfg().TLD),
 	}
 	for _, ep := range eps {
 		host := ""

@@ -13,7 +13,9 @@ import (
 
 	"github.com/CavenRE/hull/internal/compose"
 	"github.com/CavenRE/hull/internal/config"
+	"github.com/CavenRE/hull/internal/dbauth"
 	"github.com/CavenRE/hull/internal/dockerx"
+	"github.com/CavenRE/hull/internal/safefile"
 	"github.com/CavenRE/hull/internal/templates"
 )
 
@@ -28,6 +30,10 @@ type Instance struct {
 	// HostPort is the stable loopback port the primary service port is
 	// published on (0 = none) , what desktop tools connect to.
 	HostPort int
+	// Logins marks a database instance where each project signs in with its
+	// own user (Hull created it with logins); false is the passwordless root
+	// of an older instance.
+	Logins bool `json:"logins,omitempty"`
 }
 
 // Manager owns shared service instances under <hullHome>/services. Each
@@ -98,6 +104,9 @@ func Resolve(spec string) (templates.EngineDef, string, error) {
 	if version == "" {
 		version = def.DefaultVersion
 	}
+	if version != "" && (!versionRE.MatchString(version) || strings.Contains(version, "..")) {
+		return templates.EngineDef{}, "", fmt.Errorf("invalid version %q for %s", version, def.Name)
+	}
 	return def, version, nil
 }
 
@@ -110,7 +119,12 @@ func (m *Manager) Add(ctx context.Context, engineName, version string) (string, 
 	}
 	name := templates.InstanceName(def.Name, version)
 	dir := m.Dir(name)
+	_, statErr := os.Stat(filepath.Join(dir, "compose.yaml"))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	env, err := m.instanceEnv(def, name, os.IsNotExist(statErr))
+	if err != nil {
 		return "", err
 	}
 
@@ -118,7 +132,7 @@ func (m *Manager) Add(ctx context.Context, engineName, version string) (string, 
 		Image:         def.Image(version),
 		ContainerName: templates.InstanceContainerName(def.Name, version),
 		Command:       def.Command,
-		Environment:   def.Env(""),
+		Environment:   env,
 		Labels:        []string{compose.ManagedLabel},
 		Networks:      []string{sharedNetwork},
 	}
@@ -126,7 +140,7 @@ func (m *Manager) Add(ctx context.Context, engineName, version string) (string, 
 		svc.Volumes = []string{"data:" + def.DataPath}
 	}
 	if def.Name == "adminer" {
-		// Auto-login plugin: empty passwords are the local-dev norm.
+		// The login-page database picker plugin.
 		if err := templates.EnsureSystemFiles(m.HullHome); err != nil {
 			return "", err
 		}
@@ -169,7 +183,7 @@ func (m *Manager) Add(ctx context.Context, engineName, version string) (string, 
 	if err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "compose.yaml"), data, 0o644); err != nil {
+	if err := safefile.Write(filepath.Join(dir, "compose.yaml"), data, 0o600); err != nil {
 		return "", err
 	}
 
@@ -178,6 +192,26 @@ func (m *Manager) Add(ctx context.Context, engineName, version string) (string, 
 	}
 	return name, m.Run(ctx, dir, "docker", "compose", "up", "-d")
 }
+
+// instanceEnv is a shared instance's environment. An instance Hull creates now
+// gets a generated secret: a database keeps root inside the container and
+// each linked project signs in with its own user, and a search or storage
+// engine gets its own API key. One created before keeps its passwordless
+// root or fixed key, which its linked projects were wired with.
+func (m *Manager) instanceEnv(def templates.EngineDef, name string, fresh bool) ([]string, error) {
+	if !def.HasSecret() {
+		return def.Env(""), nil
+	}
+	if fresh {
+		if _, err := dbauth.Ensure(m.HullHome, instanceScope(name), "_root", def.AdminUser()); err != nil {
+			return nil, err
+		}
+	}
+	root, _ := dbauth.Get(m.HullHome, instanceScope(name), "_root")
+	return def.InstanceEnv(root.Password), nil
+}
+
+func instanceScope(instance string) string { return "instance/" + instance }
 
 // startUp is the Start path. Adminer is force-recreated, not reused: the engine
 // attaches it to each dedicated-DB project network at runtime, Docker persists
@@ -235,6 +269,7 @@ func (m *Manager) List(ctx context.Context) ([]Instance, error) {
 		if def, ok := templates.Engine(engineName); ok && def.DefaultPort() != "" {
 			in.HostPort = existingHostPort(in.Dir, def.DefaultPort())
 		}
+		_, in.Logins = dbauth.Get(m.HullHome, instanceScope(name), "_root")
 		instances = append(instances, in)
 	}
 	sort.Slice(instances, func(i, j int) bool { return instances[i].Name < instances[j].Name })
@@ -268,7 +303,10 @@ func (m *Manager) Remove(ctx context.Context, instance string) error {
 	if err := m.Run(ctx, m.Dir(instance), "docker", "compose", "down", "-v"); err != nil {
 		return err
 	}
-	return os.RemoveAll(m.Dir(instance))
+	if err := os.RemoveAll(m.Dir(instance)); err != nil {
+		return err
+	}
+	return dbauth.Forget(m.HullHome, instanceScope(instance))
 }
 
 // stablePortRE matches "127.0.0.1:HOST:CONTAINER" published ports.
@@ -323,7 +361,18 @@ func (m *Manager) pickStablePort(base int) int {
 	return base // last resort; compose will surface the conflict
 }
 
+// instanceNameRE is the shape InstanceName produces (engine, or
+// engine-version), and versionRE a Docker tag, so a name or version from a
+// request can never point outside the services folder.
+var (
+	instanceNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]*$`)
+	versionRE      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]*$`)
+)
+
 func (m *Manager) exists(instance string) error {
+	if !instanceNameRE.MatchString(instance) || strings.Contains(instance, "..") {
+		return fmt.Errorf("invalid instance name %q", instance)
+	}
 	if _, err := os.Stat(m.Dir(instance)); err != nil {
 		return fmt.Errorf("no shared instance %q (add one with: hull services add <engine>[@version])", instance)
 	}
@@ -392,29 +441,72 @@ func InstanceToSpec(instance string) string {
 	return engineName + "@" + version
 }
 
-// CreateDatabase idempotently creates a database in a running instance.
+// CreateDatabase idempotently creates a database in a running instance. In an
+// instance with logins it also creates the project's own user, allowed only
+// that database, so one project's code cannot read another's data.
 func (m *Manager) CreateDatabase(ctx context.Context, engineName, version, database string) error {
 	def, ok := templates.Engine(engineName)
 	if !ok || !def.IsDatabase {
 		return fmt.Errorf("engine %q does not host databases", engineName)
 	}
+	instance := templates.InstanceName(engineName, version)
 	container := templates.InstanceContainerName(engineName, version)
+	var login dbauth.Login
+	if _, secure := dbauth.Get(m.HullHome, instanceScope(instance), "_root"); secure {
+		l, err := dbauth.Ensure(m.HullHome, instanceScope(instance), database, database)
+		if err != nil {
+			return err
+		}
+		login = l
+	}
 	switch def.Name {
 	case "postgres":
-		_, err := m.Output(ctx, "", "docker", "exec", container,
-			"psql", "-U", "postgres", "-c", fmt.Sprintf("CREATE DATABASE %q", database))
-		if err != nil && strings.Contains(err.Error(), "already exists") {
-			return nil
+		psql := func(sql string) error {
+			_, err := m.Output(ctx, "", "docker", "exec", container, "psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-c", sql)
+			return err
 		}
-		return err
+		create := "CREATE DATABASE " + pgIdent(database)
+		if login.User != "" {
+			// The role first, so the database is created owned by the project.
+			if err := psql("DO $$BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = " + pgLiteral(login.User) +
+				") THEN CREATE ROLE " + pgIdent(login.User) + " LOGIN; END IF; END$$"); err != nil {
+				return err
+			}
+			if err := psql("ALTER ROLE " + pgIdent(login.User) + " LOGIN PASSWORD " + pgLiteral(login.Password)); err != nil {
+				return err
+			}
+			create += " OWNER " + pgIdent(login.User)
+		}
+		if err := psql(create); err != nil && !strings.Contains(err.Error(), "already exists") {
+			return err
+		}
+		return nil
 	case "mysql", "mariadb":
 		cli := "mysql"
 		if def.Name == "mariadb" {
 			cli = "mariadb"
 		}
-		_, err := m.Output(ctx, "", "docker", "exec", container,
-			cli, "-u", "root", "-e", fmt.Sprintf("CREATE DATABASE IF NOT EXISTS `%s`", database))
+		sql := "CREATE DATABASE IF NOT EXISTS " + myIdent(database)
+		if login.User != "" {
+			user := myLiteral(login.User) + "@'%'"
+			sql += "; CREATE USER IF NOT EXISTS " + user + " IDENTIFIED BY " + myLiteral(login.Password) +
+				"; ALTER USER " + user + " IDENTIFIED BY " + myLiteral(login.Password) +
+				"; GRANT ALL PRIVILEGES ON " + myIdent(database) + ".* TO " + user
+		}
+		_, err := m.Output(ctx, "", "docker", "exec", container, cli, "-u", "root", "-e", sql)
 		return err
 	}
 	return fmt.Errorf("unsupported engine %q", engineName)
+}
+
+// SQL quoting per dialect; Go's %q is not SQL quoting. Postgres treats a
+// backslash in a string literal as a plain character, MySQL as an escape.
+func pgIdent(s string) string { return `"` + strings.ReplaceAll(s, `"`, `""`) + `"` }
+
+func pgLiteral(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
+
+func myIdent(s string) string { return "`" + strings.ReplaceAll(s, "`", "``") + "`" }
+
+func myLiteral(s string) string {
+	return "'" + strings.ReplaceAll(strings.ReplaceAll(s, `\`, `\\`), "'", "''") + "'"
 }

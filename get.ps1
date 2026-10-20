@@ -15,13 +15,13 @@ This builds from source; prebuilt binaries are also attached to each GitHub rele
   -Uninstall     remove Hull instead of installing
   -Purge         with -Uninstall: also remove ~/.hull (config, CA, service data)
   -Prefix DIR    install location (default: %LOCALAPPDATA%\Hull)
-  -Branch NAME   branch to build from (default: master)
+  -Branch NAME   branch or tag to build from (default: the newest release tag)
 #>
 param(
   [switch]$Uninstall,
   [switch]$Purge,
   [string]$Prefix = (Join-Path $env:LOCALAPPDATA 'Hull'),
-  [string]$Branch = 'master'
+  [string]$Branch = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,7 +62,10 @@ if ($Uninstall) {
     } catch { Warn "hull uninstall reported: $_" }
   }
   Remove-FromUserPath $Prefix
-  if (Test-Path $Prefix) { Remove-Item $Prefix -Recurse -Force -ErrorAction SilentlyContinue }
+  foreach ($f in 'hull.exe', 'hull.exe.new', 'hull.exe.old') {
+    Remove-Item (Join-Path $Prefix $f) -Force -ErrorAction SilentlyContinue
+  }
+  if ((Test-Path $Prefix) -and -not (Get-ChildItem -Force $Prefix)) { Remove-Item $Prefix -Force }
   Ok 'Done.'
   return
 }
@@ -74,6 +77,11 @@ if (-not (Get-Command go  -ErrorAction SilentlyContinue)) { Die 'Go is required 
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('hull-get-' + [System.IO.Path]::GetRandomFileName())
 New-Item -ItemType Directory -Force -Path $tmp | Out-Null
 try {
+  if (-not $Branch) {
+    # The newest release tag, not master: a bootstrap builds what was released.
+    $Branch = (git ls-remote --tags --refs --sort=-v:refname $repo 'v*' | Select-Object -First 1) -replace '.*refs/tags/', ''
+    if (-not $Branch) { Die 'could not find a Hull release tag (pass -Branch to choose one)' }
+  }
   Info "Fetching Hull ($Branch)..."
   git clone --depth 1 --branch $Branch $repo $tmp 2>&1 | Out-Null
   if ($LASTEXITCODE -ne 0) { Die 'git clone failed' }
@@ -86,7 +94,7 @@ try {
   New-Item -ItemType Directory -Force -Path $Prefix | Out-Null
   Push-Location $tmp
   try {
-    go build -ldflags $ldflags -o (Join-Path $Prefix 'hull.exe')  ./cmd/hull
+    go build -trimpath -ldflags $ldflags -o (Join-Path $Prefix 'hull.exe')  ./cmd/hull
     if ($LASTEXITCODE -ne 0) { Die 'building hull failed (is a Hull daemon running and locking the file? run `hull stop` and retry)' }
   } finally { Pop-Location }
   Ok "installed hull to $Prefix ($ver)"

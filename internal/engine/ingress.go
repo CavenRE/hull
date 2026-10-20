@@ -5,12 +5,15 @@ import (
 	"hash/fnv"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/CavenRE/hull/internal/manifest"
+	"github.com/CavenRE/hull/internal/platform"
+	"github.com/CavenRE/hull/internal/safefile"
 	"github.com/CavenRE/hull/internal/state"
 )
 
@@ -54,12 +57,18 @@ func (e *Engine) ClusterIngress(p *state.Project, replaceProxy string) (*Ingress
 			return nil, fmt.Errorf("service %q (to replace) is not in %s's compose (services: %s)", replaceProxy, m.Name, sortedKeys(svcs))
 		}
 	}
-	suffix := m.ClusterSuffix(e.Config.TLD)
+	suffix := m.ClusterSuffix(e.cfg().TLD)
 	hosts := clusterHosts(m, suffix)
 	if len(hosts) == 0 {
 		return nil, fmt.Errorf("cluster %s has no served routes; assign one with `hull cluster route add`", m.Name)
 	}
-	bindIP := clusterLoopback(m.Name, e.Config.Router.Loopback)
+	bindIP, err := e.ingressIP(p)
+	if err != nil {
+		return nil, err
+	}
+	if !platform.LoopbackPresent(bindIP) {
+		return nil, fmt.Errorf("the ingress for %s needs its own loopback address %s, which this machine does not have; add it with `sudo ifconfig lo0 alias %s up` (it lasts until reboot), or use `ingress: hull`", m.Name, bindIP, bindIP)
+	}
 
 	overlay, err := ingressOverlay(m.Name, networks, hosts, bindIP, replaceProxy)
 	if err != nil {
@@ -78,10 +87,10 @@ func (e *Engine) ClusterIngress(p *state.Project, replaceProxy string) (*Ingress
 // the cluster can be started with the extra -f file.
 func (e *Engine) WriteClusterIngress(p *state.Project, art *IngressArtifacts) error {
 	composeDir := filepath.Join(p.Dir, p.Manifest.ComposeRoot)
-	if err := os.WriteFile(filepath.Join(composeDir, ingressOverlayFile), art.Overlay, 0o644); err != nil {
+	if err := safefile.Write(filepath.Join(composeDir, ingressOverlayFile), art.Overlay, 0o644); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(composeDir, ingressCaddyFile), []byte(art.Caddyfile), 0o644)
+	return safefile.Write(filepath.Join(composeDir, ingressCaddyFile), []byte(art.Caddyfile), 0o644)
 }
 
 // clusterHosts is the sorted, de-duplicated set of served hostnames.
@@ -135,7 +144,7 @@ func ingressOverlay(name string, networks, hosts []string, bindIP, replaceProxy 
 		nets[n] = map[string]any{"aliases": append([]string(nil), hosts...)}
 	}
 	svc := map[string]any{
-		"image":          "caddy:2-alpine",
+		"image":          "caddy:2.10-alpine",
 		"container_name": "hull-ingress-" + name,
 		"restart":        "unless-stopped",
 		"networks":       nets,
@@ -168,44 +177,69 @@ func ingressOverlay(name string, networks, hosts []string, bindIP, replaceProxy 
 	return []byte(buf.String()), nil
 }
 
-// clusterLoopback picks a deterministic 127.0.0.x bind IP for a cluster's
-// ingress, distinct from Hull's own router loopback and from 127.0.0.1. This is
-// a preview-grade allocation (hash-based); a live implementation would track
-// used octets to guarantee no collision between two running clusters.
-func clusterLoopback(name, hullLoopback string) string {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(name))
-	octet := int(h.Sum32()%252) + 2 // 2..253
-	ip := fmt.Sprintf("127.0.0.%d", octet)
-	if ip == hullLoopback || ip == "127.0.0.1" {
-		octet++
-		if octet > 253 {
-			octet = 2
-		}
-		ip = fmt.Sprintf("127.0.0.%d", octet)
+// ingressIP picks the 127.0.0.x a cluster's ingress binds: the address its
+// written overlay already uses, so it stays put, else the first free one from
+// a hash of its name, skipping 127.0.0.1, Hull's own router address and every
+// other cluster's ingress, so two clusters never fight over one address.
+func (e *Engine) ingressIP(p *state.Project) (string, error) {
+	if ip := overlayIP(filepath.Join(p.Dir, p.Manifest.ComposeRoot)); ip != "" {
+		return ip, nil
 	}
-	return ip
+	taken := map[string]bool{"127.0.0.1": true, e.cfg().Router.Loopback: true}
+	projects, _ := state.Scan(e.cfg().Roots, e.cfg().Projects...)
+	for i := range projects {
+		q := &projects[i]
+		if isCluster(q) && q.Dir != p.Dir {
+			if ip := overlayIP(filepath.Join(q.Dir, q.Manifest.ComposeRoot)); ip != "" {
+				taken[ip] = true
+			}
+		}
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(p.Manifest.Name))
+	start := int(h.Sum32() % 252) // octets 2..253
+	for i := 0; i < 252; i++ {
+		ip := fmt.Sprintf("127.0.0.%d", (start+i)%252+2)
+		if !taken[ip] {
+			return ip, nil
+		}
+	}
+	return "", fmt.Errorf("no free 127.0.0.x address left for %s's ingress", p.Manifest.Name)
 }
 
-// readClusterNetworks returns the network keys declared in a cluster's compose
-// file (best-effort; nil when the compose is missing or unparseable).
-func readClusterNetworks(composeDir string, files []string) []string {
-	path := firstComposeFile(composeDir, files)
-	if path == "" {
-		return nil
-	}
-	data, err := os.ReadFile(path)
+var overlayIPRE = regexp.MustCompile(`(127\.0\.0\.\d+):80:80`)
+
+// overlayIP is the address a written ingress overlay in composeDir binds, or "".
+func overlayIP(composeDir string) string {
+	data, err := os.ReadFile(filepath.Join(composeDir, ingressOverlayFile))
 	if err != nil {
+		return ""
+	}
+	if m := overlayIPRE.FindSubmatch(data); m != nil {
+		return string(m[1])
+	}
+	return ""
+}
+
+// readClusterNetworks returns the network keys declared across a cluster's
+// compose files (best-effort; nil when none declare any).
+func readClusterNetworks(composeDir string, files []string) []string {
+	seen := map[string]bool{}
+	for _, data := range composeDocs(composeDir, files) {
+		var doc struct {
+			Networks map[string]yaml.Node `yaml:"networks"`
+		}
+		if yaml.Unmarshal(data, &doc) == nil {
+			for n := range doc.Networks {
+				seen[n] = true
+			}
+		}
+	}
+	if len(seen) == 0 {
 		return nil
 	}
-	var doc struct {
-		Networks map[string]yaml.Node `yaml:"networks"`
-	}
-	if err := yaml.Unmarshal(data, &doc); err != nil || len(doc.Networks) == 0 {
-		return nil
-	}
-	names := make([]string, 0, len(doc.Networks))
-	for n := range doc.Networks {
+	names := make([]string, 0, len(seen))
+	for n := range seen {
 		names = append(names, n)
 	}
 	sort.Strings(names)

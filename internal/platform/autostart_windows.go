@@ -25,7 +25,7 @@ func EnableDaemonAutostart(hullExe string) (startedNow bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	defer k.Close()
+	defer func() { _ = k.Close() }()
 	if err := k.SetStringValue(RunValueName, `"`+hullExe+`" daemon run --background`); err != nil {
 		return false, err
 	}
@@ -38,7 +38,7 @@ func DisableDaemonAutostart() error {
 	if err != nil {
 		return nil // no Run key: nothing to remove
 	}
-	defer k.Close()
+	defer func() { _ = k.Close() }()
 	_ = k.DeleteValue(RunValueName)
 	return nil
 }
@@ -49,7 +49,7 @@ func DaemonAutostartEnabled() bool {
 	if err != nil {
 		return false
 	}
-	defer k.Close()
+	defer func() { _ = k.Close() }()
 	_, _, err = k.GetStringValue(RunValueName)
 	return err == nil
 }

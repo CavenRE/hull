@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CavenRE/hull/internal/api"
+	"github.com/CavenRE/hull/internal/state"
 )
 
 func init() {
@@ -38,6 +39,9 @@ func init() {
 			}
 			p, err := oneTarget(a, args)
 			if err != nil {
+				return err
+			}
+			if err := a.ensureTrusted(p); err != nil {
 				return err
 			}
 			fmt.Printf("Rebuilding %s%s...\n", p.Name, map[bool]string{true: " (no cache)"}[noCache])
@@ -98,17 +102,23 @@ func init() {
 			if err != nil {
 				return err
 			}
+			if err := state.CheckUnique(a.Config.Roots, p.Name, a.Config.Projects...); err != nil {
+				return err
+			}
+			if err := a.ensureTrusted(p); err != nil {
+				return err
+			}
 			if !force {
 				vols, verr := a.projectVolumes(cmd.Context(), p)
 				if verr != nil {
 					fmt.Printf("Warning: could not list volumes for %s (%v); the reset will still wipe its named volumes.\n", p.Name, verr)
 				} else if len(vols) > 0 {
-					fmt.Printf("This deletes %d named volume(s) for %s:\n", len(vols), p.Name)
+					fmt.Printf("This deletes %d named volume(s) for %s at %s:\n", len(vols), p.Name, p.Dir)
 					for _, v := range vols {
 						fmt.Printf("  - %s\n", v)
 					}
 				} else {
-					fmt.Printf("Reset %s (no named volumes detected).\n", p.Name)
+					fmt.Printf("Reset %s at %s (no named volumes detected).\n", p.Name, p.Dir)
 				}
 				ok, err := confirm("Wipe this data and start fresh?")
 				if err != nil {

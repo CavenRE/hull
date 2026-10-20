@@ -22,17 +22,18 @@ func (s *Server) registerSetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/projects/{name}/unlink", s.handleProjectUnlink)
 }
 
-// handleSetupReapply re-applies everything the daemon can do without
-// elevation (system files, local CA, route/hosts sync) and reports the
-// commands for the steps that need a terminal (trust + DNS registration).
+// handleSetupReapply re-applies the setup: system files, the local CA, trust
+// and DNS registration (each of which can show an elevation prompt), and a
+// route and hosts sync. A step that cannot run here is reported with the
+// command to run in a terminal.
 func (s *Server) handleSetupReapply(w http.ResponseWriter, r *http.Request) {
 	var steps []ReapplyStep
 	add := func(name, status, detail, manual string) {
 		steps = append(steps, ReapplyStep{Name: name, Status: status, Detail: detail, Manual: manual})
 	}
-	dataDir := s.Config.RouterDataDir()
+	dataDir := s.cfg().RouterDataDir()
 
-	if err := templates.EnsureSystemFiles(s.Config.HullHome); err != nil {
+	if err := templates.EnsureSystemFiles(s.cfg().HullHome); err != nil {
 		add("System files", "warn", err.Error(), "")
 	} else {
 		add("System files", "ok", "provisioned", "")
@@ -56,8 +57,8 @@ func (s *Server) handleSetupReapply(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// DNS registration also needs elevation on most platforms.
-	if s.Config.DNS.Enabled {
-		if err := platform.RegisterDNS(s.Config.TLD, s.Config.Router.Loopback, s.Config.DNS.Port); err != nil {
+	if s.cfg().DNS.Enabled {
+		if err := platform.RegisterDNS(s.cfg().TLD, s.cfg().Router.Loopback, s.cfg().DNS.Port); err != nil {
 			var manual *platform.ManualStepsError
 			if errors.As(err, &manual) {
 				add("DNS registration", "manual", "needs elevation", manual.Instructions)
@@ -80,7 +81,7 @@ func (s *Server) handleSetupReapply(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSetupTrust(w http.ResponseWriter, r *http.Request) {
-	dataDir := s.Config.RouterDataDir()
+	dataDir := s.cfg().RouterDataDir()
 	if !certs.Trusted(dataDir) {
 		if err := router.EnsureCA(dataDir); err != nil {
 			writeError(w, http.StatusInternalServerError, err)
@@ -95,7 +96,7 @@ func (s *Server) handleSetupTrust(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSetupDNS(w http.ResponseWriter, r *http.Request) {
-	if err := platform.RegisterDNS(s.Config.TLD, s.Config.Router.Loopback, s.Config.DNS.Port); err != nil {
+	if err := platform.RegisterDNS(s.cfg().TLD, s.cfg().Router.Loopback, s.cfg().DNS.Port); err != nil {
 		var manual *platform.ManualStepsError
 		if errors.As(err, &manual) {
 			writeJSON(w, http.StatusOK, SetupStepResult{Done: false, Manual: manual.Instructions})
@@ -116,12 +117,13 @@ func (s *Server) handleProjectUnlink(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	p, err := state.Find(s.Config.Roots, r.PathValue("name"), s.Config.Projects...)
+	p, err := state.Find(s.cfg().Roots, r.PathValue("name"), s.cfg().Projects...)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
-	eng := engine.New(s.Config)
+	defer s.lockProject(p.Name)()
+	eng := engine.New(s.cfg())
 	eng.Run = s.Engine.Run
 	eng.EnsureNet = s.Engine.EnsureNet
 	if err := eng.Unlink(r.Context(), p, req.Key); err != nil {

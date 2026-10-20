@@ -3,6 +3,7 @@ package state
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -229,6 +230,17 @@ func TestUnder(t *testing.T) {
 	}
 }
 
+func TestSamePathFollowsTheFilesystemCase(t *testing.T) {
+	root := t.TempDir()
+	folds := runtime.GOOS == "windows" || runtime.GOOS == "darwin"
+	if got := SamePath(filepath.Join(root, "Sites"), filepath.Join(root, "sites")); got != folds {
+		t.Errorf("SamePath(Sites, sites) = %v on %s", got, runtime.GOOS)
+	}
+	if !SamePath(root, root+string(filepath.Separator)) {
+		t.Error("a trailing separator made a different path")
+	}
+}
+
 func TestFindClusterFromLedger(t *testing.T) {
 	home := t.TempDir()
 	roots := []string{t.TempDir()} // deliberately does NOT contain the cluster dir
@@ -250,5 +262,21 @@ func TestFindClusterFromLedger(t *testing.T) {
 	p, ok := FindCluster(home, "orphan")
 	if !ok || p.Dir != clusterDir || p.Manifest == nil || p.Manifest.Type != "cluster" {
 		t.Fatalf("FindCluster = %+v, ok=%v", p, ok)
+	}
+}
+
+func TestCheckUnique(t *testing.T) {
+	a, b := t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(a, "shop", "hull.yaml"), "schema: 1\nname: shop\ntemplate: plain\n")
+	writeFile(t, filepath.Join(a, "solo", "hull.yaml"), "schema: 1\nname: solo\ntemplate: plain\n")
+	if err := os.MkdirAll(filepath.Join(b, "shop"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckUnique([]string{a, b}, "solo"); err != nil {
+		t.Errorf("unique name refused: %v", err)
+	}
+	err := CheckUnique([]string{a, b}, "shop")
+	if err == nil || !strings.Contains(err.Error(), filepath.Join(b, "shop")) {
+		t.Errorf("a managed project and a plain folder share the name; want an error naming both, got %v", err)
 	}
 }

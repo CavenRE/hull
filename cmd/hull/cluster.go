@@ -96,7 +96,11 @@ func init() {
 			if err != nil {
 				return err
 			}
-			req := api.AdoptClusterRequest{Dir: args[0], Name: name, ComposeRoot: root, ComposeFiles: files, Profiles: profiles}
+			dir, err := filepath.Abs(args[0]) // the daemon has its own working directory
+			if err != nil {
+				return err
+			}
+			req := api.AdoptClusterRequest{Dir: dir, Name: name, ComposeRoot: root, ComposeFiles: files, Profiles: profiles}
 			var created string
 			if client, ok := a.client(); ok {
 				created, err = client.AdoptCluster(cmd.Context(), req)
@@ -108,6 +112,9 @@ func init() {
 				}
 			}
 			if err != nil {
+				return err
+			}
+			if err := a.registerProject(cmd.Context(), dir); err != nil {
 				return err
 			}
 			fmt.Printf("✔ cluster %q adopted. Start it with: hull up %s\n", created, created)
@@ -183,7 +190,7 @@ func init() {
 					served = "no"
 				}
 				for _, host := range rt.Hosts {
-					_, _ = fmt.Fprintf(w, "https://%s\t%s\t%d\t%s\n", host, rt.Service, rt.Port, served)
+					_, _ = fmt.Fprintf(w, "%s\t%s\t%d\t%s\n", a.siteURL(host), rt.Service, rt.Port, served)
 				}
 			}
 			_ = w.Flush()
@@ -245,8 +252,14 @@ func init() {
 			if len(containers) == 0 {
 				return fmt.Errorf("at least one --container is required (e.g. --container name=web,template=laravel,serve)")
 			}
+			root := createRoot
+			if root != "" {
+				if root, err = filepath.Abs(root); err != nil { // the daemon has its own working directory
+					return err
+				}
+			}
 			req := api.CreateClusterRequest{
-				Name: args[0], Root: createRoot, ComposeRoot: createComposeRoot,
+				Name: args[0], Root: root, ComposeRoot: createComposeRoot,
 				Managed: createManaged, NoStart: createNoStart, Containers: containers,
 			}
 			if client, ok := a.client(); ok {
@@ -262,6 +275,11 @@ func init() {
 					Name: req.Name, Root: req.Root, ComposeRoot: req.ComposeRoot,
 					Managed: req.Managed, Containers: toEngineContainers(containers), SkipStart: createNoStart,
 				}); err != nil {
+					return err
+				}
+			}
+			if root != "" {
+				if err := a.registerProject(cmd.Context(), filepath.Join(root, manifest.Slug(args[0]))); err != nil {
 					return err
 				}
 			}

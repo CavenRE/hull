@@ -57,7 +57,7 @@ func DefenderCommands(roots []string) []string {
 	}
 	cmds := make([]string, 0, len(paths))
 	for _, p := range paths {
-		cmds = append(cmds, "Add-MpPreference -ExclusionPath '"+strings.ReplaceAll(p, "'", "''")+"'")
+		cmds = append(cmds, "Add-MpPreference -ExclusionPath "+PSQuote(p))
 	}
 	return cmds
 }

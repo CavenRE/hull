@@ -2,12 +2,15 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"sort"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
+	"github.com/CavenRE/hull/internal/config"
 	"github.com/CavenRE/hull/internal/services"
 )
 
@@ -124,9 +127,9 @@ func listAliases(a *app) error {
 	}
 	sort.Strings(names)
 	w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "ALIAS\tINSTANCE")
+	_, _ = fmt.Fprintln(w, "ALIAS\tINSTANCE")
 	for _, n := range names {
-		fmt.Fprintf(w, "%s\t%s\n", n, aliases[n])
+		_, _ = fmt.Fprintf(w, "%s\t%s\n", n, aliases[n])
 	}
 	return w.Flush()
 }
@@ -137,20 +140,24 @@ func listAliases(a *app) error {
 // PUT reloads the on-disk Services block before saving so this is never
 // clobbered.
 func updateAliases(a *app, mutate func(map[string]string) error) error {
-	aliases := map[string]string{}
-	for k, v := range a.Config.Services.Aliases {
-		aliases[k] = v
-	}
-	if err := mutate(aliases); err != nil {
+	next, err := config.Update(a.Config.HullHome, func(c *config.Config) error {
+		aliases := maps.Clone(c.Services.Aliases)
+		if aliases == nil {
+			aliases = map[string]string{}
+		}
+		if err := mutate(aliases); err != nil {
+			return err
+		}
+		if len(aliases) == 0 {
+			aliases = nil
+		}
+		c.Services.Aliases = aliases
+		return nil
+	})
+	if err != nil {
 		return err
 	}
-	if len(aliases) == 0 {
-		aliases = nil
-	}
-	a.Config.Services.Aliases = aliases
-	if err := a.Config.Save(); err != nil {
-		return err
-	}
+	*a.Config = *next
 	fmt.Println("✔ aliases saved")
 	return nil
 }
@@ -169,24 +176,17 @@ func aliasSpec(a *app, spec string) string {
 // pruneAliasesFor drops any aliases pointing at a removed instance so config
 // never dangles. Best-effort and quiet.
 func pruneAliasesFor(a *app, instance string) {
-	if len(a.Config.Services.Aliases) == 0 {
+	if !slices.Contains(slices.Collect(maps.Values(a.Config.Services.Aliases)), instance) {
 		return
 	}
-	aliases := map[string]string{}
-	changed := false
-	for k, v := range a.Config.Services.Aliases {
-		if v == instance {
-			changed = true
-			continue
+	next, err := config.Update(a.Config.HullHome, func(c *config.Config) error {
+		maps.DeleteFunc(c.Services.Aliases, func(_, v string) bool { return v == instance })
+		if len(c.Services.Aliases) == 0 {
+			c.Services.Aliases = nil
 		}
-		aliases[k] = v
+		return nil
+	})
+	if err == nil {
+		*a.Config = *next
 	}
-	if !changed {
-		return
-	}
-	if len(aliases) == 0 {
-		aliases = nil
-	}
-	a.Config.Services.Aliases = aliases
-	_ = a.Config.Save()
 }

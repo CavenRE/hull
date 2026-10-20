@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CavenRE/hull/internal/api"
+	"github.com/CavenRE/hull/internal/state"
 )
 
 func init() {
@@ -34,8 +35,11 @@ func init() {
 			if err != nil {
 				return err
 			}
+			if err := state.CheckUnique(a.Config.Roots, p.Name, a.Config.Projects...); err != nil {
+				return err
+			}
 			if !force {
-				ok, err := confirm(fmt.Sprintf("Permanently destroy %q and ALL its data (code + database)?", p.Name))
+				ok, err := confirm(fmt.Sprintf("Permanently destroy %q at %s and ALL its data (code + database)?", p.Name, p.Dir))
 				if err != nil {
 					return err
 				}

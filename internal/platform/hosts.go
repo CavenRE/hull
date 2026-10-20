@@ -4,6 +4,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/CavenRE/hull/internal/config"
 )
 
 // ManagedHostsCount returns how many host entries Hull currently manages in
@@ -37,16 +39,23 @@ const (
 )
 
 // HostsBlock renders Hull's managed block: one line per domain pointing at the
-// router's loopback (e.g. 127.0.0.2), sorted. Empty domains means no block at
-// all; an empty ip falls back to 127.0.0.1.
-func HostsBlock(domains []string, ip string) string {
-	if len(domains) == 0 {
+// router's loopback (e.g. 127.0.0.2), sorted. A domain that is not local to tld
+// (config.LocalHostname) is left out, so the hosts file never overrides a real
+// site. No local domains means no block at all; an empty ip falls back to
+// 127.0.0.1.
+func HostsBlock(domains []string, ip, tld string) string {
+	var sorted []string
+	for _, d := range domains {
+		if config.LocalHostname(d, tld) {
+			sorted = append(sorted, d)
+		}
+	}
+	if len(sorted) == 0 {
 		return ""
 	}
 	if ip == "" {
 		ip = "127.0.0.1"
 	}
-	sorted := append([]string(nil), domains...)
 	sort.Strings(sorted)
 	var sb strings.Builder
 	sb.WriteString(HostsBegin)
@@ -63,38 +72,50 @@ func HostsBlock(domains []string, ip string) string {
 // MergeHostsBlock returns the hosts-file content with Hull's block
 // replaced (or appended, or removed when block is empty). Line endings of
 // the result are normalized to CRLF for the Windows hosts file; all
-// non-Hull content is preserved byte-for-byte apart from that.
+// non-Hull content is preserved byte-for-byte apart from that. Only a
+// complete block (begin through end marker) is replaced: a begin marker
+// without its end is dropped on its own, and the lines after it, which
+// Hull did not write, are kept.
 func MergeHostsBlock(current, block string) string {
 	normalized := strings.ReplaceAll(current, "\r\n", "\n")
 	lines := strings.Split(normalized, "\n")
 
-	var out []string
-	inBlock := false
-	replaced := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		switch {
-		case trimmed == HostsBegin:
-			inBlock = true
-			replaced = true
-			if block != "" {
-				out = append(out, strings.Split(block, "\n")...)
-			}
-		case inBlock && trimmed == HostsEnd:
-			inBlock = false
-		case inBlock:
-			// old block content, dropped
-		default:
-			out = append(out, line)
+	begin, end := -1, -1
+	for i, line := range lines {
+		switch trimmed := strings.TrimSpace(line); {
+		case trimmed == HostsBegin && begin < 0:
+			begin = i
+		case trimmed == HostsEnd && begin >= 0:
+			end = i
+		}
+		if end >= 0 {
+			break
 		}
 	}
-	if !replaced && block != "" {
-		// Trim trailing blank lines, then append with a separating blank.
-		for len(out) > 0 && strings.TrimSpace(out[len(out)-1]) == "" {
-			out = out[:len(out)-1]
+
+	var blockLines []string
+	if block != "" {
+		blockLines = strings.Split(block, "\n")
+	}
+	var out []string
+	if end > begin && begin >= 0 {
+		out = append(out, lines[:begin]...)
+		out = append(out, blockLines...)
+		out = append(out, lines[end+1:]...)
+	} else {
+		for i, line := range lines {
+			if i != begin {
+				out = append(out, line)
+			}
 		}
-		out = append(out, "", "")
-		out[len(out)-1] = block
+		if block != "" {
+			// Trim trailing blank lines, then append with a separating blank.
+			for len(out) > 0 && strings.TrimSpace(out[len(out)-1]) == "" {
+				out = out[:len(out)-1]
+			}
+			out = append(out, "")
+			out = append(out, blockLines...)
+		}
 	}
 
 	result := strings.Join(out, "\n")

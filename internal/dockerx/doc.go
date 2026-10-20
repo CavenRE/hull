@@ -1,5 +1,4 @@
-// Package dockerx wraps the Docker Engine API behind Hull's needs:
-// socket discovery across engines (Docker Desktop, docker.io, Podman,
-// OrbStack, Colima), health checks, container/compose lifecycle, and
-// event streaming. (Phase 2)
+// Package dockerx runs the docker CLI for Hull: compose commands pinned to a
+// project, network and container lookups, output capture and line streaming,
+// and the engine probe, which can start Docker when it is closed.
 package dockerx

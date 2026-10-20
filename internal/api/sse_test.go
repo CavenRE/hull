@@ -63,3 +63,9 @@ func TestEventHubSharedPollerAndStop(t *testing.T) {
 		t.Errorf("poller kept running after the last unsubscribe (%d extra polls)", grew)
 	}
 }
+
+func TestSSEDataStaysOneField(t *testing.T) {
+	if got := sseData("line one\r\nevent: fake\ndata: x"); got != "line one event: fake data: x" {
+		t.Errorf("sseData = %q", got)
+	}
+}

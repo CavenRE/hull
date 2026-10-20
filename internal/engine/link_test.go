@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/CavenRE/hull/internal/dbauth"
 	"github.com/CavenRE/hull/internal/envfile"
 	"github.com/CavenRE/hull/internal/manifest"
 	"github.com/CavenRE/hull/internal/services"
@@ -14,10 +15,16 @@ import (
 )
 
 func linkFixture(t *testing.T) (*Engine, *state.Project, *services.Manager, *[]string) {
+	return linkFixtureDB(t, "postgres")
+}
+
+// linkFixtureDB makes a laravel project "shop" with a dedicated db ("" for
+// none) and a services manager whose commands are recorded, not run.
+func linkFixtureDB(t *testing.T, db string) (*Engine, *state.Project, *services.Manager, *[]string) {
 	t.Helper()
 	e, root := testEngine(t)
 	dir, err := e.NewProject(context.Background(), NewOptions{
-		Name: "shop", Template: "laravel", DB: "postgres",
+		Name: "shop", Template: "laravel", DB: db,
 		SkipScaffold: true, SkipStart: true,
 	})
 	if err != nil {
@@ -50,7 +57,7 @@ func linkFixture(t *testing.T) (*Engine, *state.Project, *services.Manager, *[]s
 }
 
 func TestLinkPostgres(t *testing.T) {
-	e, p, mgr, ops := linkFixture(t)
+	e, p, mgr, ops := linkFixtureDB(t, "")
 	instance, err := e.Link(context.Background(), p, "postgres@16", mgr)
 	if err != nil {
 		t.Fatal(err)
@@ -125,9 +132,13 @@ func TestLinkSearchWritesScoutEnv(t *testing.T) {
 	if m.Services["search"] == nil || m.Services["search"].Engine != "meilisearch" {
 		t.Fatalf("search service = %+v", m.Services["search"])
 	}
+	key, ok := dbauth.Get(e.Config.HullHome, "instance/meilisearch", "_root")
+	if !ok || key.Password == "hullMasterKey" {
+		t.Fatalf("a new instance needs its own key, got %+v", key)
+	}
 	envData, _ := os.ReadFile(filepath.Join(p.Dir, ".env"))
 	env := string(envData)
-	for _, want := range []string{"SCOUT_DRIVER=meilisearch", "MEILISEARCH_HOST=http://hull-meilisearch:7700", "MEILISEARCH_KEY=hullMasterKey"} {
+	for _, want := range []string{"SCOUT_DRIVER=meilisearch", "MEILISEARCH_HOST=http://hull-meilisearch:7700", "MEILISEARCH_KEY=" + key.Password} {
 		if !strings.Contains(env, want) {
 			t.Errorf(".env missing %q:\n%s", want, env)
 		}
@@ -165,5 +176,47 @@ func TestUnlink(t *testing.T) {
 	}
 	if err := e.Unlink(context.Background(), p, "ghost"); err == nil {
 		t.Error("unlink of missing key should fail")
+	}
+}
+
+func TestNewProjectGetsDBPasswordAndOldInstanceKeepsFixedKey(t *testing.T) {
+	e, p, mgr, _ := linkFixture(t)
+	login, ok := dbauth.Get(e.Config.HullHome, "project/shop", "db")
+	if !ok || login.User != "postgres" {
+		t.Fatalf("new project has no stored db login: %+v", login)
+	}
+	compose, _ := os.ReadFile(filepath.Join(p.Dir, "compose.yaml"))
+	if !strings.Contains(string(compose), "POSTGRES_PASSWORD="+login.Password) {
+		t.Errorf("compose.yaml lacks the generated root password:\n%s", compose)
+	}
+
+	// A Meilisearch instance made before keys were generated: its compose
+	// file exists, its key does not. Linking must keep the fixed key the
+	// instance runs with.
+	old := filepath.Join(e.Config.HullHome, "services", "meilisearch")
+	if err := os.MkdirAll(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(old, "compose.yaml"), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Link(context.Background(), p, "meilisearch", mgr); err != nil {
+		t.Fatal(err)
+	}
+	env, _ := os.ReadFile(filepath.Join(p.Dir, ".env"))
+	if !strings.Contains(string(env), "MEILISEARCH_KEY=hullMasterKey") {
+		t.Errorf("an old instance's project got a key it does not run with:\n%s", env)
+	}
+}
+
+func TestLinkRefusesToSwapADedicatedDatabase(t *testing.T) {
+	e, p, mgr, ops := linkFixture(t) // shop has its own postgres
+	before, _ := os.ReadFile(filepath.Join(p.Dir, "hull.yaml"))
+	if _, err := e.Link(context.Background(), p, "postgres@16", mgr); err == nil || !strings.Contains(err.Error(), "already has its own postgres") {
+		t.Fatalf("err = %v", err)
+	}
+	after, _ := os.ReadFile(filepath.Join(p.Dir, "hull.yaml"))
+	if string(before) != string(after) || len(*ops) != 0 {
+		t.Errorf("a refused link still changed things: ops=%v", *ops)
 	}
 }

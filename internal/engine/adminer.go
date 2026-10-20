@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/CavenRE/hull/internal/dbauth"
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/manifest"
 	"github.com/CavenRE/hull/internal/services"
@@ -35,52 +36,42 @@ func adminerDriver(engine string) string {
 	return "server" // mysql & mariadb use Adminer's default MySQL driver
 }
 
-// dbUser is the trust-auth superuser Hull's local databases expose.
-func dbUser(engine string) string {
-	if engine == "postgres" {
-		return "postgres"
-	}
-	return "root" // mysql, mariadb
-}
-
-// adminerServers enumerates every reachable database: each shared instance and
-// each project's dedicated DB container. Shared-mode project DBs live inside a
-// shared instance and are reached through that instance's entry, so they are
-// not listed again.
+// adminerServers lists the databases Adminer can sign in to: each project
+// database in a shared instance with logins, and with adminer_project_dbs on,
+// each project's dedicated database that has a stored root password. A
+// passwordless database is left out, since Adminer refuses an empty password.
 func (e *Engine) adminerServers(ctx context.Context) []adminerServer {
 	var out []adminerServer
-	seen := map[string]bool{}
-	add := func(s adminerServer) {
-		key := s.Driver + "|" + s.Host
-		if s.Host == "" || seen[key] {
-			return
-		}
-		seen[key] = true
-		out = append(out, s)
-	}
-
-	// Shared DB instances (hull-postgres-16, hull-mysql-8.0, ...).
-	m := services.NewManager(e.Config)
+	home := e.cfg().HullHome
+	m := services.NewManager(e.cfg())
 	m.Run = e.Run
 	if insts, err := m.List(ctx); err == nil {
 		for _, in := range insts {
 			def, ok := templates.Engine(in.Engine)
-			if !ok || !def.IsDatabase {
+			if !ok || !def.IsDatabase || !in.Logins {
 				continue
 			}
-			add(adminerServer{
-				Label:  in.Name,
-				Engine: in.Engine,
-				Driver: adminerDriver(in.Engine),
-				Host:   in.Container, // "hull-<name>"
-				Port:   def.DefaultPort(),
-				User:   dbUser(in.Engine),
-			})
+			for _, db := range dbauth.Names(home, "instance/"+in.Name) {
+				l, ok := dbauth.Get(home, "instance/"+in.Name, db)
+				if db == "_root" || !ok {
+					continue
+				}
+				out = append(out, adminerServer{
+					Label:  db + " (" + in.Name + ")",
+					Engine: in.Engine,
+					Driver: adminerDriver(in.Engine),
+					Host:   in.Container, // "hull-<name>"
+					Port:   def.DefaultPort(),
+					User:   l.User,
+					DB:     db,
+				})
+			}
 		}
 	}
-
-	// Per-project dedicated DB containers (<project>-<service>-1).
-	if projects, err := state.Scan(e.Config.Roots, e.Config.Projects...); err == nil {
+	if !e.cfg().Services.AdminerProjectDBs {
+		return out
+	}
+	if projects, _ := state.Scan(e.cfg().Roots, e.cfg().Projects...); len(projects) > 0 {
 		for i := range projects {
 			p := &projects[i]
 			if p.Manifest == nil {
@@ -91,16 +82,17 @@ func (e *Engine) adminerServers(ctx context.Context) []adminerServer {
 				continue
 			}
 			def, ok := templates.Engine(db.Engine)
-			if !ok || !def.IsDatabase {
+			l, stored := dbauth.Get(home, projectScope(p.Manifest), key)
+			if !ok || !def.IsDatabase || !stored {
 				continue
 			}
-			add(adminerServer{
+			out = append(out, adminerServer{
 				Label:  p.Name,
 				Engine: db.Engine,
 				Driver: adminerDriver(db.Engine),
 				Host:   projectName(p) + "-" + key + "-1",
 				Port:   def.DefaultPort(),
-				User:   dbUser(db.Engine),
+				User:   l.User,
 				DB:     db.Database,
 			})
 		}
@@ -111,7 +103,7 @@ func (e *Engine) adminerServers(ctx context.Context) []adminerServer {
 // adminerSystemDir is where Hull's Adminer support files live (mounted into the
 // adminer container).
 func (e *Engine) adminerSystemDir() string {
-	return filepath.Join(e.Config.HullHome, "system", "adminer")
+	return filepath.Join(e.cfg().HullHome, "system", "adminer")
 }
 
 // SyncAdminerServers regenerates the Adminer picker list (servers.json) from the
@@ -126,6 +118,9 @@ func (e *Engine) SyncAdminerServers(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// In place, not safefile.Write: servers.json is bind-mounted into the running
+	// Adminer container as a single file, and a rename would leave the container
+	// reading the old inode.
 	return os.WriteFile(filepath.Join(dir, "servers.json"), data, 0o644)
 }
 
@@ -139,17 +134,17 @@ func (e *Engine) EnsureAdminer(ctx context.Context) error {
 	if err := e.SyncAdminerServers(ctx); err != nil {
 		return err
 	}
-	if !e.Config.AutoAdminerEnabled() {
+	if !e.cfg().AutoAdminerEnabled() {
 		return nil
 	}
 	if len(e.adminerServers(ctx)) == 0 {
 		return nil
 	}
-	m := services.NewManager(e.Config)
+	m := services.NewManager(e.cfg())
 	m.Run = e.Run
 	// Empty version (not "latest") so the instance name matches what
 	// `hull services add adminer` creates: "adminer", container hull-adminer.
-	// The image is still adminer:latest via the template's defaultTag; passing
+	// The image still comes from the template's defaultTag; passing
 	// "latest" here spun up a second "adminer-latest" instance that fought the
 	// manual one for the db.<tld> route.
 	if _, err := m.EnsureUp(ctx, "adminer", ""); err != nil {
@@ -179,7 +174,7 @@ func (e *Engine) restoreAdminerForProject(ctx context.Context, p *state.Project)
 	// off it returns without touching Adminer, so reattach a manually-run one to
 	// this project's own network here (shared-mode DBs sit on the shared network
 	// and need no per-project attach).
-	if !e.Config.AutoAdminerEnabled() && db.Mode == manifest.ModeDedicated {
+	if !e.cfg().AutoAdminerEnabled() && db.Mode == manifest.ModeDedicated {
 		e.syncAdminerNetworks(ctx)
 	}
 }
@@ -192,8 +187,7 @@ func (e *Engine) restoreAdminerForProject(ctx context.Context, p *state.Project)
 func (e *Engine) ReattachAdminer(ctx context.Context) { e.syncAdminerNetworks(ctx) }
 
 // syncAdminerNetworks attaches the Adminer container to each project network
-// that holds a dedicated database, so Adminer keeps its single-point-of-access
-// view of every database.
+// that holds a dedicated database, when adminer_project_dbs is on.
 //
 // This is what replaces putting dedicated services on the shared network.
 // Compose adds a service's name as an alias on every network it joins, so when
@@ -206,15 +200,15 @@ func (e *Engine) ReattachAdminer(ctx context.Context) { e.syncAdminerNetworks(ct
 // A stopped project has no network yet and an already-attached one is a no-op,
 // and neither should ever fail a caller.
 func (e *Engine) syncAdminerNetworks(ctx context.Context) {
+	if !e.cfg().Services.AdminerProjectDBs {
+		return
+	}
 	container := templates.InstanceContainerName("adminer", "")
 	have, err := dockerx.ContainerNetworks(ctx, container)
 	if err != nil {
 		return // Adminer is not running, so there is nothing to attach.
 	}
-	projects, err := state.Scan(e.Config.Roots, e.Config.Projects...)
-	if err != nil {
-		return
-	}
+	projects, _ := state.Scan(e.cfg().Roots, e.cfg().Projects...)
 	for i := range projects {
 		p := &projects[i]
 		if p.Manifest == nil {

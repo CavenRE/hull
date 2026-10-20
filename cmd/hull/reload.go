@@ -31,7 +31,7 @@ func init() {
 			if err != nil {
 				return err
 			}
-			targets, err := resolveTargets(cmd, a, args, false, "Reload", nil)
+			targets, err := resolveTargets(cmd, a, args, false, "Select projects to reload", runningProjects)
 			if err != nil {
 				return err
 			}

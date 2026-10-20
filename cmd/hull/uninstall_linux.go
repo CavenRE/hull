@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 
 	"github.com/CavenRE/hull/internal/platform"
 )
@@ -30,10 +29,10 @@ func runUninstall(o uninstallOpts) error {
 	}
 	dir := filepath.Dir(exe)
 
-	// Package-managed installs (under /usr) belong to the package manager.
-	if strings.HasPrefix(dir, "/usr") {
-		fmt.Printf("Hull looks installed by a package manager (%s).\n", dir)
-		fmt.Println("Remove it that way instead, e.g.:  sudo pacman -R hull")
+	// A package manager's files are its own to remove; a /usr/local install
+	// from install.sh is not, so it is uninstalled here like any other.
+	if pm := packageManagerOwner(exe); pm != "" {
+		fmt.Printf("Hull was installed by %s (%s); remove it that way instead.\n", pm, exe)
 		return nil
 	}
 	// Safety: only proceed if this really is a Hull bin directory.
@@ -41,26 +40,12 @@ func runUninstall(o uninstallOpts) error {
 		return fmt.Errorf("%s does not look like a Hull install , aborting", dir)
 	}
 
-	// Stop the daemon and undo trust while the binaries still exist.
 	stopHullProcesses(dir)
-	_ = runHull(dir, "trust", "--uninstall")
-
-	// Remove any *.tld DNS config Hull installed (systemd-resolved drop-in or
-	// the NetworkManager dnsmasq rule) , previously leaked because nothing ever
-	// called UnregisterDNS. Surface manual sudo steps when we aren't root.
-	tld := uninstallTLD()
-	if err := platform.UnregisterDNS(tld); err != nil {
-		var manual *platform.ManualStepsError
-		if errors.As(err, &manual) {
-			fmt.Println("DNS cleanup needs elevation , run:")
-			fmt.Println("  " + strings.ReplaceAll(manual.Instructions, "\n", "\n  "))
-		}
-	} else {
-		fmt.Printf("Removed *.%s DNS configuration.\n", tld)
-	}
+	untrustCA()
+	revertSystem()
 
 	fmt.Println("Removing desktop integration…")
-	platform.RemoveSystemdUserUnit()
+	_ = platform.DisableDaemonAutostart() // also turns lingering off if Hull turned it on
 	platform.RemoveAutostartEntry()
 	platform.RemoveDesktopEntry()
 	platform.RemoveIcons()
@@ -69,17 +54,21 @@ func runUninstall(o uninstallOpts) error {
 	platform.RemoveFromShellPath()
 
 	if o.PurgeData {
-		if err := backupHullHome(); err != nil {
+		if bak, err := backupHullHome(); err != nil {
 			fmt.Printf("  note: %v\n", err)
-		} else {
-			fmt.Println("Moved ~/.hull -> ~/.hull.bak")
+		} else if bak != "" {
+			fmt.Printf("Moved ~/.hull -> %s\n", bak)
 		}
 	}
 
 	fmt.Println("Removing program files…")
 	for _, b := range []string{"hull-gui", "hulld", "hull"} {
-		if err := os.Remove(filepath.Join(dir, b)); err == nil {
-			fmt.Printf("  removed %s\n", filepath.Join(dir, b))
+		p := filepath.Join(dir, b)
+		switch err := os.Remove(p); {
+		case err == nil:
+			fmt.Printf("  removed %s\n", p)
+		case errors.Is(err, os.ErrPermission):
+			fmt.Printf("  %s needs root to remove: sudo rm -f %s\n", p, p)
 		}
 	}
 	fmt.Println("Hull uninstalled. Open a new terminal so the PATH change applies.")
@@ -103,15 +92,6 @@ func looksLikeHullDir(dir string) bool {
 	return false
 }
 
-// uninstallTLD returns the configured TLD so DNS cleanup targets the right
-// files, falling back to the default when config can't be loaded.
-func uninstallTLD() string {
-	if a, err := loadApp(); err == nil {
-		return a.Config.TLD
-	}
-	return "test"
-}
-
 func stopHullProcesses(dir string) {
 	_ = runHull(dir, "daemon", "stop")
 	for _, p := range []string{"hull-gui", "hulld"} {
@@ -121,20 +101,4 @@ func stopHullProcesses(dir string) {
 
 func runHull(dir string, args ...string) error {
 	return exec.Command(filepath.Join(dir, "hull"), args...).Run()
-}
-
-// backupHullHome moves ~/.hull aside to ~/.hull.bak (matching the Windows
-// uninstaller's --purge-data behaviour , reversible, not a delete).
-func backupHullHome() error {
-	h, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	src := filepath.Join(h, ".hull")
-	if _, err := os.Stat(src); err != nil {
-		return nil // nothing to move
-	}
-	bak := filepath.Join(h, ".hull.bak")
-	_ = os.RemoveAll(bak)
-	return os.Rename(src, bak)
 }

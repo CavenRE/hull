@@ -29,9 +29,11 @@ func init() {
 			"(destroy an instance and every database in it). Use hull link to point a\n" +
 			"project at an instance once it exists.\n" +
 			"\n" +
-			"Databases use trust auth (no password: postgres uses user postgres,\n" +
-			"mysql/mariadb use root). Browse them at https://db.<tld>, or point a\n" +
-			"desktop client at the CONNECT address in the list.",
+			"An instance Hull creates keeps its root login inside the container and\n" +
+			"gives each linked project its own user and password, which Hull wires\n" +
+			"into the project (an instance from an older Hull keeps a passwordless\n" +
+			"root). Browse them at https://db.<tld>, or point a desktop client at the\n" +
+			"CONNECT address in the list with the project's login.",
 		Example: "  hull services\n" +
 			"  hull services add postgres@16\n" +
 			"  hull services stop postgres-16",

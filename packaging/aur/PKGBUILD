@@ -1,6 +1,7 @@
 # Maintainer: CavenRE <caven.erasmus@gmail.com>
 #
-# hull , the CLI (`hull`) + daemon (`hulld`) + systemd --user unit.
+# hull: the single binary (the CLI, and the daemon as `hull daemon run`) plus a
+# systemd --user unit, hulld.service, that runs the daemon.
 #
 # Install:  pacman -S hull        (or: yay -S hull)
 #
@@ -35,7 +36,7 @@ build() {
   cd "$_srcdir"
   export GOPATH="$srcdir/gopath"
   export CGO_CPPFLAGS="${CPPFLAGS}" CGO_CFLAGS="${CFLAGS}" CGO_CXXFLAGS="${CXXFLAGS}" CGO_LDFLAGS="${LDFLAGS}"
-  export GOFLAGS='-buildmode=pie -mod=readonly -modcacherw'
+  export GOFLAGS='-buildmode=pie -trimpath -mod=readonly -modcacherw'
 
   local ldflags="-s -w \
     -X github.com/CavenRE/hull/internal/version.Version=$pkgver \

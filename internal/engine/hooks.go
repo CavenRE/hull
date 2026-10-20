@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/CavenRE/hull/internal/manifest"
+	"github.com/CavenRE/hull/internal/safefile"
 	"github.com/CavenRE/hull/internal/state"
 )
 
@@ -43,7 +44,7 @@ func (s *hookState) save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.path(), data, 0o644)
+	return safefile.Write(s.path(), data, 0o644)
 }
 
 func hookHash(s string) string {
@@ -97,26 +98,59 @@ func defaultHookService(p *state.Project) string {
 	}
 }
 
-// runHooks runs an event's hooks in order. gated retries each hook briefly so
-// it can wait for dependencies to come up (the general form of the old
-// laravelMigrate poll). A failing hook aborts with an error unless it set
-// ignore_failure; when:once / when:changed hooks consult the per-project state
-// and may skip.
+// hookServices returns the services a hook can target: the ones Hull renders
+// for a site or app, or the wrapped compose's for a cluster (nil when that
+// compose cannot be read).
+func hookServices(p *state.Project) map[string]bool {
+	m := p.Manifest
+	if m.Type == manifest.TypeCluster {
+		return composeServiceNames(filepath.Join(p.Dir, m.ComposeRoot), m.ComposeFiles)
+	}
+	known := map[string]bool{}
+	if m.Type == manifest.TypeSite {
+		known["app"] = true
+	}
+	for key := range m.Containers {
+		known[key] = true
+	}
+	for key, s := range m.Services {
+		if s != nil && s.Mode == manifest.ModeDedicated {
+			known[key] = true
+		}
+	}
+	return known
+}
+
+// runHooks runs an event's hooks in order. gated first waits for the hook's
+// service to accept commands (the general form of the old laravelMigrate
+// poll). A failing hook aborts with an error unless it set ignore_failure;
+// when:once / when:changed hooks consult the per-project state and may skip.
+// pre_up hooks run before the containers do, so each gets a one-off
+// container of its service.
 func (e *Engine) runHooks(ctx context.Context, p *state.Project, event string, gated bool) error {
+	if err := e.requireTrust(p); err != nil {
+		return err
+	}
 	hooks := hooksFor(p, event)
 	if len(hooks) == 0 {
 		return nil
 	}
-	st := loadHookState(e.Config.HullHome, projectName(p))
+	st := loadHookState(e.cfg().HullHome, projectName(p))
 	for i, h := range hooks {
 		if h.Run == "" {
 			continue
 		}
-		key := event + ":" + strconv.Itoa(i)
 		hash := hookHash(h.Run)
+		slot := event + ":" + strconv.Itoa(i)
+		// once follows the command, so reordering the list neither re-runs nor
+		// skips it; the slot key is what earlier versions stored.
+		key := slot
+		if h.When == "once" {
+			key = event + ":" + hash
+		}
 		switch h.When {
 		case "once":
-			if _, ok := st.Done[key]; ok {
+			if _, ok := st.Done[key]; ok || st.Done[slot] == hash {
 				continue
 			}
 		case "changed":
@@ -131,37 +165,54 @@ func (e *Engine) runHooks(ctx context.Context, p *state.Project, event string, g
 		if service == "" {
 			return fmt.Errorf("hook %s[%d]: no target service , set `service:` (required for apps/clusters)", event, i)
 		}
-		if err := e.execHook(ctx, p, service, h.Run, gated); err != nil {
+		if known := hookServices(p); known != nil && !known[service] {
+			if h.IgnoreFailure {
+				continue
+			}
+			return fmt.Errorf("hook %s[%d]: service %q is not in %s (services: %s)", event, i, service, projectName(p), sortedKeys(known))
+		}
+		if err := e.execHook(ctx, p, service, h.Run, gated, event == "pre_up"); err != nil {
 			if h.IgnoreFailure {
 				continue
 			}
 			return fmt.Errorf("hook %s (%s): %w", event, h.Run, err)
 		}
-		st.Done[key] = hash
+		if h.When != "" {
+			// Saved per hook, so a later hook's failure cannot make this one
+			// run again.
+			st.Done[key] = hash
+			if err := st.save(); err != nil {
+				return err
+			}
+		}
 	}
-	return st.save()
+	return nil
 }
 
-// execHook runs one hook command inside a service container via `compose exec
-// -T sh -c`. When gated it retries , services may still be warming up after a
-// start.
-func (e *Engine) execHook(ctx context.Context, p *state.Project, service, run string, gated bool) error {
-	attempts := 1
-	if gated {
-		attempts = 10
+// execHook runs one hook command (`sh -c run`) in a service container: a
+// one-off container, or exec in the running one. When gated it first waits
+// for the service to accept commands; only that wait is retried, so a hook
+// that runs and fails (a half-applied migration) is never run again.
+func (e *Engine) execHook(ctx context.Context, p *state.Project, service, run string, gated, oneOff bool) error {
+	c := e.composeFor(p)
+	if oneOff {
+		return c.RunOneOff(ctx, service, "sh", "-c", run)
 	}
-	var err error
-	for i := 0; i < attempts; i++ {
-		if err = e.composeFor(p).ExecNoTTY(ctx, service, "sh", "-c", run); err == nil {
-			return nil
-		}
-		if i < attempts-1 {
+	if gated {
+		var err error
+		for i := 0; i < 10; i++ {
+			if err = c.ExecNoTTY(ctx, service, "sh", "-c", "true"); err == nil {
+				break
+			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
 			case <-time.After(2 * time.Second):
 			}
 		}
+		if err != nil {
+			return fmt.Errorf("service %s is not accepting commands: %w", service, err)
+		}
 	}
-	return err
+	return c.ExecNoTTY(ctx, service, "sh", "-c", run)
 }

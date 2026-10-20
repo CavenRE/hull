@@ -12,6 +12,7 @@ import (
 	"github.com/CavenRE/hull/internal/envfile"
 	"github.com/CavenRE/hull/internal/manifest"
 	"github.com/CavenRE/hull/internal/state"
+	"gopkg.in/yaml.v3"
 )
 
 func TestBuildImportManifestSlugsName(t *testing.T) {
@@ -303,7 +304,7 @@ func TestWireLaravelEnvPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := wireLaravelEnv(dir, m); err != nil {
+	if err := New(&config.Config{HullHome: t.TempDir()}).wireLaravelEnv(dir, m); err != nil {
 		t.Fatal(err)
 	}
 
@@ -340,7 +341,7 @@ func TestWireLaravelEnvSQLiteFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := wireLaravelEnv(dir, m); err != nil {
+	if err := New(&config.Config{HullHome: t.TempDir()}).wireLaravelEnv(dir, m); err != nil {
 		t.Fatal(err)
 	}
 	content, _ := os.ReadFile(filepath.Join(dir, ".env"))
@@ -382,7 +383,7 @@ func TestUpRegeneratesCompose(t *testing.T) {
 	if !strings.Contains(string(data), "caddy=site.test") {
 		t.Error("compose.yaml was not regenerated before up")
 	}
-	if len(ran) != 1 || strings.Join(ran[0], " ") != "docker compose up -d" {
+	if len(ran) != 1 || strings.Join(ran[0], " ") != "docker compose -p site -f compose.yaml up -d" {
 		t.Errorf("commands run = %v", ran)
 	}
 }
@@ -422,5 +423,38 @@ func TestNewProjectRejectsDuplicateName(t *testing.T) {
 	// And it must not have created the new directory.
 	if _, statErr := os.Stat(filepath.Join(root, "dupe")); statErr == nil {
 		t.Error("refused creation still made the project directory")
+	}
+}
+
+func TestNewClusterOwnedNamesDBVolumes(t *testing.T) {
+	e, _ := testEngine(t)
+	dir, err := e.NewCluster(context.Background(), NewClusterOptions{
+		Name:      "owned",
+		SkipStart: true,
+		Containers: []ContainerSpec{
+			{Name: "api", Image: "node", Port: 3000, Services: []ClusterServiceSpec{{Engine: "postgres"}}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "compose.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f struct {
+		Services map[string]struct {
+			Volumes []string `yaml:"volumes"`
+		} `yaml:"services"`
+		Volumes map[string]any `yaml:"volumes"`
+	}
+	if err := yaml.Unmarshal(data, &f); err != nil {
+		t.Fatal(err)
+	}
+	if v := f.Services["api-postgres"].Volumes; len(v) != 1 || v[0] != "api-postgres_data:/var/lib/postgresql/data" {
+		t.Errorf("db volumes = %v, want a named data volume", v)
+	}
+	if _, ok := f.Volumes["api-postgres_data"]; !ok {
+		t.Errorf("top-level volumes = %v", f.Volumes)
 	}
 }

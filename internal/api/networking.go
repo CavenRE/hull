@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"sort"
 	"strconv"
@@ -22,13 +23,84 @@ import (
 	"github.com/CavenRE/hull/internal/templates"
 )
 
-// RouteSyncInterval is how often the daemon reconciles the route table.
-// Variable so tests can shrink it.
-var RouteSyncInterval = 3 * time.Second
+// RouteSyncInterval is how often the daemon reconciles the route table with
+// no trigger. Container changes arrive as engine events and API changes call
+// SyncRoutes, so the tick only catches edits made on disk. Variable so tests
+// can shrink it.
+var RouteSyncInterval = 15 * time.Second
+
+// engineEventDebounce folds a burst of container events (a compose up starts
+// several containers) into one reconcile; engineEventRetry is how long a
+// broken event stream waits before it reconnects.
+var (
+	engineEventDebounce = 300 * time.Millisecond
+	engineEventRetry    = 5 * time.Second
+)
+
+// watchEngine follows the engine's container events through events and calls
+// onChange once per burst. What changes while the stream is down, the route
+// tick catches. stop ends the stream and waits for both goroutines, so no
+// `docker events` process outlives the daemon.
+func watchEngine(ctx context.Context, events func(context.Context, func()) error, onChange func(), logf func(string, ...any)) (stop func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	kick := make(chan struct{}, 1)
+	signal := func() {
+		select {
+		case kick <- struct{}{}:
+		default:
+		}
+	}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-kick:
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(engineEventDebounce):
+			}
+			select {
+			case <-kick: // arrived during the wait; this reconcile covers it
+			default:
+			}
+			onChange()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		lastErr := ""
+		for {
+			err := events(ctx, signal)
+			if ctx.Err() != nil {
+				return
+			}
+			if msg := fmt.Sprint(err); err != nil && !errors.Is(err, dockerx.ErrEngineDown) && msg != lastErr {
+				logf("docker: event stream: %v (retrying every %s)", err, engineEventRetry)
+				lastErr = msg
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(engineEventRetry):
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		wg.Wait()
+	}
+}
 
 // startNetworking boots the embedded router and DNS server per config and
 // returns a stop function. A nil error with networking disabled is normal.
-func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine, logf func(string, ...any)) (stop func(), syncNow func(), err error) {
+func startNetworking(ctx context.Context, cfgOf func() *config.Config, eng *engine.Engine, logf func(string, ...any)) (stop func(), syncNow func(), err error) {
+	cfg := cfgOf() // bind addresses and ports: read once, a change needs a restart
 	stops := []func(){}
 	stop = func() {
 		for i := len(stops) - 1; i >= 0; i-- {
@@ -60,13 +132,16 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 			BindHost:  cfg.Router.Loopback,
 		}
 		lastFingerprint := "\x00never-applied" // force the first Apply even with zero routes
-		lastHosts := "\x00never-synced"
+		lastScanErr := ""
+		hostsWants := make(chan hostsWant, 1)
+		done := make(chan struct{})
+		go syncHostsLoop(ctx, done, hostsWants, cfg.Router.Loopback, logf)
 		// Tracks engine reachability so the loop logs transitions, not every tick.
 		lastEngineUp := true
 		var syncMu sync.Mutex
 		sync := func() {
-			// Serialize reconciles: the ticker, initial call, and many
-			// handlers (several via `go SyncRoutes()`) plus rebuild/reset jobs
+			// Serialize reconciles: the ticker, engine events, the initial
+			// call, and many handlers (several via `go SyncRoutes()`) plus rebuild/reset jobs
 			// can overlap, and SyncHosts shells out to edit the hosts file.
 			syncMu.Lock()
 			defer syncMu.Unlock()
@@ -76,7 +151,7 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 			// docker spawns a minute, no log line, and every site silently
 			// dropping to a 502. Probe once, log only the transition (so the log
 			// records when Docker went away and came back rather than repeating
-			// itself every 3 seconds), and skip the container half of the sync.
+			// itself on every sync), and skip the container half of the sync.
 			// The hosts block and vhosts below come from disk, so they keep
 			// working and a stopped site still answers a readable 502.
 			engineUp := dockerx.EngineCheck(ctx) == nil
@@ -89,24 +164,30 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 				lastEngineUp = engineUp
 			}
 
+			cur := cfgOf()
 			var svcRoutes []router.Route
 			var svcDomains []string
 			var live []router.Route
 			if engineUp {
-				svcRoutes, svcDomains = serviceUI(ctx, cfg)
+				svcRoutes, svcDomains = serviceUI(ctx, cur)
 				live = append(eng.Routes(ctx), svcRoutes...)
 			}
 
 			// Every known domain (running or not) for both the hosts block and
 			// router vhosts , a stopped site keeps a vhost so it answers a
 			// readable 502 instead of an opaque TLS handshake failure.
-			var allDomains []string
-			if projects, err := state.Scan(cfg.Roots, cfg.Projects...); err == nil {
-				allDomains = append(engine.AllDomains(projects, cfg.TLD), svcDomains...)
-			} else {
-				allDomains = svcDomains
+			// A root that cannot be read is logged when it first fails; the other
+			// roots' sites keep their routes and hosts entries.
+			projects, scanErr := state.Scan(cur.Roots, cur.Projects...)
+			if msg := fmt.Sprint(scanErr); scanErr != nil && msg != lastScanErr {
+				logf("projects: %v", scanErr)
+				lastScanErr = msg
+			} else if scanErr == nil {
+				lastScanErr = ""
 			}
+			allDomains := append(engine.AllDomains(eng.Routable(projects), cur.TLD), svcDomains...)
 
+			opts.TLD = cur.TLD
 			routes := mergeDownRoutes(live, allDomains)
 			fp := fingerprint(routes)
 			if fp != lastFingerprint {
@@ -124,27 +205,20 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 
 			// Hosts block covers ALL managed sites and service UIs
 			// (running or not): browsers bypass NRPT on Windows, so this
-			// is the layer that makes names resolve. No-op (and no UAC)
-			// when unchanged.
-			{
-				domains := append([]string(nil), allDomains...)
-				sort.Strings(domains)
-				hostsKey := strings.Join(domains, ";")
-				if hostsKey != lastHosts {
-					if err := platform.SyncHosts(domains, cfg.Router.Loopback); err != nil {
-						logf("hosts: %v", err)
-					} else {
-						lastHosts = hostsKey
-						logf("hosts: block synced (%d domain(s))", len(domains))
-					}
-				}
+			// is the layer that makes names resolve. Handed to its own
+			// goroutine, keeping only the newest list.
+			domains := append([]string(nil), allDomains...)
+			sort.Strings(domains)
+			select {
+			case <-hostsWants:
+			default:
 			}
+			hostsWants <- hostsWant{domains: domains, tld: cur.TLD}
 		}
 		sync() // initial table (also boots the router with zero routes)
 		syncNow = sync
 
 		ticker := time.NewTicker(RouteSyncInterval)
-		done := make(chan struct{})
 		go func() {
 			for {
 				select {
@@ -170,6 +244,45 @@ func startNetworking(ctx context.Context, cfg *config.Config, eng *engine.Engine
 	}
 
 	return stop, syncNow, nil
+}
+
+// hostsRetry is how long a failed hosts write (on Windows, usually a declined
+// UAC prompt) waits before Hull asks again for the same names.
+var hostsRetry = 10 * time.Minute
+
+type hostsWant struct {
+	domains []string
+	tld     string
+}
+
+// syncHostsLoop applies the hosts block off the route-sync path: on Windows a
+// write waits on a UAC prompt, which must never stall route sync or daemon
+// start. No-op (and no UAC) when unchanged, and a failed write is retried for
+// the same names only after hostsRetry, so a declined prompt does not come
+// back every few seconds.
+func syncHostsLoop(ctx context.Context, done <-chan struct{}, wants <-chan hostsWant, ip string, logf func(string, ...any)) {
+	last := "\x00never-synced"
+	failed, failedAt := "", time.Time{}
+	for {
+		select {
+		case <-done:
+			return
+		case <-ctx.Done():
+			return
+		case w := <-wants:
+			key := w.tld + "|" + strings.Join(w.domains, ";")
+			if key == last || (key == failed && time.Since(failedAt) < hostsRetry) {
+				continue
+			}
+			if err := platform.SyncHosts(w.domains, ip, w.tld); err != nil {
+				failed, failedAt = key, time.Now()
+				logf("hosts: %v (asking again in %s, or sooner if the site list changes)", err, hostsRetry)
+				continue
+			}
+			last, failed = key, ""
+			logf("hosts: block synced (%d domain(s))", len(w.domains))
+		}
+	}
 }
 
 // serviceUI lists routes and hostnames for shared instances with embedded

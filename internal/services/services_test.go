@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/CavenRE/hull/internal/dbauth"
 )
 
 type fake struct {
@@ -150,7 +152,7 @@ func TestCreateDatabasePostgres(t *testing.T) {
 	if err := m.CreateDatabase(context.Background(), "postgres", "16", "my_app"); err != nil {
 		t.Fatal(err)
 	}
-	want := `docker exec hull-postgres-16 psql -U postgres -c CREATE DATABASE "my_app"`
+	want := `docker exec hull-postgres-16 psql -v ON_ERROR_STOP=1 -U postgres -c CREATE DATABASE "my_app"`
 	if len(f.outputs) != 1 || f.outputs[0] != want {
 		t.Errorf("outputs = %v, want %s", f.outputs, want)
 	}
@@ -240,7 +242,7 @@ func TestAddSearchAndStorageEngines(t *testing.T) {
 		wantUI    bool
 	}{
 		{"meilisearch", "getmeili/meilisearch:v1.11", "", true},
-		{"typesense", "typesense/typesense:27.1", "--data-dir /data --api-key=hullTypesenseKey --enable-cors", false},
+		{"typesense", "typesense/typesense:27.1", "--data-dir /data --enable-cors", false},
 		{"minio", "minio/minio:latest", "server /data --console-address :9001", true},
 		{"memcached", "memcached:alpine", "", false},
 	}
@@ -268,6 +270,11 @@ func TestAddSearchAndStorageEngines(t *testing.T) {
 			}
 			if tc.wantUI && !strings.Contains(text, "127.0.0.1::") {
 				t.Errorf("expected a UI port publish:\n%s", text)
+			}
+			for _, fixed := range []string{"hullMasterKey", "hullTypesenseKey", "hullsecret"} {
+				if strings.Contains(text, fixed) {
+					t.Errorf("a new instance got the fixed key %s:\n%s", fixed, text)
+				}
 			}
 		})
 	}
@@ -312,5 +319,120 @@ func TestCreateDatabaseRejectsRedis(t *testing.T) {
 	m := f.manager(t.TempDir())
 	if err := m.CreateDatabase(context.Background(), "redis", "", "x"); err == nil {
 		t.Error("redis should not host databases")
+	}
+}
+
+func TestNewInstanceGetsLoginsOldOneKeepsRoot(t *testing.T) {
+	f := &fake{}
+	home := t.TempDir()
+	m := f.manager(home)
+	if _, err := m.Add(context.Background(), "postgres", "16"); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(m.Dir("postgres-16"), "compose.yaml"))
+	if strings.Contains(string(data), "trust") || !strings.Contains(string(data), "POSTGRES_PASSWORD=") {
+		t.Errorf("new postgres instance env:\n%s", data)
+	}
+	if _, err := m.Add(context.Background(), "mysql", "8.0"); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(filepath.Join(m.Dir("mysql-8.0"), "compose.yaml"))
+	if !strings.Contains(string(data), "MYSQL_ROOT_HOST=localhost") {
+		t.Errorf("new mysql instance env:\n%s", data)
+	}
+
+	// An instance made before logins existed: its compose file is there, its
+	// root login is not. Re-adding it must not switch its auth.
+	old := m.Dir("mariadb-lts")
+	if err := os.MkdirAll(old, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(old, "compose.yaml"), []byte("services: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Add(context.Background(), "mariadb", "lts"); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(filepath.Join(old, "compose.yaml"))
+	if !strings.Contains(string(data), "MYSQL_ALLOW_EMPTY_PASSWORD=yes") || strings.Contains(string(data), "MYSQL_ROOT_HOST") {
+		t.Errorf("old instance auth changed:\n%s", data)
+	}
+	instances, err := m.List(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range instances {
+		if in.Logins != (in.Name != "mariadb-lts") {
+			t.Errorf("%s: Logins = %v", in.Name, in.Logins)
+		}
+	}
+}
+
+func TestCreateDatabaseMakesProjectUser(t *testing.T) {
+	f := &fake{}
+	home := t.TempDir()
+	m := f.manager(home)
+	if _, err := m.Add(context.Background(), "mysql", "8.0"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Add(context.Background(), "postgres", "16"); err != nil {
+		t.Fatal(err)
+	}
+	f.outputs = nil
+	if err := m.CreateDatabase(context.Background(), "mysql", "8.0", "shop"); err != nil {
+		t.Fatal(err)
+	}
+	login, ok := dbauth.Get(home, "instance/mysql-8.0", "shop")
+	if !ok || login.User != "shop" {
+		t.Fatalf("no project login stored: %+v", login)
+	}
+	if len(f.outputs) != 1 || !strings.Contains(f.outputs[0], "CREATE USER IF NOT EXISTS 'shop'@'%' IDENTIFIED BY '"+login.Password+"'") ||
+		!strings.Contains(f.outputs[0], "GRANT ALL PRIVILEGES ON `shop`.* TO 'shop'@'%'") {
+		t.Errorf("mysql = %v", f.outputs)
+	}
+	f.outputs = nil
+	if err := m.CreateDatabase(context.Background(), "postgres", "16", "shop"); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(f.outputs, "\n")
+	if !strings.Contains(joined, `CREATE ROLE "shop" LOGIN`) || !strings.Contains(joined, `CREATE DATABASE "shop" OWNER "shop"`) {
+		t.Errorf("postgres = %v", f.outputs)
+	}
+	if err := m.Remove(context.Background(), "mysql-8.0"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := dbauth.Get(home, "instance/mysql-8.0", "shop"); ok {
+		t.Error("Remove kept the instance's logins")
+	}
+}
+
+func TestInstanceNamesCannotLeaveTheServicesFolder(t *testing.T) {
+	f := &fake{}
+	m := f.manager(t.TempDir())
+	for _, bad := range []string{"../evil", "a/b", `a\b`, "..", "x..y"} {
+		if err := m.Remove(context.Background(), bad); err == nil || !strings.Contains(err.Error(), "invalid instance name") {
+			t.Errorf("Remove(%q) = %v", bad, err)
+		}
+	}
+	if _, _, err := Resolve("mysql@../../x"); err == nil {
+		t.Error("a version with a path in it was accepted")
+	}
+	if len(f.commands) != 0 {
+		t.Errorf("commands ran: %v", f.commands)
+	}
+}
+
+func TestSQLQuoting(t *testing.T) {
+	for _, c := range []struct{ got, want string }{
+		{pgIdent(`a"b`), `"a""b"`},
+		{pgLiteral(`it's`), `'it''s'`},
+		{pgLiteral(`a\'b`), `'a\''b'`},
+		{myIdent("a`b"), "`a``b`"},
+		{myLiteral(`it's`), `'it''s'`},
+		{myLiteral(`a\'`), `'a\\'''`},
+	} {
+		if c.got != c.want {
+			t.Errorf("got %s, want %s", c.got, c.want)
+		}
 	}
 }

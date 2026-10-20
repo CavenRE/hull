@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -107,9 +108,9 @@ func repoPath(repo string) string {
 // Tags returns up to ~300 recent tag names for a repository.
 func (c *Client) Tags(ctx context.Context, repo string) ([]string, error) {
 	var tags []string
-	url := fmt.Sprintf("https://hub.docker.com/v2/repositories/%s/tags?page_size=100&ordering=last_updated", repoPath(repo))
-	for page := 0; page < 3 && url != ""; page++ {
-		data, err := c.get(ctx, url)
+	pageURL := fmt.Sprintf("https://hub.docker.com/v2/repositories/%s/tags?page_size=100&ordering=last_updated", repoPath(repo))
+	for page := 0; page < 3 && pageURL != ""; page++ {
+		data, err := c.get(ctx, pageURL)
 		if err != nil {
 			if page == 0 {
 				return nil, err
@@ -128,15 +129,19 @@ func (c *Client) Tags(ctx context.Context, repo string) ([]string, error) {
 		for _, r := range body.Results {
 			tags = append(tags, r.Name)
 		}
-		url = body.Next
+		// Follow the next page only on Docker Hub itself: the URL comes from a
+		// response, and the daemon must not fetch wherever it points.
+		pageURL = ""
+		if next, err := url.Parse(body.Next); err == nil && next.Scheme == "https" && next.Host == "hub.docker.com" {
+			pageURL = body.Next
+		}
 	}
 	return tags, nil
 }
 
 // Search queries Docker Hub repositories.
 func (c *Client) Search(ctx context.Context, query string) ([]Repo, error) {
-	url := fmt.Sprintf("https://hub.docker.com/v2/search/repositories/?query=%s&page_size=25", urlQuery(query))
-	data, err := c.get(ctx, url)
+	data, err := c.get(ctx, "https://hub.docker.com/v2/search/repositories/?query="+url.QueryEscape(strings.TrimSpace(query))+"&page_size=25")
 	if err != nil {
 		return nil, err
 	}
@@ -156,10 +161,6 @@ func (c *Client) Search(ctx context.Context, query string) ([]Repo, error) {
 		repos = append(repos, Repo{Name: r.RepoName, Description: r.Description, Official: r.Official, Stars: r.Stars})
 	}
 	return repos, nil
-}
-
-func urlQuery(s string) string {
-	return strings.NewReplacer(" ", "+", "&", "", "?", "", "#", "").Replace(strings.TrimSpace(s))
 }
 
 var (

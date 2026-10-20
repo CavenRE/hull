@@ -81,9 +81,10 @@ func init() {
 			"and sends POST /v1/shutdown. The daemon finishes its in-flight HTTP\n" +
 			"requests (up to a 5 second grace period) and exits, removing the\n" +
 			"discovery file. If no daemon is running it prints a note and exits 0.\n\n" +
-			"This stops only the daemon process: it does not stop your projects or\n" +
-			"free the router and DNS ports. To bring everything down (projects,\n" +
-			"shared services, and the daemon) use hull stop instead.",
+			"This stops only the daemon process, with the router and DNS server it\n" +
+			"runs: your projects and shared services keep running, and their *.TLD\n" +
+			"names stop answering until the daemon starts again. To bring everything\n" +
+			"down (projects, shared services, and the daemon) use hull stop instead.",
 		Example: "  hull daemon stop",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {

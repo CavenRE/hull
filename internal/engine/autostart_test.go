@@ -47,6 +47,13 @@ func TestStartEnabledSelectsMarkedItems(t *testing.T) {
 		return nil
 	}
 	e.EnsureNet = func(ctx context.Context, name string) error { return nil }
+	projects, err := state.Scan(cfg.Roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range projects {
+		approve(t, e, &projects[i])
+	}
 
 	started, err := e.StartEnabled(context.Background())
 	if err != nil {
@@ -133,5 +140,28 @@ func mustWrite(t *testing.T, dir, manifestYAML string) {
 	}
 	if err := os.WriteFile(filepath.Join(dir, "hull.yaml"), []byte(manifestYAML), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSetProjectFieldsKeepsEditsMadeSinceScan(t *testing.T) {
+	e, root := testEngine(t)
+	dir := filepath.Join(root, "shop")
+	mustWrite(t, dir, "schema: 1\nname: shop\ntemplate: plain\n")
+	m, err := manifest.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &state.Project{Name: "shop", Dir: dir, Manifest: m}
+	mustWrite(t, dir, "schema: 1\nname: shop\ntemplate: plain\nenv:\n  FROM_DISK: \"1\"\n")
+	php := "8.3"
+	if err := e.SetProjectFields(p, PatchOptions{PHP: &php}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := manifest.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Env["FROM_DISK"] != "1" || got.PHP != "8.3" {
+		t.Errorf("manifest after patch: env=%v php=%q", got.Env, got.PHP)
 	}
 }

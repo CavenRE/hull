@@ -163,3 +163,42 @@ func TestEnsureSystemFilesRefreshesManagedScripts(t *testing.T) {
 		t.Error("user-tuned opcache.ini was overwritten; it must be left alone")
 	}
 }
+
+// An opcache.ini nobody edited is the copy an earlier Hull wrote, so it takes
+// the new limits; an edited one stays as the user left it.
+func TestEnsureSystemFilesUpdatesUneditedShippedINI(t *testing.T) {
+	home := t.TempDir()
+	ini := filepath.Join(home, "system", "php", "opcache.ini")
+	old, err := os.ReadFile(filepath.Join("testdata", "opcache-0.17.ini"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(ini), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(ini, old, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureSystemFiles(home); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(ini); string(got) != opcacheINI {
+		t.Error("an unedited opcache.ini from Hull 0.17 was not updated")
+	}
+	for _, helper := range []string{"hull/hull-opcache.php", "hull/hull-opcache-cli.php", "hull-opcache-apache.conf"} {
+		if info, err := os.Stat(filepath.Join(home, "system", "php", filepath.FromSlash(helper))); err != nil || info.Size() == 0 {
+			t.Errorf("%s not provisioned: %v", helper, err)
+		}
+	}
+
+	edited := append(old, []byte("opcache.jit=off\n")...)
+	if err := os.WriteFile(ini, edited, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureSystemFiles(home); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(ini); string(got) != string(edited) {
+		t.Error("an edited opcache.ini was overwritten")
+	}
+}

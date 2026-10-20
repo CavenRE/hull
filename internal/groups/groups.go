@@ -11,6 +11,9 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/CavenRE/hull/internal/flock"
+	"github.com/CavenRE/hull/internal/safefile"
 )
 
 // Filename is the group store inside the Hull home directory.
@@ -71,6 +74,24 @@ func (s *Store) normalizeKeys() {
 }
 
 // Save writes the store to hullHome.
+// Update applies fn to the store on disk while holding its OS lock, then saves
+// it, so two writers never lose each other's edits.
+func Update(hullHome string, fn func(*Store) error) (*Store, error) {
+	unlock, err := flock.Home(hullHome, "groups")
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	s, err := Load(hullHome)
+	if err != nil {
+		return nil, err
+	}
+	if err := fn(s); err != nil {
+		return nil, err
+	}
+	return s, s.Save(hullHome)
+}
+
 func (s *Store) Save(hullHome string) error {
 	s.ensure()
 	s.normalizeKeys()
@@ -81,7 +102,7 @@ func (s *Store) Save(hullHome string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(hullHome, Filename), data, 0o644)
+	return safefile.Write(filepath.Join(hullHome, Filename), data, 0o644)
 }
 
 func (s *Store) ensure() {

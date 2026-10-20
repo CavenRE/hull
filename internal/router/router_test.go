@@ -220,3 +220,13 @@ func TestEnsureCA(t *testing.T) {
 		t.Fatalf("root.crt not provisioned: %v", err)
 	}
 }
+
+func TestConfigJSONDropsPublicNames(t *testing.T) {
+	data, err := ConfigJSON([]Route{{Domain: "shop.test", Upstream: "127.0.0.1:1"}, {Domain: "login.bank.com", Upstream: "127.0.0.1:2"}}, Options{TLD: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "bank.com") || !strings.Contains(string(data), "shop.test") {
+		t.Errorf("config: %s", data)
+	}
+}

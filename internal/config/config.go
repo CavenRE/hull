@@ -10,11 +10,15 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/CavenRE/hull/internal/envfile"
+	"github.com/CavenRE/hull/internal/flock"
+	"github.com/CavenRE/hull/internal/safefile"
 )
 
 // Filename is the v2 config file inside the Hull home directory.
@@ -63,6 +67,10 @@ type ServicesConfig struct {
 	// starts (projects opt in via their own hull.yaml). Managed with
 	// `hull autostart`.
 	Autostart []string `yaml:"autostart,omitempty"`
+	// AdminerProjectDBs attaches Adminer to the network of each project with a
+	// dedicated database, so db.<tld> can reach those too. Off by default:
+	// it puts one container on every project's private network.
+	AdminerProjectDBs bool `yaml:"adminer_project_dbs,omitempty"`
 }
 
 // AutoAdminerEnabled reports whether Adminer should be auto-provisioned when a
@@ -115,6 +123,18 @@ func (c *Config) RouterDataDir() string {
 	return filepath.Join(c.HullHome, "caddy")
 }
 
+// privateHome makes the Hull home 0700 on Unix, where the mode is the access
+// control: it holds the daemon token, database logins and the local CA key.
+// Windows ignores the mode; the user profile's ACL covers it there.
+func privateHome(dir string) {
+	if runtime.GOOS == "windows" {
+		return
+	}
+	if fi, err := os.Stat(dir); err == nil && fi.IsDir() && fi.Mode().Perm()&0o077 != 0 {
+		_ = os.Chmod(dir, 0o700)
+	}
+}
+
 // HomeDir resolves the Hull home directory: $HULL_HOME or ~/.hull.
 func HomeDir() string {
 	if h := os.Getenv("HULL_HOME"); h != "" {
@@ -133,6 +153,7 @@ func Load(hullHome string) (*Config, error) {
 	if hullHome == "" {
 		hullHome = HomeDir()
 	}
+	privateHome(hullHome)
 	cfg := &Config{HullHome: hullHome}
 
 	if data, err := os.ReadFile(filepath.Join(hullHome, Filename)); err == nil {
@@ -142,11 +163,20 @@ func Load(hullHome string) (*Config, error) {
 			return nil, fmt.Errorf("parsing %s: %w", Filename, err)
 		}
 		cfg.HullHome = hullHome
+	} else if !os.IsNotExist(err) {
+		// Only a missing file means defaults: an unreadable one would be
+		// replaced by them on the next save.
+		return nil, fmt.Errorf("reading %s: %w", Filename, err)
 	} else if data, err := os.ReadFile(filepath.Join(hullHome, ".env")); err == nil {
 		loadV1Env(cfg, string(data))
 	}
 
 	cfg.applyDefaults()
+	// Only the label syntax here: the TLD reaches resolver files and elevated
+	// scripts, but a config saved before ValidateTLD existed must still load.
+	if !tldLabelRE.MatchString(cfg.TLD) {
+		return nil, fmt.Errorf("%s: tld %q is not a single lowercase DNS label", Filename, cfg.TLD)
+	}
 	return cfg, nil
 }
 
@@ -191,6 +221,31 @@ func (c *Config) applyDefaults() {
 	}
 }
 
+// Update applies fn to the config on disk while holding its OS lock, then
+// saves it. Writers re-read under the lock, so the CLI and the daemon never
+// save over each other's edits with a stale copy.
+func Update(hullHome string, fn func(*Config) error) (*Config, error) {
+	if hullHome == "" {
+		hullHome = HomeDir()
+	}
+	unlock, err := flock.Home(hullHome, "config")
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	c, err := Load(hullHome)
+	if err != nil {
+		return nil, err
+	}
+	if err := fn(c); err != nil {
+		return nil, err
+	}
+	if err := c.Save(); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
 // Save writes config.yaml into the Hull home directory. It expands and cleans
 // root paths and refuses to persist an empty roots list (keeping the daemon
 // and in-process CLI paths consistent).
@@ -204,14 +259,60 @@ func (c *Config) Save() error {
 	if len(c.Roots) == 0 && len(c.Projects) == 0 {
 		return fmt.Errorf("at least one project root or registered project is required")
 	}
-	if err := os.MkdirAll(c.HullHome, 0o755); err != nil {
+	if err := os.MkdirAll(c.HullHome, 0o700); err != nil {
 		return err
 	}
+	privateHome(c.HullHome)
 	data, err := yaml.Marshal(c)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(c.HullHome, Filename), data, 0o644)
+	return safefile.Write(filepath.Join(c.HullHome, Filename), data, 0o644)
+}
+
+var tldLabelRE = regexp.MustCompile(`^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
+// publicTLDs are delegated top-level domains that a local domain must not
+// shadow, because Hull would then answer for real sites. Two-letter country
+// codes are refused by length. dev, app and page are also HSTS-preloaded, so
+// browsers refuse plain HTTP to them anyway.
+var publicTLDs = map[string]bool{
+	"com": true, "net": true, "org": true, "edu": true, "gov": true, "mil": true,
+	"int": true, "arpa": true, "info": true, "biz": true, "name": true, "pro": true,
+	"mobi": true, "app": true, "dev": true, "page": true, "new": true, "foo": true,
+	"zip": true, "mov": true, "xyz": true, "online": true, "site": true, "top": true,
+	"shop": true, "store": true, "tech": true, "cloud": true, "blog": true,
+	"website": true, "space": true, "live": true, "google": true,
+}
+
+// ValidateTLD accepts a local top-level domain: one lowercase DNS label that
+// is not a public TLD. Every place a TLD is set from user input calls it.
+func ValidateTLD(tld string) error {
+	if !tldLabelRE.MatchString(tld) {
+		return fmt.Errorf("invalid domain %q; use a single lowercase label like test", tld)
+	}
+	if len(tld) == 2 || publicTLDs[tld] {
+		return fmt.Errorf("%q is a real top-level domain, so Hull would hijack real sites; use a reserved one such as test or internal", tld)
+	}
+	return nil
+}
+
+// localSuffixes are TLDs reserved for local or private use: they never
+// resolve on the public internet.
+var localSuffixes = []string{"test", "localhost", "internal", "local", "lan", "home.arpa", "example", "invalid"}
+
+// LocalHostname reports whether host is a name Hull may serve: one under the
+// configured TLD or under a reserved local TLD. A public name (a cluster
+// base_domain of example.com) is refused, so the router and hosts file can
+// never take over a real site.
+func LocalHostname(host, tld string) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	for _, s := range append([]string{tld}, localSuffixes...) {
+		if s != "" && strings.HasSuffix(host, "."+s) {
+			return true
+		}
+	}
+	return false
 }
 
 // ValidLoopback reports whether s is a 127.0.0.x address with a last octet

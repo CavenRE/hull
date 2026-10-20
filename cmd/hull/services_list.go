@@ -64,25 +64,26 @@ func serviceSection(a *app, title string, group []services.Instance) bool {
 	}
 	fmt.Printf("%s (%d)\n", title, len(group))
 	w := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "  NAME\tCONNECT\tWEB UI\tCONTAINER")
+	_, _ = fmt.Fprintln(w, "  NAME\tCONNECT\tWEB UI\tCONTAINER")
 	hasDB := false
 	for _, in := range group {
 		connect := "-"
 		if in.HostPort > 0 {
 			connect = fmt.Sprintf("127.0.0.1:%d", in.HostPort)
-			switch in.Engine {
-			case "postgres":
-				connect, hasDB = "postgres@"+connect, true
-			case "mysql", "mariadb":
-				connect, hasDB = "root@"+connect, true
+			if def, ok := templates.Engine(in.Engine); ok && def.IsDatabase {
+				user := templates.RootUser(in.Engine)
+				if in.Logins {
+					user = "<project-db>" // each project signs in as its own database's user
+				}
+				connect, hasDB = user+"@"+connect, true
 			}
 		}
 		webUI := "-"
 		if def, ok := templates.Engine(in.Engine); ok && def.UISubdomain != "" {
-			webUI = fmt.Sprintf("https://%s.%s", def.UISubdomain, a.Config.TLD)
+			webUI = a.siteURL(def.UISubdomain + "." + a.Config.TLD)
 		}
-		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\n", in.Name, connect, webUI, in.Container)
+		_, _ = fmt.Fprintf(w, "  %s\t%s\t%s\t%s\n", in.Name, connect, webUI, in.Container)
 	}
-	w.Flush()
+	_ = w.Flush()
 	return hasDB
 }

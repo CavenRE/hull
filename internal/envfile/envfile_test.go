@@ -1,6 +1,9 @@
 package envfile
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestSetReplacesLive(t *testing.T) {
 	in := "APP_NAME=Laravel\nDB_HOST=127.0.0.1\nDB_PORT=3306\n"
@@ -88,5 +91,18 @@ func TestGet(t *testing.T) {
 	}
 	if _, ok := Get(content, "MISSING"); ok {
 		t.Error("Get(MISSING) should report not found")
+	}
+}
+
+func TestGetAndSetHandleExportAndQuotes(t *testing.T) {
+	content := "export DB_HOST=\"db.local\"\nAPP_NAME='My App'\nDB_PORT=3306 # default\n"
+	for key, want := range map[string]string{"DB_HOST": "db.local", "APP_NAME": "My App", "DB_PORT": "3306"} {
+		if got, ok := Get(content, key); !ok || got != want {
+			t.Errorf("Get(%s) = %q, %v; want %q", key, got, ok, want)
+		}
+	}
+	out := Set(content, "DB_HOST", "hull-mysql-8.0")
+	if !strings.Contains(out, "export DB_HOST=hull-mysql-8.0\n") || strings.Count(out, "DB_HOST=") != 1 {
+		t.Errorf("Set did not replace the export line in place:\n%s", out)
 	}
 }

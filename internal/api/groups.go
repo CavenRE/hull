@@ -17,7 +17,7 @@ func (s *Server) registerGroupRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) handleGroupsGet(w http.ResponseWriter, r *http.Request) {
-	store, err := groups.Load(s.Config.HullHome)
+	store, err := groups.Load(s.cfg().HullHome)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -31,11 +31,15 @@ func (s *Server) handleGroupsPut(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := store.Save(s.Config.HullHome); err != nil {
+	saved, err := groups.Update(s.cfg().HullHome, func(st *groups.Store) error {
+		*st = store
+		return nil
+	})
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, &store)
+	writeJSON(w, http.StatusOK, saved)
 }
 
 // handleProjectGroup assigns one project to a group (empty = ungroup) without
@@ -48,18 +52,15 @@ func (s *Server) handleProjectGroup(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	p, err := state.Find(s.Config.Roots, r.PathValue("name"), s.Config.Projects...)
+	p, err := state.Find(s.cfg().Roots, r.PathValue("name"), s.cfg().Projects...)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
-	store, err := groups.Load(s.Config.HullHome)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
-		return
-	}
-	store.SetMember(p.Dir, req.Group)
-	if err := store.Save(s.Config.HullHome); err != nil {
+	if _, err := groups.Update(s.cfg().HullHome, func(st *groups.Store) error {
+		st.SetMember(p.Dir, req.Group)
+		return nil
+	}); err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}

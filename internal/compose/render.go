@@ -2,6 +2,7 @@ package compose
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -40,6 +41,17 @@ type Context struct {
 	// opcacheWatchedMount. Both are set by the engine, never by a pure render.
 	SlowMount     bool
 	WatchedReload bool
+	// DBLogin returns the user and password a project's code signs in to one
+	// of its database services with. Nil (pure renders) means the
+	// passwordless root of databases made before Hull kept logins.
+	DBLogin func(m *manifest.Manifest, key string, s *manifest.Service) (user, password string)
+}
+
+func (c Context) dbLogin(m *manifest.Manifest, key string, s *manifest.Service) (string, string) {
+	if c.DBLogin != nil {
+		return c.DBLogin(m, key, s)
+	}
+	return templates.RootUser(s.Engine), ""
 }
 
 // projectPHPIni is the conventional per-project PHP config. It lives with the
@@ -163,10 +175,11 @@ func Render(m *manifest.Manifest, ctx Context) (*File, error) {
 		// project's own network instead (see Engine.syncAdminerNetworks), where it
 		// addresses databases by their unique container name. JoinsCaddy still
 		// governs SHARED instances, which are rendered separately and do need it.
+		_, password := ctx.dbLogin(m, key, s)
 		svc := &ServiceDef{
 			Image:       eng.Image(s.Version),
 			Command:     eng.Command,
-			Environment: eng.Env(s.Database),
+			Environment: eng.AuthEnv(s.Database, password),
 			Networks:    []string{"default"},
 		}
 		if len(eng.HealthTest) > 0 {
@@ -251,9 +264,13 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 	if def.IsPHP() {
 		svc.Volumes = append(svc.Volumes, opcacheMount(ctx))
 		// On a slow mount with the daemon watching, stop PHP re-checking every
-		// cached file on every request; the watcher resets the cache on save.
+		// cached file on every request; the watcher refreshes saved files
+		// through the helper scripts.
 		if mount := opcacheWatchedMount(ctx); mount != "" {
-			svc.Volumes = append(svc.Volumes, mount)
+			svc.Volumes = append(svc.Volumes, mount, ctx.HullHome+"/system/php/hull:"+templates.OpcacheHelperDir+":ro")
+			if m.Template == "wordpress" {
+				svc.Volumes = append(svc.Volumes, ctx.HullHome+"/system/php/hull-opcache-apache.conf:/etc/apache2/conf-enabled/zz-hull-opcache.conf:ro")
+			}
 		}
 		// A project can drop its own settings in .hull/php.ini (upload limits,
 		// memory, opcache tuning) without touching the machine-wide file.
@@ -345,11 +362,12 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 			// shared (caddy) network.
 			host = templates.InstanceContainerName(db.Engine, db.Version)
 		}
+		user, password := ctx.dbLogin(m, dbKey, db)
 		env = append(env,
 			"WORDPRESS_DB_HOST="+host,
 			"WORDPRESS_DB_NAME="+db.Database,
-			"WORDPRESS_DB_PASSWORD=",
-			"WORDPRESS_DB_USER=root",
+			"WORDPRESS_DB_PASSWORD="+password,
+			"WORDPRESS_DB_USER="+user,
 			// Local-dev defaults: mark the environment local, and disable
 			// page-load wp-cron so the dashboard stops firing blocking update
 			// checks on every request (the usual cause of a slow first load).
@@ -366,8 +384,9 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 			if db.Mode == manifest.ModeShared {
 				host = templates.InstanceContainerName(db.Engine, db.Version)
 			}
-			if url := databaseURL(db.Engine, host, db.Database); url != "" {
-				env = append(env, "DATABASE_URL="+url)
+			user, password := ctx.dbLogin(m, dbKey, db)
+			if u := databaseURL(db.Engine, host, db.Database, user, password); u != "" {
+				env = append(env, "DATABASE_URL="+u)
 			}
 		}
 	}
@@ -376,16 +395,22 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 }
 
 // databaseURL builds a standard connection URL a non-PHP app (e.g. Python's
-// dj-database-url / psycopg) reads from DATABASE_URL. Local dev uses the
-// trust-auth superuser with no password.
-func databaseURL(engine, host, dbname string) string {
+// dj-database-url / psycopg) reads from DATABASE_URL.
+func databaseURL(engine, host, dbname, user, password string) string {
+	login := url.User(user)
+	if password != "" {
+		login = url.UserPassword(user, password)
+	}
+	var scheme, port string
 	switch engine {
 	case "postgres":
-		return "postgres://postgres@" + host + ":5432/" + dbname
+		scheme, port = "postgres", "5432"
 	case "mysql", "mariadb":
-		return "mysql://root@" + host + ":3306/" + dbname
+		scheme, port = "mysql", "3306"
+	default:
+		return ""
 	}
-	return ""
+	return (&url.URL{Scheme: scheme, User: login, Host: host + ":" + port, Path: "/" + dbname}).String()
 }
 
 // containerService builds one container of a type:app project.
@@ -395,11 +420,15 @@ func containerService(m *manifest.Manifest, key string, c *manifest.Container, c
 		if !ok {
 			return nil, fmt.Errorf("container %q: unknown template %q", key, c.Template)
 		}
+		src, err := mountSource(c.Path)
+		if err != nil {
+			return nil, fmt.Errorf("container %q: %w", key, err)
+		}
 		svc := &ServiceDef{
 			Image:   def.Image(c.PHP, c.Version),
 			Command: c.Command,
 			Volumes: []string{
-				mountSource(c.Path) + ":" + webrootMount,
+				src + ":" + webrootMount,
 				opcacheMount(ctx),
 			},
 			ExtraHosts:  []string{"host.docker.internal:host-gateway"},
@@ -525,16 +554,18 @@ func permFixMount(ctx Context, def templates.SiteDef) string {
 	return ctx.HullHome + "/system/php/hull-fix-perms.sh:" + target + ":ro"
 }
 
-// mountSource normalizes a manifest path field to a compose bind source.
-func mountSource(p string) string {
+// mountSource normalizes a manifest path field to a compose bind source. It
+// refuses a path that leaves the project, even for a manifest built in code
+// that never went through Validate.
+func mountSource(p string) (string, error) {
+	if !manifest.LocalPath(p) {
+		return "", fmt.Errorf("path %q leaves the project folder", p)
+	}
 	cleaned := path.Clean(strings.ReplaceAll(p, "\\", "/"))
-	if cleaned == "." || cleaned == "./" {
-		return "./"
+	if cleaned == "." {
+		return "./", nil
 	}
-	if !strings.HasPrefix(cleaned, "./") {
-		cleaned = "./" + cleaned
-	}
-	return cleaned
+	return "./" + cleaned, nil
 }
 
 // mergeEnv layers template env, project env, and container env (later wins

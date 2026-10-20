@@ -3,10 +3,12 @@ package engine
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/CavenRE/hull/internal/bundle"
+	"github.com/CavenRE/hull/internal/dbauth"
 	"github.com/CavenRE/hull/internal/envfile"
 )
 
@@ -88,12 +90,19 @@ func TestAdoptWordPress(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The imported site gets a new dedicated database, so Hull gives it a root
+	// password and writes that into wp-config.
+	login, ok := dbauth.Get(e.Config.HullHome, "project/oldblog", "db")
+	if !ok {
+		t.Fatal("no login stored for the new dedicated database")
+	}
 	data, _ := os.ReadFile(filepath.Join(dir, "wp-config.php"))
 	content := string(data)
 	for _, want := range []string{
 		"define( 'DB_HOST', 'db' )",
 		"define( 'DB_NAME', 'blog_db' )",
-		"define( 'DB_PASSWORD', '' )",
+		"define( 'DB_USER', 'root' )",
+		"define( 'DB_PASSWORD', '" + login.Password + "' )",
 		"HTTP_X_FORWARDED_PROTO",
 	} {
 		if !strings.Contains(content, want) {
@@ -102,5 +111,52 @@ func TestAdoptWordPress(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "wp-config.php.hull-backup")); err != nil {
 		t.Error("no wp-config backup written")
+	}
+}
+
+func TestAdoptRefusesBrokenManifest(t *testing.T) {
+	e, root := testEngine(t)
+	dir := filepath.Join(root, "broken")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	broken := "schema: [not a manifest\n"
+	if err := os.WriteFile(filepath.Join(dir, "hull.yaml"), []byte(broken), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := BuildImportManifest("broken", bundle.Detection{Template: "plain"}, NewOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Adopt(m, dir); err == nil {
+		t.Fatal("Adopt overwrote a hull.yaml that fails to parse")
+	}
+	if data, _ := os.ReadFile(filepath.Join(dir, "hull.yaml")); string(data) != broken {
+		t.Errorf("hull.yaml changed to %q", data)
+	}
+}
+
+func TestAdoptBackupKeepsEnvMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX modes")
+	}
+	e, root := testEngine(t)
+	dir := filepath.Join(root, "secret")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("APP_KEY=x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m, err := BuildImportManifest("secret", bundle.Detection{Template: "laravel"}, NewOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Adopt(m, dir); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(filepath.Join(dir, ".env.hull-backup"))
+	if err != nil || fi.Mode().Perm() != 0o600 {
+		t.Errorf("backup mode = %v, %v; want 0600", fi, err)
 	}
 }

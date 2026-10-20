@@ -98,7 +98,7 @@ case "$OS" in
     fi ;;
   Darwin)
     command -v brew >/dev/null 2>&1 && { PM=brew; PM_INSTALL="brew install"; } ;;
-  *) die "unsupported OS: $OS (use install.ps1 on Windows)" ;;
+  *) die "unsupported OS: $OS (on Windows, use get.ps1)" ;;
 esac
 say "${D}platform: $OS/$ARCH  package manager: ${PM:-none}${X}"
 
@@ -158,7 +158,7 @@ VER="$(git -C "$REPO_DIR" describe --tags --always --dirty 2>/dev/null || echo d
 COMMIT="$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo none)"
 LDFLAGS="-s -w -X github.com/CavenRE/hull/internal/version.Version=${VER} -X github.com/CavenRE/hull/internal/version.Commit=${COMMIT}"
 mkdir -p "$PREFIX"
-go build -ldflags "$LDFLAGS" -o "$PREFIX/hull"  ./cmd/hull
+go build -trimpath -ldflags "$LDFLAGS" -o "$PREFIX/hull"  ./cmd/hull
 ok "installed hull → $PREFIX (version $VER)"
 
 # On Linux the daemon's embedded router and DNS bind 80/443/53 directly (no

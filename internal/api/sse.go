@@ -6,16 +6,31 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 )
 
-// EventPollInterval is how often /v1/events checks the engine for changes.
-// Variable so tests can shrink it.
-var EventPollInterval = 2 * time.Second
+// EventPollInterval is how often /v1/events re-reads the running set with no
+// trigger; a container event from the engine wakes it at once. Variable so
+// tests can shrink it.
+var EventPollInterval = 30 * time.Second
 
 // JobStreamInterval is how often /v1/jobs/{id}/stream flushes new lines.
 var JobStreamInterval = 200 * time.Millisecond
+
+// sseData makes s safe as one SSE data field: a CR or LF inside it would end
+// the field early and let the rest read as a new field or event.
+func sseData(s string) string { return strings.NewReplacer("\r", "", "\n", " ").Replace(s) }
+
+// streamOpen readies w for an open-ended SSE stream, lifting the server's
+// write timeout for this response only.
+func streamOpen(w http.ResponseWriter) {
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+}
 
 // handleJobStream streams a job's log lines as SSE until it finishes.
 func (s *Server) handleJobStream(w http.ResponseWriter, r *http.Request) {
@@ -29,15 +44,13 @@ func (s *Server) handleJobStream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("streaming unsupported"))
 		return
 	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.WriteHeader(http.StatusOK)
+	streamOpen(w)
 
 	offset := 0
 	for {
 		lines, running := job.LinesFrom(offset)
 		for _, line := range lines {
-			_, _ = fmt.Fprintf(w, "data: %s\n\n", line)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", sseData(line))
 		}
 		offset += len(lines)
 		flusher.Flush()
@@ -62,7 +75,9 @@ func (s *Server) handleJobStream(w http.ResponseWriter, r *http.Request) {
 // connected, and nothing at all when none are. The poller starts on the first
 // subscriber and stops when the last one leaves.
 type eventHub struct {
-	running func(context.Context) ([]string, error)
+	running  func(context.Context) ([]string, error)
+	interval time.Duration
+	wake     chan struct{}
 
 	mu      sync.Mutex
 	subs    map[chan struct{}]struct{}
@@ -72,7 +87,15 @@ type eventHub struct {
 }
 
 func newEventHub(running func(context.Context) ([]string, error)) *eventHub {
-	return &eventHub{running: running, subs: map[chan struct{}]struct{}{}}
+	return &eventHub{running: running, interval: EventPollInterval, wake: make(chan struct{}, 1), subs: map[chan struct{}]struct{}{}}
+}
+
+// poke makes the poller re-read the running set now.
+func (h *eventHub) poke() {
+	select {
+	case h.wake <- struct{}{}:
+	default:
+	}
 }
 
 // eventHub lazily builds the shared hub the first time /v1/events is hit, so a
@@ -120,8 +143,8 @@ func (h *eventHub) snapshot() []string {
 	return append([]string{}, h.current...)
 }
 
-// poll refreshes the running set on a tick and signals subscribers on the first
-// snapshot and on every change thereafter.
+// poll refreshes the running set on a tick or a poke and signals subscribers
+// on the first snapshot and on every change thereafter.
 func (h *eventHub) poll(ctx context.Context) {
 	for {
 		if running, err := h.running(ctx); err == nil {
@@ -142,7 +165,8 @@ func (h *eventHub) poll(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(EventPollInterval):
+		case <-h.wake:
+		case <-time.After(h.interval):
 		}
 	}
 }
@@ -156,9 +180,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("streaming unsupported"))
 		return
 	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.WriteHeader(http.StatusOK)
+	streamOpen(w)
 
 	signal, snapshot, ready, unsub := s.eventHub().subscribe()
 	defer unsub()

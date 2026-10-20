@@ -54,6 +54,8 @@ var engineModes = map[string]string{
 	"hull artisan":        engineEnsure,
 	"hull npm":            engineEnsure,
 	"hull export":         engineEnsure, // takes live database dumps
+	"hull db export":      engineEnsure, // dumps a running database
+	"hull db import":      engineEnsure, // loads into a running database
 	"hull stop":           engineEnsure, // sweeps containers down
 	"hull forget":         engineEnsure, // brings the project down first
 	"hull services add":   engineEnsure,

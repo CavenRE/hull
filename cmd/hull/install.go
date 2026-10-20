@@ -17,8 +17,10 @@ func init() {
 			"On Windows it installs to %LOCALAPPDATA%\\Hull, adds it to your user PATH,\n" +
 			"and registers an Apps & Features entry (uninstall runs `hull uninstall`);\n" +
 			"no admin needed. On Linux/macOS it copies to ~/.local/bin. Use --dir to\n" +
-			"choose a different location. Re-running is safe: it updates the installed\n" +
-			"copy in place (stopping the daemon first if it is holding the file).",
+			"choose a different location. Re-running updates the installed copy in\n" +
+			"place; on Windows it stops the daemon first if the daemon holds the file.\n" +
+			"On Linux and macOS, run hull daemon stop first if the daemon runs from\n" +
+			"the installed copy.",
 		Example: "  hull install\n" +
 			"  hull install --dir D:\\Tools\\Hull",
 		Args: cobra.NoArgs,

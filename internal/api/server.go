@@ -2,14 +2,21 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/CavenRE/hull/internal/config"
 	"github.com/CavenRE/hull/internal/dockerx"
@@ -17,6 +24,7 @@ import (
 	"github.com/CavenRE/hull/internal/groups"
 	"github.com/CavenRE/hull/internal/jobs"
 	"github.com/CavenRE/hull/internal/ledger"
+	"github.com/CavenRE/hull/internal/manifest"
 	"github.com/CavenRE/hull/internal/registry"
 	"github.com/CavenRE/hull/internal/services"
 	"github.com/CavenRE/hull/internal/state"
@@ -28,6 +36,9 @@ import (
 // clients of this surface , see docs/api.md.
 type Server struct {
 	Config *config.Config
+	// live is the config a PUT published in place of Config. A published config
+	// is never mutated, so readers that take it through cfg() never race a swap.
+	live   atomic.Pointer[config.Config]
 	Engine *engine.Engine
 	Jobs   *jobs.Manager
 	Token  string
@@ -88,15 +99,47 @@ func (k *keyedMutex) lock(key string) func() {
 	return mu.Unlock
 }
 
+// registerDir adds dir to the registered projects when no root covers it, so
+// a cluster adopted or created elsewhere stays visible to the roots scan.
+func (s *Server) registerDir(dir string) error {
+	for _, r := range s.cfg().Roots {
+		if state.Under(r, dir) {
+			return nil
+		}
+	}
+	next, err := config.Update(s.cfg().HullHome, func(c *config.Config) error {
+		for _, p := range c.Projects {
+			if state.SamePath(p, dir) {
+				return nil
+			}
+		}
+		c.Projects = append(c.Projects, dir)
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	s.live.Store(next)
+	return nil
+}
+
+// cfg returns the daemon's current config.
+func (s *Server) cfg() *config.Config {
+	if c := s.live.Load(); c != nil {
+		return c
+	}
+	return s.Config
+}
+
 // findProject resolves a project by name, falling back to a ledger-known
 // cluster whose directory is outside the configured roots, so both the CLI and
 // the daemon resolve out-of-root clusters the same way.
 func (s *Server) findProject(name string) (*state.Project, error) {
-	p, err := state.Find(s.Config.Roots, name, s.Config.Projects...)
+	p, err := state.Find(s.cfg().Roots, name, s.cfg().Projects...)
 	if err == nil {
 		return p, nil
 	}
-	if lp, ok := state.FindCluster(s.Config.HullHome, name); ok {
+	if lp, ok := state.FindCluster(s.cfg().HullHome, name); ok {
 		return lp, nil
 	}
 	return nil, err
@@ -113,39 +156,41 @@ func (s *Server) lockProject(name string) func() {
 
 // NewServer wires a server around a config.
 func NewServer(cfg *config.Config, token string) *Server {
-	eng := engine.New(cfg)
-	// The daemon outlives any one request, so background work it starts (the
-	// warm-up after a project comes up) actually gets to finish here, unlike in a
-	// CLI process that is about to exit.
-	eng.LongRunning = true
-	return &Server{
+	s := &Server{
 		Config:          cfg,
-		Engine:          eng,
 		Jobs:            jobs.NewManager(),
 		Token:           token,
 		RunningProjects: dockerx.RunningComposeProjects,
 		EngineCheck:     dockerx.EngineCheck,
-		NewJobEngine: func(log func(string)) *engine.Engine {
-			e := engine.New(cfg)
-			e.Run = captureRunner(log)
-			return e
-		},
-		Services: func() *services.Manager {
-			return services.NewManager(cfg)
-		},
-		JobServices: func(log func(string)) *services.Manager {
-			m := services.NewManager(cfg)
-			m.Run = captureRunner(log)
-			return m
-		},
-		Registry:     registry.New(),
-		projectLocks: newKeyedMutex(),
+		Registry:        registry.New(),
+		projectLocks:    newKeyedMutex(),
 	}
+	s.Engine = engine.New(cfg)
+	s.Engine.ConfigSource = s.cfg
+	// The daemon outlives any one request, so background work it starts (the
+	// warm-up after a project comes up) actually gets to finish here, unlike in a
+	// CLI process that is about to exit.
+	s.Engine.LongRunning = true
+	s.NewJobEngine = func(log func(string)) *engine.Engine {
+		e := engine.New(s.cfg())
+		e.Run = captureRunner(log)
+		return e
+	}
+	s.Services = func() *services.Manager {
+		return services.NewManager(s.cfg())
+	}
+	s.JobServices = func(log func(string)) *services.Manager {
+		m := services.NewManager(s.cfg())
+		m.Run = captureRunner(log)
+		return m
+	}
+	return s
 }
 
 // Handler returns the authenticated HTTP handler.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/hello", s.handleHello)
 	mux.HandleFunc("GET /v1/status", s.handleStatus)
 	mux.HandleFunc("GET /v1/projects", s.handleProjects)
 	mux.HandleFunc("POST /v1/projects", s.withEngine(s.handleCreateProject))
@@ -167,6 +212,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/jobs", s.handleJobs)
 	mux.HandleFunc("GET /v1/jobs/{id}", s.handleJob)
 	mux.HandleFunc("GET /v1/jobs/{id}/stream", s.handleJobStream)
+	mux.HandleFunc("POST /v1/jobs/{id}/cancel", s.handleJobCancel)
 	mux.HandleFunc("GET /v1/events", s.handleEvents)
 	mux.HandleFunc("POST /v1/stop-all", s.withEngine(s.handleStopAll))
 	mux.HandleFunc("POST /v1/shutdown", s.handleShutdown)
@@ -200,12 +246,20 @@ func (s *Server) withEngine(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// guiOrigins are the desktop app's webview origins: the only pages a browser
+// lets read API responses cross-origin.
+var guiOrigins = map[string]bool{
+	"tauri://localhost":       true,
+	"http://tauri.localhost":  true,
+	"https://tauri.localhost": true,
+}
+
+// maxBody caps a request body; every API body is a small JSON document.
+const maxBody = 1 << 20
+
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// CORS for the GUI webview (tauri://localhost etc.). Safe because
-		// the bearer token , not the origin , is the access control, and
-		// the server only listens on loopback.
-		if origin := r.Header.Get("Origin"); origin != "" {
+		if origin := r.Header.Get("Origin"); guiOrigins[origin] {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Vary", "Origin")
 		}
@@ -215,15 +269,21 @@ func (s *Server) auth(next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/hello" {
+			next.ServeHTTP(w, r) // answers before a client sends its token
+			return
+		}
 
 		token := ""
 		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 			token = strings.TrimPrefix(h, "Bearer ")
-		} else if q := r.URL.Query().Get("token"); q != "" {
-			// EventSource cannot set headers; SSE clients pass ?token=.
-			token = q
+		} else if sseRoute(r) {
+			// EventSource cannot set headers; SSE clients pass ?token=. Only
+			// there, so a token never sits in other URLs and their logs.
+			token = r.URL.Query().Get("token")
 		}
-		if subtleEqual(token, s.Token) {
+		if subtle.ConstantTimeCompare([]byte(token), []byte(s.Token)) == 1 {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -231,17 +291,32 @@ func (s *Server) auth(next http.Handler) http.Handler {
 	})
 }
 
-// subtleEqual compares without early exit; tokens are high-entropy so a
-// length leak is acceptable.
-func subtleEqual(a, b string) bool {
-	if len(a) != len(b) {
+// sseRoute reports whether r is one of the streaming GETs an EventSource makes.
+func sseRoute(r *http.Request) bool {
+	if r.Method != http.MethodGet {
 		return false
 	}
-	var v byte
-	for i := 0; i < len(a); i++ {
-		v |= a[i] ^ b[i]
+	p := r.URL.Path
+	return p == "/v1/events" || p == "/v1/logs" || (strings.HasPrefix(p, "/v1/jobs/") && strings.HasSuffix(p, "/stream"))
+}
+
+// handleHello proves this daemon holds the token without the caller sending
+// it: the reply carries HMAC-SHA256(token, challenge). A client checks it
+// before trusting the port in daemon.json, which another program may hold
+// once the daemon that wrote it is gone.
+func (s *Server) handleHello(w http.ResponseWriter, r *http.Request) {
+	challenge := r.URL.Query().Get("challenge")
+	if len(challenge) < 16 || len(challenge) > 128 {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("challenge must be 16 to 128 characters"))
+		return
 	}
-	return v == 0
+	writeJSON(w, http.StatusOK, Hello{Proof: helloProof(s.Token, challenge), PID: os.Getpid(), Version: version.Version})
+}
+
+func helloProof(token, challenge string) string {
+	mac := hmac.New(sha256.New, []byte(token))
+	_, _ = mac.Write([]byte(challenge))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -257,9 +332,9 @@ func writeError(w http.ResponseWriter, status int, err error) {
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, StatusInfo{
 		Version:  version.String(),
-		TLD:      s.Config.TLD,
-		Roots:    s.Config.Roots,
-		HullHome: s.Config.HullHome,
+		TLD:      s.cfg().TLD,
+		Roots:    s.cfg().Roots,
+		HullHome: s.cfg().HullHome,
 		Engine:   s.engineState(r.Context()),
 	})
 }
@@ -364,7 +439,7 @@ func ProjectList(ctx context.Context, cfg *config.Config, running func(context.C
 }
 
 func (s *Server) handleProjects(w http.ResponseWriter, r *http.Request) {
-	infos, err := ProjectList(r.Context(), s.Config, s.RunningProjects)
+	infos, err := ProjectList(r.Context(), s.cfg(), s.RunningProjects)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -423,7 +498,7 @@ func ClusterList(ctx context.Context, cfg *config.Config, running func(context.C
 }
 
 func (s *Server) handleClusters(w http.ResponseWriter, r *http.Request) {
-	list, err := ClusterList(r.Context(), s.Config, s.RunningProjects)
+	list, err := ClusterList(r.Context(), s.cfg(), s.RunningProjects)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
@@ -506,19 +581,25 @@ func (s *Server) handleProjectAction(w http.ResponseWriter, r *http.Request) {
 	}
 	// rebuild/reset can be slow (image builds, volume teardown) , run them as
 	// background jobs with streamed logs, like create/destroy.
+	if action == "reset" {
+		if err := state.CheckUnique(s.cfg().Roots, p.Name, s.cfg().Projects...); err != nil {
+			writeError(w, http.StatusConflict, err)
+			return
+		}
+	}
 	switch action {
 	case "rebuild", "reset":
 		noCache := r.URL.Query().Get("no_cache") != ""
-		job := s.Jobs.Start(action+":"+p.Name, func(log func(string)) error {
+		job := s.Jobs.Start(action+":"+p.Name, func(ctx context.Context, log func(string)) error {
 			defer s.lockProject(p.Name)()
 			eng := s.NewJobEngine(log)
 			var jerr error
 			if action == "rebuild" {
 				log("rebuilding " + p.Name + (map[bool]string{true: " (no cache)"}[noCache]))
-				jerr = eng.Rebuild(context.Background(), p, noCache)
+				jerr = eng.Rebuild(ctx, p, noCache)
 			} else {
 				log("resetting " + p.Name + " (removing named volumes)...")
-				jerr = eng.Reset(context.Background(), p)
+				jerr = eng.Reset(ctx, p)
 			}
 			if jerr == nil && s.SyncRoutes != nil {
 				s.SyncRoutes()
@@ -546,7 +627,12 @@ func (s *Server) handleProjectAction(w http.ResponseWriter, r *http.Request) {
 	}
 	unlock()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err)
+		status := http.StatusInternalServerError
+		var untrusted *engine.UntrustedError
+		if errors.As(err, &untrusted) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err)
 		return
 	}
 	if s.SyncRoutes != nil {
@@ -581,11 +667,13 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	job := s.Jobs.Start("create:"+req.Name, func(log func(string)) error {
-		defer s.lockProject(req.Name)()
+	job := s.Jobs.Start("create:"+req.Name, func(ctx context.Context, log func(string)) error {
+		// The slug, as the engine names the project, so "My Shop" and "my-shop"
+		// cannot be created at the same time.
+		defer s.lockProject(manifest.Slug(req.Name))()
 		jobEngine := s.NewJobEngine(log)
 		// Jobs outlive the request that started them , background context.
-		dir, err := jobEngine.NewProject(context.Background(), engine.NewOptions{
+		dir, err := jobEngine.NewProject(ctx, engine.NewOptions{
 			Name:      req.Name,
 			Template:  req.Template,
 			DB:        req.DB,
@@ -616,6 +704,10 @@ func (s *Server) handleAdoptCluster(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	if !filepath.IsAbs(req.Dir) {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("dir must be an absolute path, got %q", req.Dir))
+		return
+	}
 	m, err := s.Engine.AdoptCluster(engine.ClusterOptions{
 		Dir:          req.Dir,
 		Name:         req.Name,
@@ -625,6 +717,10 @@ func (s *Server) handleAdoptCluster(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.registerDir(req.Dir); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
 	if s.SyncRoutes != nil {
@@ -649,15 +745,19 @@ func (s *Server) handleCreateCluster(w http.ResponseWriter, r *http.Request) {
 			Name: c.Name, Template: c.Template, Image: c.Image, Version: c.Version, Port: c.Port, Serve: c.Serve, Services: svcs,
 		})
 	}
-	job := s.Jobs.Start("create-cluster:"+req.Name, func(log func(string)) error {
+	job := s.Jobs.Start("create-cluster:"+req.Name, func(ctx context.Context, log func(string)) error {
+		defer s.lockProject(manifest.Slug(req.Name))()
 		eng := s.NewJobEngine(log)
-		dir, err := eng.NewCluster(context.Background(), engine.NewClusterOptions{
+		dir, err := eng.NewCluster(ctx, engine.NewClusterOptions{
 			Name: req.Name, Root: req.Root, ComposeRoot: req.ComposeRoot, Managed: req.Managed, Containers: specs, SkipStart: req.NoStart,
 		})
 		if err != nil {
 			return err
 		}
 		log("created cluster at " + dir)
+		if err := s.registerDir(dir); err != nil {
+			return err
+		}
 		if s.SyncRoutes != nil {
 			s.SyncRoutes()
 		}
@@ -672,7 +772,7 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	p, err := state.Find(s.Config.Roots, req.Name, s.Config.Projects...)
+	p, err := state.Find(s.cfg().Roots, req.Name, s.cfg().Projects...)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
@@ -681,10 +781,10 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, fmt.Errorf("%s is already managed by Hull", p.Name))
 		return
 	}
-	job := s.Jobs.Start("import:"+p.Name, func(log func(string)) error {
+	job := s.Jobs.Start("import:"+p.Name, func(ctx context.Context, log func(string)) error {
 		defer s.lockProject(p.Name)()
 		jobEngine := s.NewJobEngine(log)
-		if err := jobEngine.ImportExisting(context.Background(), p, log); err != nil {
+		if err := jobEngine.ImportExisting(ctx, p, log); err != nil {
 			return err
 		}
 		if s.SyncRoutes != nil {
@@ -693,6 +793,15 @@ func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	writeJSON(w, http.StatusAccepted, JobRef{Job: job.Snapshot()})
+}
+
+// handleJobCancel asks a running job to stop (the CLI sends it on Ctrl-C).
+func (s *Server) handleJobCancel(w http.ResponseWriter, r *http.Request) {
+	if !s.Jobs.Cancel(r.PathValue("id")) {
+		writeError(w, http.StatusNotFound, fmt.Errorf("no job %q", r.PathValue("id")))
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
@@ -741,7 +850,7 @@ func (s *Server) handleStopAll(w http.ResponseWriter, r *http.Request) {
 func captureRunner(log func(string)) dockerx.Runner {
 	return func(ctx context.Context, dir, name string, args ...string) error {
 		log("$ " + name + " " + strings.Join(args, " "))
-		cmd := exec.Command(name, args...)
+		cmd := exec.CommandContext(ctx, name, args...) // a canceled job stops its command too
 		cmd.Dir = dir
 		dockerx.NoWindow(cmd) // headless daemon: don't flash a console per job command
 		out, err := cmd.CombinedOutput()

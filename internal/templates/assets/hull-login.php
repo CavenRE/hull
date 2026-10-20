@@ -1,18 +1,9 @@
 <?php
-// Hull's Adminer plugin. Two jobs:
-//  1. Local dev databases have empty passwords (trust auth), which Adminer
-//     refuses by default , allow them.
-//  2. Render a picker of every Hull database (shared instances + per-project)
-//     on the login page, read from servers.json , which Hull regenerates
-//     whenever a database is added, linked, or removed. Clicking an entry opens
-//     Adminer straight into that server (driver/host/user pre-filled).
+// Hull's Adminer plugin: a picker of Hull's databases on the login page, read
+// from servers.json (Hull regenerates it whenever a database is added, linked,
+// or removed). Clicking an entry fills the login form; Adminer's own login
+// still needs the password, which is in the project's .env.
 class AdminerHullLogin {
-    function credentials() {
-        return array($_GET["server"] ?? $_GET["mysql"] ?? $_GET["pgsql"] ?? "", $_GET["username"] ?? "", "");
-    }
-    function login($login, $password) {
-        return true;
-    }
     function head() {
         $file = __DIR__ . '/servers.json';
         $servers = array();
@@ -35,11 +26,12 @@ document.addEventListener('DOMContentLoaded', function () {
   function setVal(name, val) {
     var el = form.querySelector('[name="' + name + '"]');
     if (el) { el.value = val; }
+    return el;
   }
   var box = document.createElement('div');
   box.style.cssText = 'margin:1em 0;padding:.7em 1em;border:1px solid #d0d0d0;border-radius:6px;background:#fafafa;';
   var h = document.createElement('div');
-  h.textContent = 'Hull databases';
+  h.textContent = 'Hull databases (the password is DB_PASSWORD in the project .env)';
   h.style.cssText = 'font-weight:bold;margin-bottom:.4em;';
   box.appendChild(h);
   servers.forEach(function (s) {
@@ -48,15 +40,13 @@ document.addEventListener('DOMContentLoaded', function () {
     a.textContent = s.label + '  (' + s.engine + ')';
     a.style.cssText = 'display:block;padding:.2em 0;cursor:pointer;';
     a.addEventListener('click', function (e) {
-      // Adminer only authenticates on a form POST, so fill its real login form
-      // and submit it (empty password is allowed by login() above).
       e.preventDefault();
       setVal('auth[driver]', (s.driver === 'pgsql') ? 'pgsql' : 'server');
       setVal('auth[server]', s.host + ':' + s.port);
       setVal('auth[username]', s.user);
-      setVal('auth[password]', '');
       if (s.db) { setVal('auth[db]', s.db); }
-      form.submit();
+      var pw = setVal('auth[password]', '');
+      if (pw) { pw.focus(); }
     });
     box.appendChild(a);
   });

@@ -32,7 +32,7 @@ func (s *Server) registerDependencyRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) handleDependencies(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, DetectDependencies(r.Context(), s.Config.TLD))
+	writeJSON(w, http.StatusOK, DetectDependencies(r.Context(), s.cfg().TLD))
 }
 
 // DetectDependencies probes Docker and reports the embedded components.

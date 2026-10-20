@@ -2,7 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +21,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/CavenRE/hull/internal/api"
+	"github.com/CavenRE/hull/internal/platform"
 	"github.com/CavenRE/hull/internal/version"
 )
 
@@ -119,11 +125,12 @@ func binaryUpdate(ctx context.Context, o updateOpts, self string) (bool, error) 
 	if !ok {
 		return false, nil // unusual platform: let the source build handle it
 	}
-	tag, assets, err := fetchLatestReleaseAssets(ctx)
+	rel, err := fetchLatestRelease(ctx, 30*time.Second)
 	if err != nil {
 		return true, fmt.Errorf("could not reach the GitHub releases API: %w", err)
 	}
-	url, ok := assets[asset]
+	tag := rel.Tag
+	url, ok := rel.Assets[asset]
 	if !ok {
 		return false, nil // this release did not publish our platform's binary
 	}
@@ -147,25 +154,32 @@ func binaryUpdate(ctx context.Context, o updateOpts, self string) (bool, error) 
 	if err != nil {
 		return true, err
 	}
-	defer os.RemoveAll(tmp)
+	defer func() { _ = os.RemoveAll(tmp) }()
 
 	suffix := ""
 	if runtime.GOOS == "windows" {
 		suffix = ".exe"
+	}
+	sums, err := verifiedSums(ctx, rel)
+	if err != nil {
+		return true, err
+	}
+	want, ok := sums[asset]
+	if !ok {
+		return true, fmt.Errorf("release %s: its signed checksums do not list %s; refusing to install it", tag, asset)
 	}
 	dl := filepath.Join(tmp, "hull"+suffix)
 	fmt.Printf("Downloading Hull %s (%s)...\n", tag, asset)
 	if err := downloadFile(ctx, url, dl); err != nil {
 		return true, fmt.Errorf("download failed: %w", err)
 	}
+	if got, err := fileSHA256(dl); err != nil || got != want {
+		return true, fmt.Errorf("release %s: %s does not match its signed checksum; refusing to install it", tag, asset)
+	}
 
 	_, daemonRunning := daemonState()
-	staged, err := stageReplacement(self, dl)
-	if err != nil {
-		return true, fmt.Errorf("staging hull: %w", err)
-	}
-	if err := commitReplacement(self, staged); err != nil {
-		return true, fmt.Errorf("could not replace hull: %w", err)
+	if err := swapBinary(self, dl); err != nil {
+		return true, err
 	}
 
 	fmt.Printf("Updated Hull: %s -> %s\n", version.String(), tag)
@@ -214,7 +228,7 @@ func sourceUpdate(ctx context.Context, o updateOpts, self string) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmp)
+	defer func() { _ = os.RemoveAll(tmp) }()
 	src := filepath.Join(tmp, "src")
 
 	fmt.Printf("Fetching Hull (%s)...\n", o.branch)
@@ -229,22 +243,13 @@ func sourceUpdate(ctx context.Context, o updateOpts, self string) error {
 
 	newHull := filepath.Join(tmp, "hull"+suffix)
 	fmt.Println("Building hull...")
-	if err := runIO(ctx, src, "go", "build", "-ldflags", ldflags, "-o", newHull, "./cmd/hull"); err != nil {
+	if err := runIO(ctx, src, "go", "build", "-trimpath", "-ldflags", ldflags, "-o", newHull, "./cmd/hull"); err != nil {
 		return fmt.Errorf("building hull failed: %w", err)
 	}
 
 	_, daemonRunning := daemonState()
-
-	// Swap the running hull binary. On Windows a running daemon (also hull.exe)
-	// locks the file; commitReplacement renames the running image aside, which
-	// Windows permits, so the swap works without stopping the daemon. The old
-	// daemon keeps serving until restarted onto the new binary.
-	staged, err := stageReplacement(self, newHull)
-	if err != nil {
-		return fmt.Errorf("staging hull: %w", err)
-	}
-	if err := commitReplacement(self, staged); err != nil {
-		return fmt.Errorf("could not replace hull: %w", err)
+	if err := swapBinary(self, newHull); err != nil {
+		return err
 	}
 
 	fmt.Printf("Updated Hull: %s -> %s\n", version.String(), ver)
@@ -294,24 +299,55 @@ func releaseAssetName(goos, goarch string) (string, bool) {
 	return "", false
 }
 
-// fetchLatestReleaseAssets returns the latest release tag and a map of asset
-// name -> download URL from the GitHub releases API. No git needed.
-func fetchLatestReleaseAssets(ctx context.Context) (string, map[string]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+// swapBinary installs newHull over the running hull binary. On Windows a
+// running daemon (also hull.exe) locks the file; commitReplacement renames the
+// running image aside, which Windows permits, so the swap works without
+// stopping the daemon, which keeps serving until restarted onto the new
+// binary. On Linux a file capability (the router's privileged ports) belongs
+// to the file, so the new one is granted it again.
+func swapBinary(self, newHull string) error {
+	hadPortBind := platform.PortBindCapable(self)
+	staged, err := stageReplacement(self, newHull)
+	if err != nil {
+		return fmt.Errorf("staging hull: %w", err)
+	}
+	if err := commitReplacement(self, staged); err != nil {
+		return fmt.Errorf("could not replace hull: %w", err)
+	}
+	if hadPortBind {
+		if err := platform.GrantPortBind(self); err != nil {
+			fmt.Println("! The new binary lost the right to bind ports 80/443 (and 53); run `hull setup` to grant it again:", err)
+		} else {
+			fmt.Println("Granted the new binary the right to bind ports 80/443 again.")
+		}
+	}
+	return nil
+}
+
+// release is a GitHub release: its tag, and each asset's API download URL.
+type release struct {
+	Tag    string
+	Assets map[string]string
+}
+
+// fetchLatestRelease asks the GitHub releases API for the newest release. It
+// serves both the daily update check (short timeout) and `hull update`.
+func fetchLatestRelease(ctx context.Context, timeout time.Duration) (release, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, latestReleaseAPI, nil)
 	if err != nil {
-		return "", nil, err
+		return release{}, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "hull-update")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", nil, err
+		return release{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return "", nil, fmt.Errorf("github returned %s", resp.Status)
+		return release{}, fmt.Errorf("github returned %s", resp.Status)
 	}
 	var out struct {
 		TagName string `json:"tag_name"`
@@ -328,13 +364,89 @@ func fetchLatestReleaseAssets(ctx context.Context) (string, map[string]string, e
 		} `json:"assets"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
-		return "", nil, err
+		return release{}, err
 	}
 	m := make(map[string]string, len(out.Assets))
 	for _, a := range out.Assets {
 		m[a.Name] = a.URL
 	}
-	return out.TagName, m, nil
+	return release{Tag: out.TagName, Assets: m}, nil
+}
+
+// verifiedSums downloads the release's SHA256SUMS and its signature, checks
+// the signature against the key built into this binary and that the file
+// names this release (so an old signed release cannot be replayed under a new
+// tag), and returns the checksum for each asset. An unsigned or altered
+// release is refused.
+func verifiedSums(ctx context.Context, rel release) (map[string]string, error) {
+	key, err := base64.StdEncoding.DecodeString(version.ReleaseKey)
+	if err != nil || len(key) != ed25519.PublicKeySize {
+		return nil, errors.New("this build of Hull has no release signing key, so it cannot check a download; update with `hull update --from-source`, or install the new release by hand")
+	}
+	sumsURL, haveSums := rel.Assets["SHA256SUMS"]
+	sigURL, haveSig := rel.Assets["SHA256SUMS.sig"]
+	if !haveSums || !haveSig {
+		return nil, fmt.Errorf("release %s is not signed (no SHA256SUMS.sig); refusing to install it", rel.Tag)
+	}
+	sums, err := fetchSmall(ctx, sumsURL)
+	if err != nil {
+		return nil, fmt.Errorf("downloading SHA256SUMS: %w", err)
+	}
+	sigText, err := fetchSmall(ctx, sigURL)
+	if err != nil {
+		return nil, fmt.Errorf("downloading SHA256SUMS.sig: %w", err)
+	}
+	return checkSums(key, sums, sigText, rel.Tag)
+}
+
+// checkSums verifies the base64 ed25519 signature sigText over sums with key,
+// then reads the sha256sum lines, whose first line must be "# hull <tag>".
+func checkSums(key ed25519.PublicKey, sums, sigText []byte, tag string) (map[string]string, error) {
+	sig, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(sigText)))
+	if err != nil || !ed25519.Verify(key, sums, sig) {
+		return nil, fmt.Errorf("release %s: the SHA256SUMS signature does not verify; refusing to install it", tag)
+	}
+	return parseSums(sums, tag)
+}
+
+// parseSums reads sha256sum output whose first line is "# hull <tag>".
+func parseSums(data []byte, tag string) (map[string]string, error) {
+	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+	if strings.TrimSpace(lines[0]) != "# hull "+tag {
+		return nil, fmt.Errorf("the signed checksums are for %q, not release %s; refusing to install", strings.TrimSpace(lines[0]), tag)
+	}
+	sums := map[string]string{}
+	for _, line := range lines[1:] {
+		if fields := strings.Fields(line); len(fields) == 2 {
+			sums[strings.TrimPrefix(fields[1], "*")] = strings.ToLower(fields[0])
+		}
+	}
+	return sums, nil
+}
+
+// fetchSmall downloads a small release asset (checksums, a signature).
+func fetchSmall(ctx context.Context, url string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	resp, err := getAsset(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	return io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+}
+
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // downloadFile streams url to dst, following redirects (GitHub asset URLs
@@ -347,7 +459,7 @@ func downloadFile(ctx context.Context, url, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o755)
 	if err != nil {
 		return err
@@ -398,7 +510,7 @@ func getAsset(ctx context.Context, url string) (*http.Response, error) {
 		if resp.StatusCode == http.StatusOK {
 			return resp, nil
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		lastErr = fmt.Errorf("github returned %s", resp.Status)
 		if resp.StatusCode < 500 {
 			return nil, lastErr // a real 4xx will not fix itself; do not retry
@@ -452,13 +564,13 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
+		_ = out.Close()
 		_ = os.Remove(dst)
 		return err
 	}
@@ -506,19 +618,6 @@ func describeVersion(ctx context.Context, dir string) string {
 		return v
 	}
 	return "source"
-}
-
-// stopDaemonAndWait asks the daemon to shut down and waits until it is gone.
-func stopDaemonAndWait(ctx context.Context, home string) {
-	if client, ok := api.Connect(home); ok {
-		_ = client.Shutdown(ctx)
-	}
-	for i := 0; i < 50; i++ { // up to ~5s
-		if _, ok := api.Connect(home); !ok {
-			return
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
 }
 
 // sameCommit reports whether two commit identifiers refer to the same commit,

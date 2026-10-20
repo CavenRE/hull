@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -68,31 +67,25 @@ func portHeld(host string, port int) bool {
 	return true
 }
 
-// publishedHostPorts extracts the fixed host ports a compose file publishes.
-// Container-only ports ("80") and unparseable entries are skipped , only
-// entries that bind a concrete host port can clash.
+// publishedHostPorts extracts the fixed host ports a cluster's compose files
+// publish. Container-only ports ("80") and unparseable entries are skipped ,
+// only entries that bind a concrete host port can clash.
 func publishedHostPorts(composeDir string, files []string) []hostPort {
-	path := firstComposeFile(composeDir, files)
-	if path == "" {
-		return nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	var doc struct {
-		Services map[string]struct {
-			Ports []hostPortSpec `yaml:"ports"`
-		} `yaml:"services"`
-	}
-	if yaml.Unmarshal(data, &doc) != nil {
-		return nil
-	}
 	var out []hostPort
-	for _, svc := range doc.Services {
-		for _, ps := range svc.Ports {
-			if ps.port != 0 {
-				out = append(out, hostPort{host: ps.host, port: ps.port})
+	for _, data := range composeDocs(composeDir, files) {
+		var doc struct {
+			Services map[string]struct {
+				Ports []hostPortSpec `yaml:"ports"`
+			} `yaml:"services"`
+		}
+		if yaml.Unmarshal(data, &doc) != nil {
+			continue
+		}
+		for _, svc := range doc.Services {
+			for _, ps := range svc.Ports {
+				if ps.port != 0 {
+					out = append(out, hostPort(ps))
+				}
 			}
 		}
 	}

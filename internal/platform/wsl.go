@@ -265,7 +265,9 @@ func WSLRun(ctx context.Context, distro, script string) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, wslRunTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "wsl.exe", "-d", distro, "--", "sh", "-c", script)
+	// --exec runs sh directly with script as one argument; after a plain --,
+	// wsl.exe hands the joined words to the distro's shell to parse again.
+	cmd := exec.CommandContext(ctx, "wsl.exe", "-d", distro, "--exec", "sh", "-c", script)
 	hideConsole(cmd)
 	out, err := cmd.CombinedOutput()
 	return decodeWSL(out), err

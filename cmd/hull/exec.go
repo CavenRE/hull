@@ -130,7 +130,7 @@ func init() {
 			return dockerx.Exec(cmd.Context(), "", "docker", dockerArgs...)
 		},
 	}
-	cmd.Flags().StringVar(&image, "image", "node:20-alpine", "Node image to run npm in")
+	cmd.Flags().StringVar(&image, "image", "node:22-alpine", "Node image to run npm in")
 	cmd.Flags().SetInterspersed(false) // flags after npm's subcommand pass through (hull npm run build --watch)
 	rootCmd.AddCommand(cmd)
 }

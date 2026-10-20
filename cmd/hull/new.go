@@ -206,9 +206,9 @@ func init() {
 				// Only claim it is up if the daemon is actually there to serve it;
 				// otherwise the container is running but nothing routes the domain.
 				if _, served := a.client(); served {
-					fmt.Printf("✔ %s is up at https://%s.%s\n", name, domain, a.Config.TLD)
+					fmt.Printf("✔ %s is up at %s\n", name, a.siteURL(domain+"."+a.Config.TLD))
 				} else {
-					fmt.Printf("✔ %s created. Run `hull start` to serve it at https://%s.%s\n", name, domain, a.Config.TLD)
+					fmt.Printf("✔ %s created. Run `hull start` to serve it at %s\n", name, a.siteURL(domain+"."+a.Config.TLD))
 				}
 			}
 			return nil

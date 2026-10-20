@@ -7,7 +7,8 @@
 #     curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh -s -- --uninstall
 #     ( add --purge to also remove ~/.hull )
 #
-# Install path: clones the repo and builds the CLI + daemon from source (needs Go).
+# Install path: clones the newest release tag and builds the CLI + daemon from
+# source (needs Go).
 #
 # Options:
 #   --service          run the daemon ("hull daemon run") as a systemd --user service (Linux)
@@ -83,11 +84,12 @@ fi
 
 # ── install: from source ─────────────────────────────────────────────────────
 have git || die "git is required to build from source (install git)"
-step "Building Hull from source"
+# The newest release tag, not master: a bootstrap builds what was released.
+TAG="$(git ls-remote --tags --refs --sort=-v:refname "$CLONE" 'v*' | head -n 1 | sed 's|.*refs/tags/||')"
+[ -n "$TAG" ] || die "could not find a Hull release tag"
+step "Building Hull $TAG from source"
 src="$(mktemp -d)"; trap 'rm -rf "$src"' EXIT
-git clone --depth 1 --branch "$BRANCH" "$CLONE" "$src" >/dev/null 2>&1 \
-  || git clone --depth 1 "$CLONE" "$src" >/dev/null 2>&1 \
-  || die "git clone failed"
+git clone --depth 1 --branch "$TAG" "$CLONE" "$src" >/dev/null 2>&1 || die "git clone of $TAG failed"
 
 set -- --prefix "$PREFIX"
 [ "$SERVICE" = 1 ] && set -- "$@" --service

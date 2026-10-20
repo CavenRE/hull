@@ -34,7 +34,7 @@ func (s *Server) registerManageRoutes(mux *http.ServeMux) {
 }
 
 func (s *Server) handleDetect(w http.ResponseWriter, r *http.Request) {
-	p, err := state.Find(s.Config.Roots, r.URL.Query().Get("name"), s.Config.Projects...)
+	p, err := state.Find(s.cfg().Roots, r.URL.Query().Get("name"), s.cfg().Projects...)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
@@ -48,7 +48,7 @@ func (s *Server) handleDetect(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDoctor(w http.ResponseWriter, r *http.Request) {
-	checks := doctor.Run(r.Context(), s.Config, doctor.Deps{
+	checks := doctor.Run(r.Context(), s.cfg(), doctor.Deps{
 		LookPath:      exec.LookPath,
 		Output:        dockerx.Output,
 		DaemonVersion: version.String(),
@@ -57,10 +57,10 @@ func (s *Server) handleDoctor(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) configInfo() ConfigInfo {
-	info := ConfigInfo{TLD: s.Config.TLD, Roots: s.Config.Roots, Projects: s.Config.Projects, Loopback: s.Config.Router.Loopback}
-	info.Defaults.PHP = s.Config.Defaults.PHP
-	info.Defaults.Editor = s.Config.Defaults.Editor
-	info.Defaults.DBTool = s.Config.Defaults.DBTool
+	info := ConfigInfo{TLD: s.cfg().TLD, Roots: s.cfg().Roots, Projects: s.cfg().Projects, Loopback: s.cfg().Router.Loopback}
+	info.Defaults.PHP = s.cfg().Defaults.PHP
+	info.Defaults.Editor = s.cfg().Defaults.Editor
+	info.Defaults.DBTool = s.cfg().Defaults.DBTool
 	return info
 }
 
@@ -74,9 +74,10 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
+	cur := s.cfg()
 	// A nil projects field (e.g. a GUI PUT that never sends it) leaves the
 	// registered projects unchanged; an explicit list replaces them.
-	remainingProjects := s.Config.Projects
+	remainingProjects := cur.Projects
 	if req.Projects != nil {
 		remainingProjects = req.Projects
 	}
@@ -84,53 +85,56 @@ func (s *Server) handleConfigPut(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Errorf("at least one root or registered project is required"))
 		return
 	}
-
-	var restart []string
-	if req.TLD != "" && req.TLD != s.Config.TLD {
-		restart = append(restart, "tld")
-		s.Config.TLD = req.TLD
-	}
-	if req.Loopback != "" && req.Loopback != s.Config.Router.Loopback {
-		if !config.ValidLoopback(req.Loopback) {
-			writeError(w, http.StatusBadRequest, fmt.Errorf("loopback must be 127.0.0.1 to 127.0.0.8"))
+	if req.TLD != "" && req.TLD != cur.TLD {
+		if err := config.ValidateTLD(req.TLD); err != nil {
+			writeError(w, http.StatusBadRequest, err)
 			return
 		}
-		// The router/DNS bind address is read once at daemon start, so a
-		// change only takes effect after a restart.
-		restart = append(restart, "loopback")
-		s.Config.Router.Loopback = req.Loopback
 	}
-	s.Config.Roots = req.Roots
-	if req.Projects != nil {
-		s.Config.Projects = req.Projects
-	}
-	s.Config.Defaults.PHP = req.Defaults.PHP
-	s.Config.Defaults.Editor = req.Defaults.Editor
-	s.Config.Defaults.DBTool = req.Defaults.DBTool
-
-	// The GUI is v2-native: the embedded router must run (it serves every site
-	// on the loopback). The legacy `enabled:false` was for side-by-side v1
-	// dogfooding only , coexistence is handled by the loopback octet now. The
-	// router binds at daemon start, so flipping it on needs a restart.
-	if !s.Config.Router.Enabled {
-		s.Config.Router.Enabled = true
-		restart = append(restart, "router")
+	if req.Loopback != "" && !config.ValidLoopback(req.Loopback) {
+		writeError(w, http.StatusBadRequest, fmt.Errorf("loopback must be 127.0.0.1 to 127.0.0.8"))
+		return
 	}
 
-	// Preserve the file-only settings this API does not manage (the Services
-	// block: aliases, autostart, auto_adminer; and auto_reload) by reloading
-	// them from disk, so a config PUT never clobbers a value the CLI wrote to
-	// the file after this daemon started. This daemon never mutates either in
-	// memory, and `hull doctor --fix` writes auto_reload directly, so without
-	// this a later PUT would quietly undo that fix.
-	if onDisk, err := config.Load(s.Config.HullHome); err == nil {
-		s.Config.Services = onDisk.Services
-		s.Config.AutoReload = onDisk.AutoReload
-	}
-	if err := s.Config.Save(); err != nil {
+	// Apply the request onto a fresh read of config.yaml under its lock, so the
+	// settings this API does not manage (services, auto_reload) keep whatever
+	// the CLI last wrote, and a concurrent writer is never saved over.
+	next, err := config.Update(cur.HullHome, func(c *config.Config) error {
+		if req.TLD != "" {
+			c.TLD = req.TLD
+		}
+		if req.Loopback != "" {
+			c.Router.Loopback = req.Loopback
+		}
+		c.Roots = req.Roots
+		if req.Projects != nil {
+			c.Projects = req.Projects
+		}
+		c.Defaults.PHP = req.Defaults.PHP
+		c.Defaults.Editor = req.Defaults.Editor
+		c.Defaults.DBTool = req.Defaults.DBTool
+		// The GUI is v2-native: the embedded router must run (it serves every
+		// site on the loopback).
+		c.Router.Enabled = true
+		return nil
+	})
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
 		return
 	}
+	// The DNS server, router bind address and router itself are set up once at
+	// daemon start, so a change to them only takes effect after a restart.
+	var restart []string
+	if req.TLD != "" && req.TLD != cur.TLD {
+		restart = append(restart, "tld")
+	}
+	if req.Loopback != "" && req.Loopback != cur.Router.Loopback {
+		restart = append(restart, "loopback")
+	}
+	if !cur.Router.Enabled {
+		restart = append(restart, "router")
+	}
+	s.live.Store(next)
 	if s.SyncRoutes != nil {
 		go s.SyncRoutes()
 	}
@@ -145,7 +149,7 @@ func (s *Server) handleProjectOpen(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	p, err := state.Find(s.Config.Roots, r.PathValue("name"), s.Config.Projects...)
+	p, err := state.Find(s.cfg().Roots, r.PathValue("name"), s.cfg().Projects...)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
@@ -158,7 +162,7 @@ func (s *Server) handleProjectOpen(w http.ResponseWriter, r *http.Request) {
 		// success , fire and forget.
 		_ = s.Engine.Run(r.Context(), "", name, args...)
 	case "editor":
-		editor := s.Config.Defaults.Editor
+		editor := s.cfg().Defaults.Editor
 		if editor == "" {
 			writeError(w, http.StatusBadRequest, fmt.Errorf("no editor configured , set one in Settings"))
 			return
@@ -191,7 +195,7 @@ func (s *Server) handleProjectPatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	p, err := state.Find(s.Config.Roots, r.PathValue("name"), s.Config.Projects...)
+	p, err := state.Find(s.cfg().Roots, r.PathValue("name"), s.cfg().Projects...)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return
@@ -200,6 +204,7 @@ func (s *Server) handleProjectPatch(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, fmt.Errorf("%s is not managed by Hull yet , import it first", p.Name))
 		return
 	}
+	defer s.lockProject(p.Name)()
 	if err := s.Engine.SetProjectFields(p, engine.PatchOptions{PHP: req.PHP, Domain: req.Domain, Serve: req.Serve}); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
@@ -216,11 +221,15 @@ func (s *Server) handleProjectDelete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, err)
 		return
 	}
-	job := s.Jobs.Start("destroy:"+p.Name, func(log func(string)) error {
+	if err := state.CheckUnique(s.cfg().Roots, p.Name, s.cfg().Projects...); err != nil {
+		writeError(w, http.StatusConflict, err)
+		return
+	}
+	job := s.Jobs.Start("destroy:"+p.Name, func(ctx context.Context, log func(string)) error {
 		defer s.lockProject(p.Name)()
 		log("destroying " + p.Name + " (containers, volumes, files)...")
 		eng := s.NewJobEngine(log)
-		if err := eng.Destroy(context.Background(), p); err != nil {
+		if err := eng.Destroy(ctx, p); err != nil {
 			return err
 		}
 		log("removed " + p.Dir)
@@ -240,14 +249,15 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var dir string
+	args := []string{"compose", "logs", "--follow", "--no-color", "--tail", strconv.Itoa(tail)}
 	switch {
 	case q.Get("project") != "":
-		p, err := state.Find(s.Config.Roots, q.Get("project"), s.Config.Projects...)
+		p, err := s.findProject(q.Get("project"))
 		if err != nil {
 			writeError(w, http.StatusNotFound, err)
 			return
 		}
-		dir = p.Dir
+		dir, args = s.Engine.LogsCommand(p, tail)
 	case q.Get("service") != "":
 		instances, err := s.Services().List(r.Context())
 		if err != nil {
@@ -274,14 +284,12 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, fmt.Errorf("streaming unsupported"))
 		return
 	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.WriteHeader(http.StatusOK)
+	streamOpen(w)
 
 	stream := s.LogStream
 	if stream == nil {
-		stream = func(ctx context.Context, d string, n int, onLine func(string)) error {
-			return dockerx.StreamLines(ctx, d, onLine, "docker", "compose", "logs", "--follow", "--no-color", "--tail", strconv.Itoa(n))
+		stream = func(ctx context.Context, d string, _ int, onLine func(string)) error {
+			return dockerx.StreamLines(ctx, d, onLine, "docker", args...)
 		}
 	}
 	lines := make(chan string, 256)
@@ -303,11 +311,11 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 		for {
 			select {
 			case line := <-lines:
-				_, _ = fmt.Fprintf(w, "data: %s\n\n", line)
+				_, _ = fmt.Fprintf(w, "data: %s\n\n", sseData(line))
 			default:
 				if streamErr != nil && r.Context().Err() == nil {
 					log.Printf("logs: stream for %q failed: %v", dir, streamErr)
-					_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", streamErr.Error())
+					_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", sseData(streamErr.Error()))
 				}
 				flusher.Flush()
 				return
@@ -323,7 +331,7 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			_, _ = fmt.Fprintf(w, "data: %s\n\n", line)
+			_, _ = fmt.Fprintf(w, "data: %s\n\n", sseData(line))
 			dirty = true
 		case <-flushTick.C:
 			if dirty {

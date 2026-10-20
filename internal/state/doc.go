@@ -1,5 +1,5 @@
-// Package state maintains the project registry: a JSON index under the
-// Hull home directory, rebuildable at any time by scanning registered
-// roots for hull.yaml manifests. Files on disk are the truth; this is
-// only an index. (Phase 2)
+// Package state finds projects on disk: it scans the configured roots, and the
+// projects registered outside them, for hull.yaml files, legacy compose
+// folders and plain folders. Nothing is cached; every call reads the folders
+// again.
 package state

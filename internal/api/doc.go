@@ -1,5 +1,4 @@
-// Package api defines the local Hull API: request/response types, the
-// HTTP-over-socket server hosted by hulld, and the Go client used by the
-// CLI and bundled with the GUI. The API contract lives in docs/api.md
-// once frozen (end of Phase 3).
+// Package api is the local Hull API: the HTTP server the daemon runs on
+// 127.0.0.1 behind a bearer token, the request and response types, and the Go
+// client the CLI uses. docs/api/openapi.yaml describes the routes.
 package api

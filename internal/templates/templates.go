@@ -3,6 +3,7 @@ package templates
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // DefaultPHP is the PHP version used when a manifest does not pin one.
@@ -23,12 +24,6 @@ const DefaultGo = "1.24"
 type SiteDef struct {
 	Key          string
 	UpstreamPort int
-	// XdebugTarget is where a shared xdebug.ini would mount inside the
-	// container. Reserved: Hull no longer mounts it, because serversideup v4
-	// images ship no xdebug extension, so forcing zend_extension=xdebug only
-	// printed a "cannot load xdebug" warning on every PHP call. See opcacheMount
-	// in internal/compose/render.go for the ini Hull does mount.
-	XdebugTarget string
 	// ExtraEnv is template-fixed environment (KEY=value pairs).
 	ExtraEnv []string
 	// RequiredDB lists acceptable database engines when the template cannot
@@ -55,6 +50,10 @@ type SiteDef struct {
 	// heavy or platform-specific tree (a Python venv, a build cache) off the slow
 	// bind mount. Compose scopes the volume name to the project.
 	NamedVolumes []NamedVolume
+	// WatchIgnore are project folders (relative, slash-separated) the source
+	// watcher leaves out: runtime data the site rewrites constantly and never
+	// includes as code.
+	WatchIgnore []string
 	// WritablePaths are paths under the mount target that the web server user
 	// must be able to write at runtime (WordPress uploads, Laravel storage).
 	// Hull re-asserts ownership of these on every boot, because anything created
@@ -75,7 +74,6 @@ var sites = map[string]SiteDef{
 		Key:          "laravel",
 		Runtime:      "php",
 		UpstreamPort: 8080,
-		XdebugTarget: "/usr/local/etc/php/conf.d/99-xdebug.ini",
 		// Keep Composer's vendor/ off the slow bind mount: an empty named volume
 		// shadows the host vendor/, and Hull's /etc/entrypoint.d composer-install
 		// script (see SeedsComposer) fills it before PHP-FPM serves.
@@ -88,7 +86,6 @@ var sites = map[string]SiteDef{
 		Key:          "plain",
 		Runtime:      "php",
 		UpstreamPort: 8080,
-		XdebugTarget: "/usr/local/etc/php/conf.d/99-xdebug.ini",
 		ExtraEnv: []string{
 			"NGINX_WEBROOT=/var/www/html",
 			"WEB_DOCUMENT_ROOT=/var/www/html",
@@ -98,8 +95,8 @@ var sites = map[string]SiteDef{
 		Key:          "wordpress",
 		Runtime:      "php",
 		UpstreamPort: 80,
-		XdebugTarget: "/usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini",
 		RequiredDB:   []string{"mariadb", "mysql"},
+		WatchIgnore:  []string{"wp-content/cache"},
 		// wp-content is where WordPress writes at runtime: media uploads, the
 		// upgrade staging dir, plugin/theme installs, and drop-ins. The image
 		// ships no uploads/ dir at all, so whatever creates it first owns it.
@@ -220,6 +217,10 @@ func (d SiteDef) MountTarget() string {
 // a custom `php_tune` app container is assumed to use the same layout.
 const PHPConfDir = "/usr/local/etc/php/conf.d"
 
+// OpcacheHelperDir is where a watched PHP container mounts Hull's opcode cache
+// scripts (hull-opcache.php and hull-opcache-cli.php).
+const OpcacheHelperDir = "/opt/hull"
+
 // Site returns the built-in site template for key.
 func Site(key string) (SiteDef, bool) {
 	d, ok := sites[key]
@@ -300,6 +301,10 @@ type EngineDef struct {
 	HealthTest []string
 	// fixedEnv is instance environment that does not depend on a database.
 	fixedEnv []string
+	// secretVar is the environment variable holding the engine's admin secret
+	// (root password or API key). Its value in fixedEnv, if any, is the fixed
+	// secret services had before Hull generated one per install.
+	secretVar string
 	// JoinsCaddy: the instance joins the caddy network (reachable by other
 	// shared services and the router).
 	JoinsCaddy bool
@@ -317,17 +322,17 @@ type EngineDef struct {
 
 var engines = map[string]EngineDef{
 	"postgres": {Name: "postgres", Category: "database", DefaultVersion: "16", imageRepo: "postgres", imageTagSuffix: "-alpine", DataPath: "/var/lib/postgresql/data", JoinsCaddy: true, IsDatabase: true, containerPort: "5432", HostPortBase: 54320,
-		fixedEnv:   []string{"POSTGRES_HOST_AUTH_METHOD=trust", "POSTGRES_USER=postgres"},
+		fixedEnv: []string{"POSTGRES_HOST_AUTH_METHOD=trust", "POSTGRES_USER=postgres"}, secretVar: "POSTGRES_PASSWORD",
 		HealthTest: []string{"CMD-SHELL", "pg_isready -U postgres"}},
 	"mysql": {Name: "mysql", Category: "database", DefaultVersion: "8.0", imageRepo: "mysql", DataPath: "/var/lib/mysql", JoinsCaddy: true, IsDatabase: true, containerPort: "3306", HostPortBase: 53360,
-		fixedEnv:   []string{"MYSQL_ALLOW_EMPTY_PASSWORD=yes"},
+		fixedEnv: []string{"MYSQL_ALLOW_EMPTY_PASSWORD=yes"}, secretVar: "MYSQL_ROOT_PASSWORD",
 		HealthTest: []string{"CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root --silent"}},
 	"mariadb": {Name: "mariadb", Category: "database", DefaultVersion: "lts", imageRepo: "mariadb", DataPath: "/var/lib/mysql", JoinsCaddy: true, IsDatabase: true, containerPort: "3306", HostPortBase: 53390,
-		fixedEnv:   []string{"MYSQL_ALLOW_EMPTY_PASSWORD=yes"},
+		fixedEnv: []string{"MYSQL_ALLOW_EMPTY_PASSWORD=yes"}, secretVar: "MYSQL_ROOT_PASSWORD",
 		HealthTest: []string{"CMD-SHELL", "healthcheck.sh --connect --innodb_initialized"}},
 	"redis":   {Name: "redis", Category: "cache", imageRepo: "redis", defaultTag: "alpine", DataPath: "/data", containerPort: "6379", HostPortBase: 56379},
 	"mailpit": {Name: "mailpit", Category: "mail", imageRepo: "axllent/mailpit", defaultTag: "latest", DataPath: "/data", JoinsCaddy: true, containerPort: "1025", UIPort: 8025, UISubdomain: "mail", HostPortBase: 52525, fixedEnv: []string{"MP_DATABASE=/data/mailpit.db"}},
-	"adminer": {Name: "adminer", Category: "tool", imageRepo: "adminer", defaultTag: "latest", JoinsCaddy: true, UIPort: 8080, UISubdomain: "db"},
+	"adminer": {Name: "adminer", Category: "tool", imageRepo: "adminer", defaultTag: "4.8.1", JoinsCaddy: true, UIPort: 8080, UISubdomain: "db"},
 	// Redis viewer: RedisInsight has a runtime "add database" UI (like
 	// Adminer for SQL) and persists connections, so it needs no per-instance
 	// wiring. On the caddy network it can reach hull-redis-* by container name.
@@ -338,12 +343,13 @@ var engines = map[string]EngineDef{
 	"memcached": {Name: "memcached", Category: "cache", imageRepo: "memcached", defaultTag: "alpine", containerPort: "11211", HostPortBase: 51121},
 	"meilisearch": {Name: "meilisearch", Category: "search", imageRepo: "getmeili/meilisearch", defaultTag: "v1.11", DataPath: "/meili_data", JoinsCaddy: true,
 		containerPort: "7700", UIPort: 7700, UISubdomain: "search", HostPortBase: 57700,
-		fixedEnv: []string{"MEILI_ENV=development", "MEILI_MASTER_KEY=hullMasterKey", "MEILI_NO_ANALYTICS=true"}},
+		fixedEnv: []string{"MEILI_ENV=development", "MEILI_MASTER_KEY=hullMasterKey", "MEILI_NO_ANALYTICS=true"}, secretVar: "MEILI_MASTER_KEY"},
 	"typesense": {Name: "typesense", Category: "search", imageRepo: "typesense/typesense", defaultTag: "27.1", DataPath: "/data", JoinsCaddy: true,
-		containerPort: "8108", HostPortBase: 58108, Command: "--data-dir /data --api-key=hullTypesenseKey --enable-cors"},
+		containerPort: "8108", HostPortBase: 58108, Command: "--data-dir /data --enable-cors",
+		fixedEnv: []string{"TYPESENSE_API_KEY=hullTypesenseKey"}, secretVar: "TYPESENSE_API_KEY"},
 	"minio": {Name: "minio", Category: "storage", imageRepo: "minio/minio", defaultTag: "latest", DataPath: "/data", JoinsCaddy: true,
 		containerPort: "9000", UIPort: 9001, UISubdomain: "storage", HostPortBase: 59000, Command: "server /data --console-address :9001",
-		fixedEnv: []string{"MINIO_ROOT_USER=hull", "MINIO_ROOT_PASSWORD=hullsecret"}},
+		fixedEnv: []string{"MINIO_ROOT_USER=hull", "MINIO_ROOT_PASSWORD=hullsecret"}, secretVar: "MINIO_ROOT_PASSWORD"},
 }
 
 // SitePHPRepo is the Docker Hub repo Hull's PHP site image comes from.
@@ -407,6 +413,69 @@ func (e EngineDef) Env(database string) []string {
 		}
 	}
 	return env
+}
+
+// RootUser is a database engine's administrator account.
+func RootUser(engine string) string {
+	if engine == "postgres" {
+		return "postgres"
+	}
+	return "root"
+}
+
+// HasSecret reports whether the engine has an admin secret Hull generates:
+// a database root password, or a search or storage API key.
+func (e EngineDef) HasSecret() bool { return e.secretVar != "" }
+
+// LegacySecret is the fixed secret an engine used before Hull generated one
+// ("" for databases, whose roots had no password).
+func (e EngineDef) LegacySecret() string {
+	for _, kv := range e.fixedEnv {
+		if v, ok := strings.CutPrefix(kv, e.secretVar+"="); ok && e.secretVar != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// AdminUser is the account that goes with the engine's admin secret.
+func (e EngineDef) AdminUser() string {
+	if e.IsDatabase {
+		return RootUser(e.Name)
+	}
+	if e.Name == "minio" {
+		return "hull"
+	}
+	return ""
+}
+
+// AuthEnv is Env with a generated admin secret in place of the passwordless
+// or fixed default. An empty secret is Env unchanged.
+func (e EngineDef) AuthEnv(database, secret string) []string {
+	env := e.Env(database)
+	if secret == "" || e.secretVar == "" {
+		return env
+	}
+	out := env[:0]
+	for _, kv := range env {
+		k, _, _ := strings.Cut(kv, "=")
+		if k == e.secretVar || kv == "MYSQL_ALLOW_EMPTY_PASSWORD=yes" || kv == "POSTGRES_HOST_AUTH_METHOD=trust" {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, e.secretVar+"="+secret)
+}
+
+// InstanceEnv is the environment of a shared instance Hull created with a
+// generated secret. MySQL and MariaDB root then signs in only through the
+// socket inside the container and Postgres asks every network client for a
+// password, so projects reach a shared database only with their own logins.
+func (e EngineDef) InstanceEnv(secret string) []string {
+	if secret != "" && (e.Name == "mysql" || e.Name == "mariadb") {
+		return append(e.Env(""), "MYSQL_ROOT_HOST=localhost")
+	}
+	return e.AuthEnv("", secret)
 }
 
 // InstanceName names a shared service instance for an engine+version, e.g.

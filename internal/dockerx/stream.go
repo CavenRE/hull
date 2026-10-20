@@ -25,6 +25,12 @@ func ExecCapture(ctx context.Context, dir string, w io.Writer, name string, args
 
 // ExecStdin runs a command with stdin fed from r (database restores).
 func ExecStdin(ctx context.Context, dir string, r io.Reader, name string, args ...string) error {
+	_, err := Pipe(ctx, dir, r, name, args...)
+	return err
+}
+
+// Pipe runs a command with stdin fed from r and returns its stdout.
+func Pipe(ctx context.Context, dir string, r io.Reader, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	noWindow(cmd)
@@ -33,9 +39,9 @@ func ExecStdin(ctx context.Context, dir string, r io.Reader, name string, args .
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
 	if err := cmd.Run(); err != nil {
-		return commandError(name, args, errBuf.String(), err)
+		return outBuf.String(), commandError(name, args, errBuf.String(), err)
 	}
-	return nil
+	return outBuf.String(), nil
 }
 
 // StreamLines runs a command and delivers each stdout line to onLine until
@@ -70,3 +76,12 @@ func StreamLines(ctx context.Context, dir string, onLine func(string), name stri
 	return err
 }
 
+// ContainerEvents follows the engine's start, die and destroy events for
+// compose containers, calling onEvent for each, until ctx ends or the stream
+// breaks (the engine stopped or restarted).
+func ContainerEvents(ctx context.Context, onEvent func()) error {
+	return StreamLines(ctx, "", func(string) { onEvent() }, "docker", "events",
+		"--filter", "type=container", "--filter", "label=com.docker.compose.project",
+		"--filter", "event=start", "--filter", "event=die", "--filter", "event=destroy",
+		"--format", "{{json .}}")
+}

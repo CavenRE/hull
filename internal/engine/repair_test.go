@@ -23,7 +23,7 @@ func TestRestartForceRecreates(t *testing.T) {
 		calls = append(calls, append([]string{name}, args...))
 		return nil
 	})
-	if err := e.Restart(context.Background(), clusterProject(home, "stack")); err != nil {
+	if err := e.Restart(context.Background(), approve(t, e, clusterProject(home, "stack"))); err != nil {
 		t.Fatal(err)
 	}
 	found := false
@@ -43,7 +43,7 @@ func TestRepairDownThenUp(t *testing.T) {
 		calls = append(calls, append([]string{name}, args...))
 		return nil
 	})
-	if err := e.Repair(context.Background(), clusterProject(home, "stack")); err != nil {
+	if err := e.Repair(context.Background(), approve(t, e, clusterProject(home, "stack"))); err != nil {
 		t.Fatal(err)
 	}
 	downIdx, upIdx := -1, -1

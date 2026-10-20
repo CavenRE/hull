@@ -5,7 +5,7 @@ package platform
 // SyncHosts is a no-op outside Windows: wildcard DNS via systemd-resolved
 // (Linux) or /etc/resolver (macOS) covers every name without hosts
 // entries.
-func SyncHosts(domains []string, ip string) error {
+func SyncHosts(domains []string, ip, tld string) error {
 	return nil
 }
 

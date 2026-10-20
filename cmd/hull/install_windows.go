@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows/registry"
@@ -131,7 +132,7 @@ func addToUserPath(dir string) error {
 	if err != nil {
 		return err
 	}
-	defer k.Close()
+	defer func() { _ = k.Close() }()
 	cur, _, _ := k.GetStringValue("Path")
 	for _, p := range strings.Split(cur, ";") {
 		if strings.EqualFold(strings.TrimRight(p, `\`), strings.TrimRight(dir, `\`)) {
@@ -152,7 +153,7 @@ func writeUninstallEntry(dir string) error {
 	if err != nil {
 		return err
 	}
-	defer k.Close()
+	defer func() { _ = k.Close() }()
 	unstr := `"` + filepath.Join(dir, "hull.exe") + `" uninstall --quiet`
 	_ = k.SetStringValue("DisplayName", "Hull")
 	_ = k.SetStringValue("DisplayVersion", version.Version)
@@ -164,4 +165,17 @@ func writeUninstallEntry(dir string) error {
 	_ = k.SetDWordValue("NoModify", 1)
 	_ = k.SetDWordValue("NoRepair", 1)
 	return nil
+}
+
+// stopDaemonAndWait asks the daemon to shut down and waits until it is gone.
+func stopDaemonAndWait(ctx context.Context, home string) {
+	if client, ok := api.Connect(home); ok {
+		_ = client.Shutdown(ctx)
+	}
+	for i := 0; i < 50; i++ { // up to ~5s
+		if _, ok := api.Connect(home); !ok {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }

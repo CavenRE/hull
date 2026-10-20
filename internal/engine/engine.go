@@ -2,8 +2,11 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -17,9 +20,11 @@ import (
 	"github.com/CavenRE/hull/internal/config"
 	"github.com/CavenRE/hull/internal/dockerx"
 	"github.com/CavenRE/hull/internal/envfile"
+	"github.com/CavenRE/hull/internal/flock"
 	"github.com/CavenRE/hull/internal/ledger"
 	"github.com/CavenRE/hull/internal/manifest"
 	"github.com/CavenRE/hull/internal/platform"
+	"github.com/CavenRE/hull/internal/safefile"
 	"github.com/CavenRE/hull/internal/services"
 	"github.com/CavenRE/hull/internal/state"
 	"github.com/CavenRE/hull/internal/templates"
@@ -29,8 +34,14 @@ import (
 // and dockerx packages. In Phase 3 it moves behind the hulld API.
 type Engine struct {
 	Config *config.Config
+	// ConfigSource, when set, supplies the config on every use instead of
+	// Config, so the daemon's long-lived engine sees a config it swaps in later.
+	ConfigSource func() *config.Config
 	// Run executes host commands; defaults to dockerx.Exec.
 	Run dockerx.Runner
+	// Pipe executes a host command with stdin and returns its stdout; defaults
+	// to dockerx.Pipe.
+	Pipe func(ctx context.Context, dir string, stdin io.Reader, name string, args ...string) (string, error)
 	// EnsureNet creates a docker network if missing; defaults to
 	// dockerx.EnsureNetwork (stubbed in tests).
 	EnsureNet func(ctx context.Context, name string) error
@@ -45,10 +56,18 @@ type Engine struct {
 	LongRunning bool
 }
 
+func (e *Engine) cfg() *config.Config {
+	if e.ConfigSource != nil {
+		return e.ConfigSource()
+	}
+	return e.Config
+}
+
 func New(cfg *config.Config) *Engine {
 	return &Engine{
 		Config:      cfg,
 		Run:         dockerx.Exec,
+		Pipe:        dockerx.Pipe,
 		EnsureNet:   dockerx.EnsureNetwork,
 		RunningHull: dockerx.RunningHullProjects,
 	}
@@ -66,8 +85,8 @@ func (e *Engine) prepareNetworks(ctx context.Context) error {
 // ComposeContext returns the render context for this machine.
 func (e *Engine) ComposeContext() compose.Context {
 	ctx := compose.Context{
-		TLD:      e.Config.TLD,
-		HullHome: filepath.ToSlash(e.Config.HullHome),
+		TLD:      e.cfg().TLD,
+		HullHome: filepath.ToSlash(e.cfg().HullHome),
 	}
 	// On native Linux, bind-mounted files keep the host's uid/gid and the
 	// container's www-data (uid 33) cannot write them , so pass PUID/PGID to
@@ -78,11 +97,6 @@ func (e *Engine) ComposeContext() compose.Context {
 		ctx.HostGID = strconv.Itoa(os.Getgid())
 	}
 	return ctx
-}
-
-// compose returns the compose driver for a project directory.
-func (e *Engine) compose(dir string) dockerx.Compose {
-	return dockerx.Compose{Dir: dir, Run: e.Run}
 }
 
 // isCluster reports whether a project wraps an external compose stack.
@@ -108,17 +122,61 @@ func (e *Engine) composeFor(p *state.Project) dockerx.Compose {
 	if p.Manifest != nil && p.Manifest.EnvFile != "" {
 		envFile = filepath.Join(p.Dir, p.Manifest.EnvFile)
 	}
-	if isCluster(p) {
-		return dockerx.Compose{
-			Dir:      filepath.Join(p.Dir, p.Manifest.ComposeRoot),
-			Run:      e.Run,
-			Name:     projectName(p),
-			Files:    p.Manifest.ComposeFiles,
-			Profiles: p.Manifest.Profiles,
-			EnvFile:  envFile,
+	c := dockerx.Compose{Dir: p.Dir, Run: e.Run, Name: projectName(p), EnvFile: envFile}
+	switch {
+	case isCluster(p):
+		c.Dir = filepath.Join(p.Dir, p.Manifest.ComposeRoot)
+		c.Profiles = p.Manifest.Profiles
+		c.Files = stackFiles(c.Dir, p.Manifest.ComposeFiles, envFile)
+	case p.Manifest != nil:
+		// Only the file Hull rendered: no compose.override.yaml merged in, and
+		// no COMPOSE_FILE from the project's .env.
+		c.Files = []string{"compose.yaml"}
+	default:
+		c.Files = stackFiles(c.Dir, nil, "")
+	}
+	return c
+}
+
+// stackFiles pins the compose files of a stack Hull did not render (a cluster
+// or a legacy project): the manifest's list, else COMPOSE_FILE from the env
+// file, else the base and override files compose would pick on its own.
+// Passing them with -f means nothing in the folder can swap in another file
+// that the trust fingerprint did not cover.
+func stackFiles(dir string, explicit []string, envFile string) []string {
+	if len(explicit) > 0 {
+		return explicit
+	}
+	if envFile == "" {
+		envFile = filepath.Join(dir, ".env")
+	}
+	if data, err := os.ReadFile(envFile); err == nil {
+		if v, ok := envfile.Get(string(data), "COMPOSE_FILE"); ok && v != "" {
+			sep, _ := envfile.Get(string(data), "COMPOSE_PATH_SEPARATOR")
+			if sep == "" {
+				sep = string(os.PathListSeparator)
+			}
+			return strings.Split(v, sep)
 		}
 	}
-	return dockerx.Compose{Dir: p.Dir, Run: e.Run, Name: projectName(p), EnvFile: envFile}
+	base := firstFile(dir, composeNames)
+	if base == "" {
+		return nil
+	}
+	if override := firstFile(dir, composeOverrideNames); override != "" {
+		return []string{base, override}
+	}
+	return []string{base}
+}
+
+// firstFile returns the first of names that is a file in dir, or "".
+func firstFile(dir string, names []string) string {
+	for _, n := range names {
+		if fi, err := os.Stat(filepath.Join(dir, n)); err == nil && !fi.IsDir() {
+			return n
+		}
+	}
+	return ""
 }
 
 // NewOptions describes `hull new`.
@@ -168,10 +226,10 @@ func (e *Engine) NewProject(ctx context.Context, opts NewOptions) (string, error
 
 	root := opts.Root
 	if root == "" {
-		if len(e.Config.Roots) == 0 {
+		if len(e.cfg().Roots) == 0 {
 			return "", fmt.Errorf("no project roots configured")
 		}
-		root = e.Config.Roots[0]
+		root = e.cfg().Roots[0]
 	}
 	// The compose project name IS the Hull project name, so two projects sharing
 	// a name fight over the same containers. Creating a second one silently
@@ -180,7 +238,7 @@ func (e *Engine) NewProject(ctx context.Context, opts NewOptions) (string, error
 	// all, so the new directory is never populated (a WordPress project stays an
 	// empty folder while the old one keeps serving). Refuse up front rather than
 	// producing either outcome.
-	if existing, ferr := state.Find(e.Config.Roots, opts.Name, e.Config.Projects...); ferr == nil && existing != nil {
+	if existing, ferr := state.Find(e.cfg().Roots, opts.Name, e.cfg().Projects...); ferr == nil && existing != nil {
 		return "", fmt.Errorf("a project named %q already exists at %s; pick a different name, or remove that one first", opts.Name, existing.Dir)
 	}
 	// Same collision with the other project's directory already gone while its
@@ -213,27 +271,33 @@ func (e *Engine) NewProject(ctx context.Context, opts NewOptions) (string, error
 		}
 	}
 
+	if err := e.ensureLogins(m); err != nil {
+		return dir, err
+	}
 	if err := e.WriteArtifacts(m, dir); err != nil {
+		return dir, err
+	}
+	if err := e.Trust(&state.Project{Name: m.Name, Dir: dir, Manifest: m}); err != nil {
 		return dir, err
 	}
 
 	if opts.Template == "laravel" {
-		if err := wireLaravelEnv(dir, m); err != nil {
+		if err := e.wireLaravelEnv(dir, m); err != nil {
 			return dir, err
 		}
 	}
 
 	if !opts.SkipStart {
-		if err := templates.EnsureSystemFiles(e.Config.HullHome); err != nil {
+		if err := templates.EnsureSystemFiles(e.cfg().HullHome); err != nil {
 			return dir, err
 		}
 		if err := e.prepareNetworks(ctx); err != nil {
 			return dir, err
 		}
-		if err := e.compose(dir).Up(ctx); err != nil {
+		p := &state.Project{Name: m.Name, Dir: dir, Manifest: m}
+		if err := e.composeFor(p).Up(ctx); err != nil {
 			return dir, err
 		}
-		p := &state.Project{Name: m.Name, Dir: dir, Manifest: m}
 		e.recordStarted(p)
 		// A Composer-seeding template (laravel) fills its empty vendor volume with
 		// a boot-time `composer install` that can take a minute; wait for it to
@@ -299,7 +363,7 @@ func (e *Engine) WriteArtifacts(m *manifest.Manifest, dir string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(dir, manifest.Filename), data, 0o644); err != nil {
+	if err := safefile.Write(filepath.Join(dir, manifest.Filename), data, 0o644); err != nil {
 		return err
 	}
 	if err := e.Render(m, dir); err != nil {
@@ -336,7 +400,7 @@ func ignoreCompose(dir string) {
 		body += "\n"
 	}
 	body += "/compose.yaml\n"
-	_ = os.WriteFile(path, []byte(body), 0o644)
+	_ = safefile.Write(path, []byte(body), 0o644)
 }
 
 // ComposeContextFor returns the render context for a project living in dir:
@@ -353,7 +417,8 @@ func (e *Engine) ComposeContextFor(dir string) compose.Context {
 	ctx := e.ComposeContext()
 	ctx.ProjectDir = dir
 	ctx.SlowMount = platform.OnWindowsFilesystem(dir)
-	ctx.WatchedReload = e.Config.AutoReloadEnabled()
+	ctx.WatchedReload = e.cfg().AutoReloadEnabled() && platform.SeesWindowsEdits(dir)
+	ctx.DBLogin = e.dbLogin
 	applyWSLIdentity(&ctx, dir)
 	return ctx
 }
@@ -368,36 +433,24 @@ func (e *Engine) Render(m *manifest.Manifest, dir string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "compose.yaml"), data, 0o644)
+	return safefile.Write(filepath.Join(dir, "compose.yaml"), data, 0o644)
 }
 
 // Up starts a project (regenerating compose.yaml first for v2 projects so
 // the artifact always tracks the manifest). Clusters drive their own compose
 // project as-is (no Hull-generated artifact, no caddy network).
 func (e *Engine) Up(ctx context.Context, p *state.Project) error {
+	if err := e.prepare(ctx, p); err != nil {
+		return err
+	}
+	// After prepare, so the rendered compose.yaml the one-off containers come
+	// from is current.
 	if err := e.runHooks(ctx, p, "pre_up", false); err != nil {
 		return err
 	}
-	if isCluster(p) {
-		if err := e.preflightPorts(ctx, p); err != nil {
-			return err
-		}
-		if err := e.composeFor(p).Up(ctx); err != nil {
-			return err
-		}
-	} else {
-		if err := e.renderForUp(ctx, p); err != nil {
-			return err
-		}
-		if err := e.compose(p.Dir).Up(ctx); err != nil {
-			return err
-		}
+	if err := e.bringUp(ctx, p); err != nil {
+		return err
 	}
-	e.recordStarted(p)
-	// Bring the shared Adminer console back (it is not auto-restored on daemon
-	// boot) and reattach it to this project's freshly-created network, so db.<tld>
-	// works after a restart without a separate `hull services start adminer`.
-	e.restoreAdminerForProject(ctx, p)
 	err := e.runHooks(ctx, p, "post_up", true)
 	// Pay the first-request compile bill now, in the background, so the user's
 	// first click does not. Detached on purpose: the daemon passes its request
@@ -406,10 +459,44 @@ func (e *Engine) Up(ctx context.Context, p *state.Project) error {
 	return err
 }
 
+// start brings p's containers up without hooks: the core of Up, and all a
+// boot-time resume runs, so a resume never repeats a project's setup steps.
+func (e *Engine) start(ctx context.Context, p *state.Project) error {
+	if err := e.prepare(ctx, p); err != nil {
+		return err
+	}
+	return e.bringUp(ctx, p)
+}
+
+// prepare gets p ready to start: the trust gate, then a cluster's host-port
+// check or a rendered project's fresh compose.yaml.
+func (e *Engine) prepare(ctx context.Context, p *state.Project) error {
+	if err := e.requireTrust(p); err != nil {
+		return err
+	}
+	if isCluster(p) {
+		return e.preflightPorts(ctx, p)
+	}
+	return e.renderForUp(ctx, p)
+}
+
+// bringUp starts p's containers and records the start.
+func (e *Engine) bringUp(ctx context.Context, p *state.Project) error {
+	if err := e.composeFor(p).Up(ctx); err != nil {
+		return err
+	}
+	e.recordStarted(p)
+	// Bring the shared Adminer console back (it is not auto-restored on daemon
+	// boot) and reattach it to this project's freshly-created network, so db.<tld>
+	// works after a restart without a separate `hull services start adminer`.
+	e.restoreAdminerForProject(ctx, p)
+	return nil
+}
+
 // renderForUp prepares a non-cluster project to start: self-heal system files,
 // ensure external networks, and regenerate compose.yaml from the manifest.
 func (e *Engine) renderForUp(ctx context.Context, p *state.Project) error {
-	if err := templates.EnsureSystemFiles(e.Config.HullHome); err != nil {
+	if err := templates.EnsureSystemFiles(e.cfg().HullHome); err != nil {
 		return err
 	}
 	if err := e.prepareNetworks(ctx); err != nil {
@@ -436,17 +523,16 @@ func (e *Engine) Down(ctx context.Context, p *state.Project) error {
 // left with drifted config or detached networks is rebuilt, not merely bounced
 // , plain `compose restart` cannot repair attachment drift (the Sentinel bug).
 func (e *Engine) Restart(ctx context.Context, p *state.Project) error {
-	if isCluster(p) {
-		if err := e.composeFor(p).Recreate(ctx); err != nil {
-			return err
-		}
-	} else {
+	if err := e.requireTrust(p); err != nil {
+		return err
+	}
+	if !isCluster(p) {
 		if err := e.renderForUp(ctx, p); err != nil {
 			return err
 		}
-		if err := e.compose(p.Dir).Recreate(ctx); err != nil {
-			return err
-		}
+	}
+	if err := e.composeFor(p).Recreate(ctx); err != nil {
+		return err
 	}
 	e.recordStarted(p)
 	return nil
@@ -456,6 +542,9 @@ func (e *Engine) Restart(ctx context.Context, p *state.Project) error {
 // back up , the clean-slate fix when a half-finished `up` left a container
 // detached or otherwise wedged.
 func (e *Engine) Repair(ctx context.Context, p *state.Project) error {
+	if err := e.requireTrust(p); err != nil {
+		return err
+	}
 	if err := e.composeFor(p).Down(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "repair: compose down reported (continuing to bring it back up):", err)
 	}
@@ -465,17 +554,12 @@ func (e *Engine) Repair(ctx context.Context, p *state.Project) error {
 // Rebuild rebuilds the project's images and brings it back up. With noCache
 // the build ignores layer caches (a from-scratch image build).
 func (e *Engine) Rebuild(ctx context.Context, p *state.Project, noCache bool) error {
+	if err := e.requireTrust(p); err != nil {
+		return err
+	}
 	if !isCluster(p) {
-		if err := templates.EnsureSystemFiles(e.Config.HullHome); err != nil {
+		if err := e.renderForUp(ctx, p); err != nil {
 			return err
-		}
-		if err := e.prepareNetworks(ctx); err != nil {
-			return err
-		}
-		if p.Manifest != nil {
-			if err := e.Render(p.Manifest, p.Dir); err != nil {
-				return err
-			}
 		}
 	}
 	c := e.composeFor(p)
@@ -493,6 +577,9 @@ func (e *Engine) Rebuild(ctx context.Context, p *state.Project, noCache bool) er
 // fresh , the "drop the data, start from scratch" flow. Bind-mounted files on
 // the host are untouched; only named volumes are removed.
 func (e *Engine) Reset(ctx context.Context, p *state.Project) error {
+	if err := e.requireTrust(p); err != nil {
+		return err
+	}
 	if err := e.composeFor(p).DownVolumes(ctx); err != nil {
 		return err
 	}
@@ -505,6 +592,13 @@ func (e *Engine) Reset(ctx context.Context, p *state.Project) error {
 // Volumes lists the project's named volumes , the blast radius of a Reset.
 func (e *Engine) Volumes(ctx context.Context, p *state.Project) ([]string, error) {
 	return e.composeFor(p).Volumes(ctx)
+}
+
+// LogsCommand is the directory and docker arguments that follow p's logs, with
+// the compose identity (-p/-f/--env-file) p runs under.
+func (e *Engine) LogsCommand(p *state.Project, tail int) (dir string, args []string) {
+	c := e.composeFor(p)
+	return c.Dir, c.Command("logs", "--follow", "--no-color", "--tail", strconv.Itoa(tail))
 }
 
 // Logs tails a project's logs.
@@ -531,7 +625,7 @@ func (e *Engine) Destroy(ctx context.Context, p *state.Project) error {
 		}
 		return os.Remove(filepath.Join(p.Dir, manifest.Filename))
 	}
-	if err := e.compose(p.Dir).DownVolumes(ctx); err != nil {
+	if err := e.composeFor(p).DownVolumes(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "compose down failed; force-removing containers by label...")
 		if err := dockerx.ForceRemoveProject(ctx, p.Name); err != nil {
 			return fmt.Errorf("force cleanup: %w", err)
@@ -555,7 +649,7 @@ func (e *Engine) removeProjectDir(ctx context.Context, dir string) error {
 		return fmt.Errorf("refusing to force-remove suspicious path %q", dir)
 	}
 	if err := e.Run(ctx, "", "docker", "run", "--rm",
-		"-v", parent+":/work", "alpine", "rm", "-rf", "/work/"+base); err != nil {
+		"-v", parent+":/work", "alpine:3.22", "rm", "-rf", "/work/"+base); err != nil {
 		return fmt.Errorf("removing %s (contains files owned by a container user): %w", dir, err)
 	}
 	return nil
@@ -579,8 +673,8 @@ func (e *Engine) ledgerEntry(p *state.Project) ledger.Entry {
 // recordStarted / recordStopped maintain the started ledger. Both are
 // best-effort , a ledger write must never block a lifecycle action, and the
 // roots scan + label sweep in StopAll backstop a stale ledger.
-func (e *Engine) recordStarted(p *state.Project) { _ = ledger.Add(e.Config.HullHome, e.ledgerEntry(p)) }
-func (e *Engine) recordStopped(name string)      { _ = ledger.Remove(e.Config.HullHome, name) }
+func (e *Engine) recordStarted(p *state.Project) { _ = ledger.Add(e.cfg().HullHome, e.ledgerEntry(p)) }
+func (e *Engine) recordStopped(name string)      { _ = ledger.Remove(e.cfg().HullHome, name) }
 
 // StopAll brings down every project Hull started and every running shared
 // service , so nothing keeps holding ports after the daemon stops. It draws
@@ -595,7 +689,7 @@ func (e *Engine) StopAll(ctx context.Context) (int, error) {
 	done := map[string]bool{}
 
 	// 1. Managed projects under the configured roots.
-	if projects, err := state.Scan(e.Config.Roots, e.Config.Projects...); err == nil {
+	if projects, _ := state.Scan(e.cfg().Roots, e.cfg().Projects...); len(projects) > 0 {
 		for i := range projects {
 			p := &projects[i]
 			if p.Manifest == nil {
@@ -616,7 +710,7 @@ func (e *Engine) StopAll(ctx context.Context) (int, error) {
 
 	// 2. Started ledger , catches adopted clusters and out-of-root projects
 	//    a roots scan cannot see.
-	for _, ent := range ledger.List(e.Config.HullHome) {
+	for _, ent := range ledger.List(e.cfg().HullHome) {
 		if done[ent.Name] {
 			continue
 		}
@@ -658,7 +752,7 @@ func (e *Engine) StopAll(ctx context.Context) (int, error) {
 	//    `compose down` on an already-stopped instance is a harmless no-op, so
 	//    we never gate on a running-detection (a docker-ps label read) that
 	//    could misreport and leave a live service running after `hull stop`.
-	m := services.NewManager(e.Config)
+	m := services.NewManager(e.cfg())
 	m.Run = e.Run
 	if instances, err := m.List(ctx); err == nil {
 		for _, in := range instances {
@@ -685,24 +779,29 @@ func (e *Engine) StartEnabled(ctx context.Context) (int, error) {
 	var errs []error
 
 	// Projects that opted in via `autostart: true` in their manifest.
-	if projects, err := state.Scan(e.Config.Roots, e.Config.Projects...); err == nil {
-		for i := range projects {
-			p := &projects[i]
-			if p.Manifest == nil || !p.Manifest.Autostarts() {
-				continue
-			}
-			if err := e.upNoHooks(ctx, p); err != nil {
-				errs = append(errs, fmt.Errorf("%s: %w", projectName(p), err))
-			} else {
-				started++
-			}
+	projects, err := state.Scan(e.cfg().Roots, e.cfg().Projects...)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	for i := range projects {
+		p := &projects[i]
+		if p.Manifest == nil || !p.Manifest.Autostarts() {
+			continue
 		}
+		if err := e.start(ctx, p); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", projectName(p), err))
+			continue
+		}
+		started++
+		// The path a daemon resume at login takes: warm it, or the first
+		// visitor after a reboot pays the full cold compile.
+		e.warmDetached(p)
 	}
 
 	// Shared instances listed in config (services.autostart).
-	m := services.NewManager(e.Config)
+	m := services.NewManager(e.cfg())
 	m.Run = e.Run
-	for _, name := range e.Config.Services.Autostart {
+	for _, name := range e.cfg().Services.Autostart {
 		if err := m.Start(ctx, name); err != nil {
 			errs = append(errs, fmt.Errorf("service %s: %w", name, err))
 		} else {
@@ -724,10 +823,10 @@ func (e *Engine) StartEnabled(ctx context.Context) (int, error) {
 // the daemon can skip the boot bring-up (and its wait-for-Docker) entirely when
 // nothing is marked, which is the default.
 func (e *Engine) HasAutostart() bool {
-	if len(e.Config.Services.Autostart) > 0 {
+	if len(e.cfg().Services.Autostart) > 0 {
 		return true
 	}
-	if projects, err := state.Scan(e.Config.Roots, e.Config.Projects...); err == nil {
+	if projects, _ := state.Scan(e.cfg().Roots, e.cfg().Projects...); len(projects) > 0 {
 		for i := range projects {
 			if projects[i].Manifest != nil && projects[i].Manifest.Autostarts() {
 				return true
@@ -735,36 +834,6 @@ func (e *Engine) HasAutostart() bool {
 		}
 	}
 	return false
-}
-
-// upNoHooks brings a project's containers up without running pre_up/post_up
-// hooks, the hook-free counterpart to Up used by boot-time StartEnabled so a
-// resume never re-runs a project's setup/migration steps.
-func (e *Engine) upNoHooks(ctx context.Context, p *state.Project) error {
-	if isCluster(p) {
-		if err := e.preflightPorts(ctx, p); err != nil {
-			return err
-		}
-		if err := e.composeFor(p).Up(ctx); err != nil {
-			return err
-		}
-	} else {
-		if err := e.renderForUp(ctx, p); err != nil {
-			return err
-		}
-		if err := e.compose(p.Dir).Up(ctx); err != nil {
-			return err
-		}
-	}
-	e.recordStarted(p)
-	// A daemon resume brings the DB project up but must also bring its Adminer
-	// console back, or db.<tld> stays dead after a reboot.
-	e.restoreAdminerForProject(ctx, p)
-	// This is the path a daemon resume at login takes, and it was the worst
-	// offender: nothing here ever touched the site, so the first visitor after a
-	// reboot got the full cold compile.
-	e.warmDetached(p)
-	return nil
 }
 
 // PatchOptions are the project fields `hull set` / PATCH /v1/projects can
@@ -783,25 +852,64 @@ func (e *Engine) SetProjectFields(p *state.Project, opts PatchOptions) error {
 	if p.Manifest == nil {
 		return fmt.Errorf("%s is not managed by Hull yet , import it first", p.Name)
 	}
-	m := p.Manifest
-	old := *m
-	if opts.PHP != nil {
-		m.PHP = *opts.PHP
-	}
-	if opts.Domain != nil {
-		m.Domain = *opts.Domain
-	}
-	if opts.Serve != nil {
-		m.Serve = opts.Serve
-	}
-	if opts.Autostart != nil {
-		m.Autostart = opts.Autostart
-	}
-	if err := m.Validate(); err != nil {
-		*m = old
+	return e.updateManifest(p, func(m *manifest.Manifest) error {
+		if opts.PHP != nil {
+			m.PHP = *opts.PHP
+		}
+		if opts.Domain != nil {
+			m.Domain = *opts.Domain
+		}
+		if opts.Serve != nil {
+			m.Serve = opts.Serve
+		}
+		if opts.Autostart != nil {
+			m.Autostart = opts.Autostart
+		}
+		return nil
+	})
+}
+
+// updateManifest re-reads p's hull.yaml while holding the project's OS lock,
+// applies fn, validates, and rewrites the artifacts, so an edit never saves
+// over a change made after p was scanned. p.Manifest is replaced on success;
+// on any error nothing is written.
+func (e *Engine) updateManifest(p *state.Project, fn func(m *manifest.Manifest) error) error {
+	unlock, err := e.lockManifest(p.Dir)
+	if err != nil {
 		return err
 	}
-	return e.WriteArtifacts(m, p.Dir)
+	defer unlock()
+	m, err := manifest.Load(p.Dir)
+	if err != nil {
+		return err
+	}
+	if err := fn(m); err != nil {
+		return err
+	}
+	if err := m.Validate(); err != nil {
+		return err
+	}
+	// Hull's own edit must not void an approval, but must not turn an
+	// unapproved project into an approved one either.
+	approved := e.Trusted(&state.Project{Name: p.Name, Dir: p.Dir, Manifest: p.Manifest})
+	if err := e.WriteArtifacts(m, p.Dir); err != nil {
+		return err
+	}
+	p.Manifest = m
+	if approved {
+		return e.Trust(p)
+	}
+	return nil
+}
+
+// lockManifest takes the cross-process lock for the hull.yaml in dir.
+func (e *Engine) lockManifest(dir string) (func(), error) {
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256([]byte(strings.ToLower(filepath.Clean(abs))))
+	return flock.Home(e.cfg().HullHome, "manifest-"+hex.EncodeToString(sum[:8]))
 }
 
 // buildManifest assembles and validates the manifest for NewOptions.
@@ -865,7 +973,7 @@ func buildManifest(opts NewOptions) (*manifest.Manifest, error) {
 
 // wireLaravelEnv points a scaffolded Laravel .env at the project's
 // services , the Go port of v1's env wiring in commands/new.
-func wireLaravelEnv(dir string, m *manifest.Manifest) error {
+func (e *Engine) wireLaravelEnv(dir string, m *manifest.Manifest) error {
 	envPath := filepath.Join(dir, ".env")
 	if _, err := os.Stat(envPath); err != nil {
 		return nil // no .env scaffolded (skipped scaffold) , nothing to wire
@@ -881,17 +989,20 @@ func wireLaravelEnv(dir string, m *manifest.Manifest) error {
 		if db.Mode == manifest.ModeShared {
 			host = templates.InstanceContainerName(db.Engine, db.Version)
 		}
+		user, password := e.dbLogin(m, dbKey, db)
 		pairs := [][2]string{
 			{"DB_HOST", host},
 			{"DB_DATABASE", db.Database},
+			{"DB_USERNAME", user},
+			{"DB_PASSWORD", password},
 		}
 		switch db.Engine {
 		case "postgres":
-			pairs = append(pairs, [2]string{"DB_CONNECTION", "pgsql"}, [2]string{"DB_PORT", "5432"}, [2]string{"DB_USERNAME", "postgres"}, [2]string{"DB_PASSWORD", ""})
+			pairs = append(pairs, [2]string{"DB_CONNECTION", "pgsql"}, [2]string{"DB_PORT", "5432"})
 		case "mysql":
-			pairs = append(pairs, [2]string{"DB_CONNECTION", "mysql"}, [2]string{"DB_PORT", "3306"}, [2]string{"DB_USERNAME", "root"}, [2]string{"DB_PASSWORD", ""})
+			pairs = append(pairs, [2]string{"DB_CONNECTION", "mysql"}, [2]string{"DB_PORT", "3306"})
 		case "mariadb":
-			pairs = append(pairs, [2]string{"DB_CONNECTION", "mariadb"}, [2]string{"DB_PORT", "3306"}, [2]string{"DB_USERNAME", "root"}, [2]string{"DB_PASSWORD", ""})
+			pairs = append(pairs, [2]string{"DB_CONNECTION", "mariadb"}, [2]string{"DB_PORT", "3306"})
 		}
 		for _, kv := range pairs {
 			if err := set(kv[0], kv[1]); err != nil {
@@ -905,7 +1016,7 @@ func wireLaravelEnv(dir string, m *manifest.Manifest) error {
 		dbFile := filepath.Join(dir, "database", "database.sqlite")
 		if _, err := os.Stat(dbFile); os.IsNotExist(err) {
 			if err := os.MkdirAll(filepath.Dir(dbFile), 0o755); err == nil {
-				_ = os.WriteFile(dbFile, nil, 0o644)
+				_ = safefile.Write(dbFile, nil, 0o644)
 			}
 		}
 	}
@@ -922,7 +1033,8 @@ func wireLaravelEnv(dir string, m *manifest.Manifest) error {
 		if svc.Mode == manifest.ModeShared {
 			host = templates.InstanceContainerName(svc.Engine, svc.Version)
 		}
-		for _, kv := range LaravelServiceEnv(svc.Engine, host) {
+		user, secret := e.dbLogin(m, key, svc)
+		for _, kv := range LaravelServiceEnv(svc.Engine, host, user, secret) {
 			if err := set(kv[0], kv[1]); err != nil {
 				return err
 			}
@@ -933,7 +1045,7 @@ func wireLaravelEnv(dir string, m *manifest.Manifest) error {
 
 // LaravelServiceEnv returns the .env key/value pairs that point a Laravel
 // app at a non-database service instance reachable at host.
-func LaravelServiceEnv(engine, host string) [][2]string {
+func LaravelServiceEnv(engine, host, user, secret string) [][2]string {
 	switch engine {
 	case "redis":
 		return [][2]string{
@@ -960,12 +1072,12 @@ func LaravelServiceEnv(engine, host string) [][2]string {
 		return [][2]string{
 			{"SCOUT_DRIVER", "meilisearch"},
 			{"MEILISEARCH_HOST", "http://" + host + ":7700"},
-			{"MEILISEARCH_KEY", "hullMasterKey"},
+			{"MEILISEARCH_KEY", secret},
 		}
 	case "typesense":
 		return [][2]string{
 			{"SCOUT_DRIVER", "typesense"},
-			{"TYPESENSE_API_KEY", "hullTypesenseKey"},
+			{"TYPESENSE_API_KEY", secret},
 			{"TYPESENSE_HOST", host},
 			{"TYPESENSE_PORT", "8108"},
 			{"TYPESENSE_PROTOCOL", "http"},
@@ -973,8 +1085,8 @@ func LaravelServiceEnv(engine, host string) [][2]string {
 	case "minio":
 		return [][2]string{
 			{"FILESYSTEM_DISK", "s3"},
-			{"AWS_ACCESS_KEY_ID", "hull"},
-			{"AWS_SECRET_ACCESS_KEY", "hullsecret"},
+			{"AWS_ACCESS_KEY_ID", user},
+			{"AWS_SECRET_ACCESS_KEY", secret},
 			{"AWS_DEFAULT_REGION", "us-east-1"},
 			{"AWS_BUCKET", "local"},
 			{"AWS_ENDPOINT", "http://" + host + ":9000"},

@@ -46,10 +46,13 @@ func ApplyFixes(cfg *config.Config) []string {
 	// and silently flipping a value the user deliberately set would be exactly
 	// the kind of surprise --fix must not produce.
 	if !cfg.AutoReloadEnabled() && anySlowRoot(cfg) {
-		cfg.AutoReload = nil
-		if err := cfg.Save(); err != nil {
+		if next, err := config.Update(cfg.HullHome, func(c *config.Config) error {
+			c.AutoReload = nil
+			return nil
+		}); err != nil {
 			done = append(done, "could not turn auto_reload back on: "+err.Error())
 		} else {
+			*cfg = *next
 			done = append(done, "turned auto_reload back on (restart the daemon to pick it up: hull stop && hull start)")
 		}
 	}
