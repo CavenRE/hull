@@ -5,4 +5,4 @@ package version
 // the public key here and store the private seed as the HULL_SIGNING_KEY
 // repository secret. While it is empty, `hull update` refuses to install a
 // download it cannot check, and the release workflow refuses to publish.
-const ReleaseKey = ""
+const ReleaseKey = "v91+k7ctXpXsa1VvbgXX8WXaKtcd9CMldO+LtupWYpI="
