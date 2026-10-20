@@ -3,22 +3,26 @@ info:
   title: Hull Local API
   version: "1.0.0"
   description: |
-    The contract between `hulld` and its clients (CLI, and the native GUIs from
-    Phase 3 Wave 2 onward). This document is the FROZEN contract: every native
-    client builds against it. Keep it in sync with `internal/api` , the
-    coverage test `internal/api/openapi_test.go` fails if a registered route is
-    missing here.
+    The contract between the Hull daemon (`hull daemon run`) and its clients
+    (CLI, and the native GUIs from Phase 3 Wave 2 onward). This document is the
+    FROZEN contract: every native client builds against it. Keep it in sync
+    with `internal/api`: the coverage test `internal/api/openapi_test.go` fails
+    if a registered route is missing here.
 
     Transport (ADR 0006): HTTP on `127.0.0.1:<port>` where `<port>` and a bearer
-    token are read from `~/.hull/daemon.json` (written 0600 by a running
-    daemon). Auth accepts `Authorization: Bearer <token>` or `?token=<token>`
-    (the latter for EventSource/SSE, which cannot set headers). The server
-    reflects any Origin for CORS , safe because the token, not the origin, is
-    the access control and it only listens on loopback.
+    token are read from `~/.hull/daemon.json` (written by a running daemon,
+    readable only by its user). A client checks `GET /v1/hello` before it sends
+    the token. Auth is `Authorization: Bearer <token>`; only the SSE streams
+    (`/v1/events`, `/v1/logs`, `/v1/jobs/{id}/stream`) also accept
+    `?token=<token>`, because EventSource cannot set headers. CORS headers go
+    only to the desktop app's webview origins (`tauri://localhost`,
+    `http://tauri.localhost`, `https://tauri.localhost`). Request bodies are
+    capped at 1 MiB.
 
-    Long operations (create, import, add-service, link, rebuild, reset) are
-    JOBS: a POST returns a job reference; observe it by polling `GET
-    /v1/jobs/{id}` or streaming `GET /v1/jobs/{id}/stream`.
+    Long operations (create, import, add-service, link, rebuild, reset, remove,
+    cluster create) are JOBS: the request returns a job reference; observe it by
+    polling `GET /v1/jobs/{id}` or streaming `GET /v1/jobs/{id}/stream`, and
+    stop it with `POST /v1/jobs/{id}/cancel`.
 servers:
   - url: http://127.0.0.1:{port}
     description: Local daemon (port from ~/.hull/daemon.json)
@@ -27,7 +31,6 @@ servers:
         default: "0"
 security:
   - bearerAuth: []
-  - tokenQuery: []
 
 tags:
   - name: status
@@ -548,6 +551,9 @@ paths:
       tags: [jobs]
       summary: Stream a job's log lines (SSE)
       description: "text/event-stream. Each `data:` is a log line; ends with `event: done` carrying the final snapshot."
+      security:
+        - bearerAuth: []
+        - tokenQuery: []
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
       responses:
@@ -568,6 +574,9 @@ paths:
     get:
       tags: [system]
       summary: Stream container logs (SSE)
+      security:
+        - bearerAuth: []
+        - tokenQuery: []
       parameters:
         - { name: project, in: query, required: false, schema: { type: string } }
         - { name: service, in: query, required: false, schema: { type: string } }
@@ -580,6 +589,9 @@ paths:
       tags: [system]
       summary: Running-set change events (SSE)
       description: "text/event-stream. Pushed when the set of running compose projects changes, plus one initial snapshot."
+      security:
+        - bearerAuth: []
+        - tokenQuery: []
       responses:
         "200": { description: SSE stream, content: { text/event-stream: { schema: { type: string } } } }
 

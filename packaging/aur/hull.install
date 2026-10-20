@@ -12,12 +12,11 @@ post_install() {
   cat <<'EOF'
 
 Hull installed. Next steps:
-  hull setup                         # trust the local CA (DNS is auto-detected)
-  systemctl --user enable --now hulld # run the daemon in the background
-  hull up                            # start your projects
+  hull setup     # router, DNS and local CA; starts Hull and runs it at login
+  hull doctor    # check the result
 
-On systemd-resolved systems `hull setup` wires *.test → 127.0.0.1 for you.
-On dnsmasq/NetworkManager systems it leaves DNS to your existing resolver.
+`hull setup` points *.test at Hull's loopback IP (127.0.0.2 by default) through
+systemd-resolved or NetworkManager + dnsmasq, whichever this machine uses.
 EOF
 }
 

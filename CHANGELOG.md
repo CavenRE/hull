@@ -6,6 +6,18 @@ All notable changes to Hull are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- **The README described an older Hull.** It now lists every command, among
+  them `hull allow`, `hull db`, `hull park`, `hull forget`, `hull composer`,
+  `hull cluster create` and `hull cluster set`, and it corrects how `hull update`,
+  uninstalling, the database console and watched reload work. `hull artisan`
+  runs in the current project, so the quick start no longer gives it a name.
+- **The AUR PKGBUILD builds 0.18.0** (it was still at 0.12.0). Its install
+  message no longer tells you to enable the daemon by hand: `hull setup` does it.
+- **The API spec** (`docs/api/openapi.yaml`) now says that only the event
+  streams accept `?token=`, and that only the desktop app's origins get CORS
+  headers.
+
 ## [0.18.0] - 2026-10-20
 
 ### Added
