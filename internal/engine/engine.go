@@ -49,6 +49,9 @@ type Engine struct {
 	// label , the stop-all safety sweep. Injectable for tests; defaults to
 	// dockerx.RunningHullProjects.
 	RunningHull func(ctx context.Context) ([]string, error)
+	// HasLoopback reports whether this machine has a loopback address, which a
+	// cluster ingress binds; defaults to platform.LoopbackPresent.
+	HasLoopback func(ip string) bool
 	// LongRunning marks an engine owned by the daemon rather than by a one-shot
 	// CLI process. Background work is only safe to detach when something outlives
 	// the call: a goroutine started by a command that is about to return is killed
@@ -68,6 +71,7 @@ func New(cfg *config.Config) *Engine {
 		Config:      cfg,
 		Run:         dockerx.Exec,
 		Pipe:        dockerx.Pipe,
+		HasLoopback: platform.LoopbackPresent,
 		EnsureNet:   dockerx.EnsureNetwork,
 		RunningHull: dockerx.RunningHullProjects,
 	}

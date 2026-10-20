@@ -66,7 +66,11 @@ func (e *Engine) ClusterIngress(p *state.Project, replaceProxy string) (*Ingress
 	if err != nil {
 		return nil, err
 	}
-	if !platform.LoopbackPresent(bindIP) {
+	hasLoopback := e.HasLoopback
+	if hasLoopback == nil {
+		hasLoopback = platform.LoopbackPresent
+	}
+	if !hasLoopback(bindIP) {
 		return nil, fmt.Errorf("the ingress for %s needs its own loopback address %s, which this machine does not have; add it with `sudo ifconfig lo0 alias %s up` (it lasts until reboot), or use `ingress: hull`", m.Name, bindIP, bindIP)
 	}
 

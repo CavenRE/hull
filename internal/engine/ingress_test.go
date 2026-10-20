@@ -48,7 +48,14 @@ services:
 		t.Fatal(err)
 	}
 	e := New(&config.Config{TLD: "test", Router: config.RouterConfig{Loopback: "127.0.0.1"}})
+	// A macOS machine has only 127.0.0.1 until an alias is added, so the
+	// address check must not depend on the machine running the test.
+	e.HasLoopback = func(string) bool { return false }
 	p := &state.Project{Name: "tapkit", Dir: dir, Manifest: m}
+	if _, err := e.ClusterIngress(p, ""); err == nil || !strings.Contains(err.Error(), "ifconfig lo0 alias") {
+		t.Errorf("a missing loopback address = %v, want the ifconfig hint", err)
+	}
+	e.HasLoopback = func(string) bool { return true }
 
 	art, err := e.ClusterIngress(p, "")
 	if err != nil {
