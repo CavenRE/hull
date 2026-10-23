@@ -7,6 +7,11 @@ All notable changes to Hull are documented here. The format follows
 ## [Unreleased]
 
 ### Fixed
+- **Antivirus (Bitdefender) blocked Hull's hosts file update on Windows.** Hull
+  no longer runs a hidden, elevated `powershell -EncodedCommand`. It now starts
+  `hull.exe` itself as administrator (one UAC prompt), and that copy writes the
+  hosts file in Go, after it checks the SHA-256 hash of the new content. The DNS
+  (NRPT) rule still uses PowerShell, as plain text.
 - **The README described an older Hull.** It now lists every command, among
   them `hull allow`, `hull db`, `hull park`, `hull forget`, `hull composer`,
   `hull cluster create` and `hull cluster set`, and it corrects how `hull update`,

@@ -1,11 +1,8 @@
 package platform
 
 import (
-	"encoding/base64"
-	"encoding/binary"
 	"path"
 	"strings"
-	"unicode/utf16"
 )
 
 // The builders here produce the text and argv Hull runs with elevation. They
@@ -39,25 +36,6 @@ func appleScriptString(s string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
 }
 
-// encodePowerShell encodes a script for powershell -EncodedCommand (base64 of
-// UTF-16LE), so it travels as one opaque argument and no script file exists
-// for another process to swap before the elevated run reads it.
-func encodePowerShell(script string) string {
-	units := utf16.Encode([]rune(script))
-	buf := make([]byte, 2*len(units))
-	for i, u := range units {
-		binary.LittleEndian.PutUint16(buf[2*i:], u)
-	}
-	return base64.StdEncoding.EncodeToString(buf)
-}
-
-// elevatedLauncher is the unelevated PowerShell command that runs an encoded
-// script through a UAC prompt and exits with the elevated run's exit code.
-func elevatedLauncher(encoded string) string {
-	return `$p = Start-Process powershell -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile','-NonInteractive','-EncodedCommand','` +
-		encoded + `'; exit $p.ExitCode`
-}
-
 // nrptComment tags the NRPT rule Hull adds, so Hull removes only its own.
 const nrptComment = "Hull local TLD"
 
@@ -72,19 +50,6 @@ Add-DnsClientNrptRule -Namespace ` + ns + ` -NameServers ` + PSQuote(addr) + ` -
 func nrptUnregisterScript(tld string) string {
 	return `$ErrorActionPreference = 'Stop'
 Get-DnsClientNrptRule | Where-Object { $_.Namespace -eq ` + PSQuote("."+tld) + ` -and $_.Comment -eq ` + PSQuote(nrptComment) + ` } | ForEach-Object { Remove-DnsClientNrptRule -Name $_.Name -Force }
-`
-}
-
-// hostsInstallScript installs the staged hosts content only if its bytes
-// still hash to sha256Hex, reading them once so the check and the write see
-// the same bytes, and keeps the previous file as hosts.hull-backup.
-func hostsInstallScript(staged, sha256Hex, dest string) string {
-	return `$ErrorActionPreference = 'Stop'
-$bytes = [System.IO.File]::ReadAllBytes(` + PSQuote(staged) + `)
-$hash = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash($bytes)).Replace('-', '')
-if ($hash -ne ` + PSQuote(strings.ToUpper(sha256Hex)) + `) { throw 'the staged hosts file changed before it could be installed' }
-Copy-Item -LiteralPath ` + PSQuote(dest) + ` -Destination ` + PSQuote(dest+".hull-backup") + ` -Force
-[System.IO.File]::WriteAllBytes(` + PSQuote(dest) + `, $bytes)
 `
 }
 

@@ -2,8 +2,6 @@ package platform
 
 import (
 	"crypto/sha256"
-	"encoding/base64"
-	"encoding/binary"
 	"encoding/hex"
 	"os"
 	"os/exec"
@@ -11,7 +9,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-	"unicode/utf16"
 )
 
 func TestQuoting(t *testing.T) {
@@ -26,21 +23,6 @@ func TestQuoting(t *testing.T) {
 	}
 }
 
-func TestEncodePowerShellRoundTrips(t *testing.T) {
-	script := "Write-Output 'héllo'\n"
-	raw, err := base64.StdEncoding.DecodeString(encodePowerShell(script))
-	if err != nil || len(raw)%2 != 0 {
-		t.Fatal(err)
-	}
-	units := make([]uint16, len(raw)/2)
-	for i := range units {
-		units[i] = binary.LittleEndian.Uint16(raw[2*i:])
-	}
-	if got := string(utf16.Decode(units)); got != script {
-		t.Errorf("round trip = %q", got)
-	}
-}
-
 func TestWindowsScriptsQuoteAndTag(t *testing.T) {
 	reg := nrptRegisterScript("te'st", "127.0.0.2")
 	if !strings.Contains(reg, "'.te''st'") || !strings.Contains(reg, "$_.Comment -eq 'Hull local TLD'") {
@@ -48,15 +30,6 @@ func TestWindowsScriptsQuoteAndTag(t *testing.T) {
 	}
 	if un := nrptUnregisterScript("test"); !strings.Contains(un, "$_.Comment -eq 'Hull local TLD'") {
 		t.Errorf("unregister removes rules Hull did not add:\n%s", un)
-	}
-	hosts := hostsInstallScript(`C:\Users\O'Neil\AppData\Local\Temp\h.txt`, "abc", `C:\hosts`)
-	for _, want := range []string{`'C:\Users\O''Neil\AppData\Local\Temp\h.txt'`, "-ne 'ABC'", `'C:\hosts.hull-backup'`, "WriteAllBytes('C:\\hosts', $bytes)"} {
-		if !strings.Contains(hosts, want) {
-			t.Errorf("hosts script lacks %s:\n%s", want, hosts)
-		}
-	}
-	if l := elevatedLauncher("QUJD"); !strings.Contains(l, "-PassThru") || !strings.Contains(l, "exit $p.ExitCode") {
-		t.Errorf("launcher ignores the elevated exit code: %s", l)
 	}
 }
 

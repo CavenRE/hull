@@ -16,6 +16,7 @@ import (
 	"github.com/CavenRE/hull/internal/engine"
 	"github.com/CavenRE/hull/internal/groups"
 	"github.com/CavenRE/hull/internal/jobs"
+	"github.com/CavenRE/hull/internal/platform"
 	"github.com/CavenRE/hull/internal/state"
 	"github.com/CavenRE/hull/internal/version"
 )
@@ -310,6 +311,9 @@ func (a *app) saveGroups(ctx context.Context, s *groups.Store) error {
 }
 
 func main() {
+	if platform.MaybeRunElevatedHelper() {
+		return
+	}
 	// Autostart launches `hull daemon run --background`; hide the console the OS
 	// allocated for this console binary as early as possible (before cobra even
 	// parses) so the logon launch does not leave a window. No-op off Windows.
