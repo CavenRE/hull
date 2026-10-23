@@ -229,12 +229,15 @@ func Current(roots []string, dir string, extra ...string) (*Project, bool) {
 	if err != nil {
 		return nil, false
 	}
+	// Inside a link to a project (hull move leaves one at the old path), the
+	// link's target is the project.
+	resolved, _ := filepath.EvalSymlinks(abs)
 	for i := range projects {
 		pdir, err := filepath.Abs(projects[i].Dir)
 		if err != nil {
 			continue
 		}
-		if abs == pdir || strings.HasPrefix(abs, pdir+string(filepath.Separator)) {
+		if abs == pdir || strings.HasPrefix(abs, pdir+string(filepath.Separator)) || (resolved != "" && Under(pdir, resolved)) {
 			return &projects[i], true
 		}
 	}

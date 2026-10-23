@@ -48,6 +48,10 @@ func init() {
 			"same name, and nothing inside it is deleted: check the project works at\n" +
 			"its new home, then remove the old folder yourself.\n" +
 			"\n" +
+			"The old path becomes a link to the new home, so your editor and your\n" +
+			"shortcuts keep working with it. Windows lets you make that link without\n" +
+			"admin only when Developer Mode is on; otherwise Hull asks through UAC.\n" +
+			"\n" +
 			"Requires Docker Desktop's WSL integration to be enabled for the distro\n" +
 			"(Settings > Resources > WSL Integration). Hull checks and tells you if it\n" +
 			"is not.",
@@ -115,6 +119,14 @@ func init() {
 			}
 			if err := a.regroupProject(cmd.Context(), oldDir, moved); err != nil {
 				fmt.Printf("  ! the project kept its files but lost its group: %v\n", err)
+			}
+			// The old path becomes a link to the new home, so editors and shells
+			// keep using it. Hull skips links when it scans a root, so it still
+			// runs the project from WSL.
+			if err := platform.LinkDir(oldDir, moved); err != nil {
+				fmt.Printf("  ! could not link %s to the new home (%v); open %s instead\n", oldDir, err, moved)
+			} else {
+				fmt.Printf("  linked %s -> %s\n", oldDir, moved)
 			}
 
 			fmt.Printf("  starting %s from its new home\n", p.Name)

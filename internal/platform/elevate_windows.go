@@ -87,6 +87,14 @@ func runElevatedOps(ops []string, hostsPath string) error {
 				return err
 			}
 			ops = ops[2:]
+		case ops[0] == "symlink" && len(ops) >= 3:
+			if !OnWSLFilesystem(ops[2]) {
+				return fmt.Errorf("refusing a link to %s: only links into WSL are made elevated", ops[2])
+			}
+			if err := os.Symlink(ops[2], ops[1]); err != nil {
+				return err
+			}
+			ops = ops[3:]
 		case ops[0] == "hosts" && len(ops) >= 3:
 			if err := installHosts(ops[1], ops[2], hostsPath); err != nil {
 				return err
@@ -190,4 +198,14 @@ func shellRunAs(file, params string) (uint32, error) {
 		return 0, err
 	}
 	return code, nil
+}
+
+// LinkDir makes link a directory symlink to target. Windows lets a normal
+// user do that only with Developer Mode on; otherwise it asks through UAC.
+func LinkDir(link, target string) error {
+	err := os.Symlink(target, link)
+	if errors.Is(err, windows.ERROR_PRIVILEGE_NOT_HELD) {
+		return runElevated("symlink", link, target)
+	}
+	return err
 }

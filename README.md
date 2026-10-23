@@ -212,7 +212,7 @@ Run `hull <command> --help` for full flags on any command, `hull help routing` f
 | `hull restart [name]` | Restart a project's containers. |
 | `hull reload [name]` | Clear a PHP project's opcode cache in place (a second, against the many a restart costs). Usually automatic, see "Watched reload". |
 | `hull allow [name]` | Show what a project will run, and approve it. Hull runs a project only after you approve it, and asks again when its `hull.yaml` (or a cluster's compose files) changed. `--yes` approves only here: on `up`, `import` and the others it never does. |
-| `hull move <name> --to-wsl` | Move a project into the WSL2 filesystem, where a container reads it at native speed (`--distro`, `--dest`). Windows only. |
+| `hull move <name> --to-wsl` | Move a project into the WSL2 filesystem, where a container reads it at native speed (`--distro`, `--dest`). The old path becomes a link to the new home, so your editor keeps using it. Windows only. |
 | `hull url [name]` | Print a project's URL for scripting. `--direct` gives the container's own `127.0.0.1` address, bypassing the router. |
 | `hull rebuild [name]` | Rebuild images and bring the project back up (`--no-cache`). |
 | `hull reset [name]` | Wipe the project's data volumes and start fresh. |

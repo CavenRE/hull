@@ -37,7 +37,7 @@ func TestInstallHostsChecksHash(t *testing.T) {
 }
 
 func TestElevatedOpsRejectUnknownAndShort(t *testing.T) {
-	for _, ops := range [][]string{{"format-disk"}, {"hosts", "only-one-arg"}, {"nrpt-add", "test"}} {
+	for _, ops := range [][]string{{"format-disk"}, {"hosts", "only-one-arg"}, {"nrpt-add", "test"}, {"symlink", filepath.Join(t.TempDir(), "l"), `C:\Windows`}} {
 		if err := runElevatedOps(ops, filepath.Join(t.TempDir(), "hosts")); err == nil {
 			t.Errorf("ops %q ran", ops)
 		}

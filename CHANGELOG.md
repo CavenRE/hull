@@ -26,6 +26,10 @@ All notable changes to Hull are documented here. The format follows
   ids stay unique after a daemon restart.
 
 ### Changed
+- **`hull move --to-wsl` leaves a link at the old path**, so your editor and
+  shortcuts keep using `W:\Sites\<name>` while Hull runs the files from WSL.
+  Hull skips links when it scans a root, and a command run inside the link
+  finds the project. Without Developer Mode, Windows asks through UAC.
 - **Plain PHP sites run Apache** (`serversideup/php:<v>-fpm-apache`), as shared
   hosting does, so their `.htaccess` files work.
 - **`--yes` no longer approves a project.** Only `hull allow --yes` does. On

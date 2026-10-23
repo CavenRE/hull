@@ -280,3 +280,44 @@ func TestCheckUnique(t *testing.T) {
 		t.Errorf("a managed project and a plain folder share the name; want an error naming both, got %v", err)
 	}
 }
+
+// A link inside a root (hull move leaves one at the old path) is not scanned,
+// so the project resolves to its registered real home.
+func TestScanSkipsLinkedFolders(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	real := filepath.Join(home, "shop")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(real, "hull.yaml"), []byte("schema: 1\nname: shop\ntemplate: plain\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, filepath.Join(root, "shop")); err != nil {
+		t.Skipf("cannot make a symlink here: %v", err)
+	}
+	projects, err := Scan([]string{root}, real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(projects) != 1 || projects[0].Dir != real {
+		t.Errorf("projects = %+v, want only %s", projects, real)
+	}
+}
+
+func TestCurrentFollowsALinkToTheProject(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	real := filepath.Join(home, "shop")
+	if err := os.MkdirAll(filepath.Join(real, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(real, "hull.yaml"), []byte("schema: 1\nname: shop\ntemplate: plain\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "shop")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("cannot make a symlink here: %v", err)
+	}
+	if p, ok := Current([]string{root}, filepath.Join(link, "src"), real); !ok || p.Name != "shop" {
+		t.Errorf("Current inside the link = %+v, %v", p, ok)
+	}
+}
