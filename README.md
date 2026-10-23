@@ -97,13 +97,13 @@ Hull v2 is a ground-up **Go rewrite** of the original bash tool (which lives on 
 
 ### Windows
 
-**One line** (builds from source; needs Go and git). In PowerShell:
+**One line** (downloads the latest release; no Go or git). In PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/CavenRE/hull/master/get.ps1 | iex
 ```
 
-It installs `hull` into `%LOCALAPPDATA%\Hull`, adds it to your PATH, and runs `hull setup` for you. Installing needs no admin; setup asks for confirmation or elevation for the certificate and DNS steps. Options (pass them through a scriptblock, see the top of `get.ps1`): `-Branch <tag>`, `-Prefix <dir>`, `-Uninstall`, `-Purge`.
+It downloads `hull-windows-x64.exe` from the latest release, checks it against the release's `SHA256SUMS`, installs it into `%LOCALAPPDATA%\Hull`, adds it to your PATH, and runs `hull setup` for you. Installing needs no admin; setup asks for confirmation or elevation for the certificate and DNS steps. Options (pass them through a scriptblock, see the top of `get.ps1`): `-Prefix <dir>`, `-FromSource` (build with Go and git; `-Branch <tag>` picks what to build), `-Uninstall`, `-Purge`.
 
 **Prebuilt binary.** Download `hull-windows-x64.exe` from the [latest release](../../releases/latest), rename it to `hull.exe`, then run `hull.exe install` (or double-click it). It copies `hull` into `%LOCALAPPDATA%\Hull`, adds it to your PATH, and registers an Apps & Features entry. No admin required. Then run `hull setup` in a new terminal. The binary has no Authenticode signature yet, so Windows SmartScreen shows an "unknown publisher" prompt: click **More info -> Run anyway**.
 
@@ -119,7 +119,7 @@ Then add `bin\` to your `PATH`, or run `bin\hull.exe install`.
 
 ### Linux
 
-**Quickest: one line** (clones the newest release and builds the CLI from source; needs Go and git):
+**Quickest: one line** (downloads the latest release binary and checks it against the release's `SHA256SUMS`; no Go or git. `sh -s -- --from-source` builds instead):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh
@@ -147,7 +147,7 @@ cd hull
 ### macOS
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh   # clones & builds
+curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh   # downloads the release
 ```
 
 …or clone and build explicitly:
@@ -158,7 +158,7 @@ cd hull
 ./install.sh           # builds & installs hull to ~/.local/bin
 ```
 
-The `install.sh` script checks your dependencies, offers to install any that are missing (via your package manager), builds the binary with version info, adds `~/.local/bin` to your `PATH`, and runs `hull setup`. Other flags: `--prefix DIR`, `--service` (Linux), `--skip-setup`, `--yes` (non-interactive).
+The `install.sh` script checks your dependencies, offers to install any that are missing (via your package manager), builds the binary with version info, adds `~/.local/bin` to your `PATH`, and runs `hull setup`. Other flags: `--prefix DIR`, `--binary FILE` (install a prebuilt binary, no build), `--service` (Linux), `--skip-setup`, `--yes` (non-interactive).
 
 ---
 
@@ -211,7 +211,7 @@ Run `hull <command> --help` for full flags on any command, `hull help routing` f
 | `hull down [name...]` | Stop projects (data preserved). `--all` stops every registered project. |
 | `hull restart [name]` | Restart a project's containers. |
 | `hull reload [name]` | Clear a PHP project's opcode cache in place (a second, against the many a restart costs). Usually automatic, see "Watched reload". |
-| `hull allow [name]` | Show what a project will run, and approve it. Hull runs a project only after you approve it, and asks again when its `hull.yaml` (or a cluster's compose files) changed. |
+| `hull allow [name]` | Show what a project will run, and approve it. Hull runs a project only after you approve it, and asks again when its `hull.yaml` (or a cluster's compose files) changed. `--yes` approves only here: on `up`, `import` and the others it never does. |
 | `hull move <name> --to-wsl` | Move a project into the WSL2 filesystem, where a container reads it at native speed (`--distro`, `--dest`). Windows only. |
 | `hull url [name]` | Print a project's URL for scripting. `--direct` gives the container's own `127.0.0.1` address, bypassing the router. |
 | `hull rebuild [name]` | Rebuild images and bring the project back up (`--no-cache`). |
@@ -395,7 +395,7 @@ services:
 
 ## Platform notes
 
-**Windows: performance.** Docker Desktop runs Linux in a WSL2 VM, so bind-mounting project files that live on the Windows filesystem (for example `C:\Users\you\Work\Sites`) is slow: every PHP request reads hundreds of files across the VM boundary, which is why pages can take seconds to load. Two fixes, biggest first:
+**Windows: performance.** Docker Desktop runs Linux in a WSL2 VM, so bind-mounting project files that live on the Windows filesystem (for example `C:\Users\you\Work\Sites`) is slow: every PHP request reads hundreds of files across the VM boundary, which is why pages can take seconds to load. On a fresh install, `hull setup` therefore suggests `~/Sites` inside your default WSL distro as the projects folder, when Docker Desktop's WSL integration reaches that distro. For projects already on a Windows drive, two fixes, biggest first:
 
 1. **Move your projects into the WSL2 Linux filesystem, with `hull move <name> --to-wsl`.** This is not a marginal gain. Measured on a 1,059 file WordPress tree, a container reads it in 4,450 ms from `W:\` and **10 ms** from a WSL distro, which is as fast as the container's own disk (20 ms). A stock WordPress page went from 1,010 ms to **50 ms**.
 
@@ -405,7 +405,7 @@ services:
 
 2. **Exclude the sites folder and Docker's data from your antivirus.** Real-time scanning of every file read compounds the cost, and is the usual explanation for a page that normally takes 7 seconds occasionally taking 16. `hull doctor` prints the exact `Add-MpPreference` commands for your machine, including where Docker keeps its disk images; run them in an elevated PowerShell when Microsoft Defender is your active antivirus. If a third-party antivirus or EDR is active instead, those commands will error, so set the equivalent path exclusions in that product, and on a managed or corporate machine you may need whoever manages the device to do it. This removes the scan overhead and some of the jitter; it does not remove the underlying mount cost, and Hull will not change your security settings for you.
 
-`hull doctor` warns when a project root is on the Windows filesystem, measures what a file operation actually costs there, and `hull new` says so the moment you create a project in one. Hull also enables and tunes PHP OPcache for every PHP container (Laravel, WordPress, and plain sites, plus custom `app` images that set `php_tune: true`) so repeated requests skip recompilation, and new WordPress sites disable page-load wp-cron to speed up the dashboard.
+`hull doctor` warns when a project root is on the Windows filesystem, measures what a file operation actually costs there, and `hull new` says so the moment you create a project in one. New projects share one download cache for each tool (Composer for Laravel, npm, pip, and Go modules and builds), in the `hull-cache-*` Docker volumes, so a second project does not download the same packages again. Every project can write these caches, so approve only projects you trust (`hull allow`). Hull also enables and tunes PHP OPcache for every PHP container (Laravel, WordPress, and plain sites, plus custom `app` images that set `php_tune: true`) so repeated requests skip recompilation, and new WordPress sites disable page-load wp-cron to speed up the dashboard.
 
 **Watched reload.** When the daemon runs on Windows and a PHP project is on a Windows drive, Hull goes one step further: PHP stops checking the modification time of every cached file on every request, which is the largest remaining per-request cost there (a WordPress page went from a mean of 1483 ms to a steady 985 ms in testing). That is safe because the daemon watches the whole project folder, and when you save, it refreshes only the saved files in the opcode cache. The edit shows on the next refresh, and that page compiles only what changed. Deleting or renaming a PHP file empties the cache instead. When a watched site or the daemon starts, Hull compiles the site's PHP in the background, so the first pages are fast too. The watcher skips `node_modules`, hidden folders such as `.git`, and on WordPress `wp-content/cache`, and it groups a burst of saves into one refresh. A Linux daemon cannot see edits that Windows programs make under `/mnt/c`, so there PHP keeps its file checks. Your project's own `.hull/php.ini` still loads last if you want the check back for one project. To turn the whole thing off, for example if you run your own watcher:
 

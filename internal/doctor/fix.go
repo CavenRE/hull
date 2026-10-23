@@ -69,7 +69,7 @@ func ApplyFixes(cfg *config.Config) []string {
 // anySlowRoot reports whether any configured root is on the filesystem where
 // Hull's performance mitigations actually matter.
 func anySlowRoot(cfg *config.Config) bool {
-	for _, root := range cfg.Roots {
+	for _, root := range append(append([]string{}, cfg.Roots...), cfg.Projects...) {
 		if platform.OnWindowsFilesystem(root) {
 			return true
 		}

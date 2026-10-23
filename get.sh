@@ -7,14 +7,16 @@
 #     curl -fsSL https://raw.githubusercontent.com/CavenRE/hull/master/get.sh | sh -s -- --uninstall
 #     ( add --purge to also remove ~/.hull )
 #
-# Install path: clones the newest release tag and builds the CLI + daemon from
-# source (needs Go).
+# Install path: downloads the newest release binary, checks it against the
+# release's SHA256SUMS, and runs install.sh with it (no Go or git). --from-source
+# clones the newest release tag and builds instead (needs Go and git).
 #
 # Options:
 #   --service          run the daemon ("hull daemon run") as a systemd --user service (Linux)
 #   --prefix DIR       install binaries here (default: ~/.local/bin)
 #   --uninstall        remove Hull from this machine
 #   --purge            with --uninstall: also remove ~/.hull (config, CA, data)
+#   --from-source      build from source instead of downloading a release binary
 #   -y, --yes          assume "yes" to prompts (non-interactive)
 set -eu
 
@@ -38,6 +40,7 @@ ACTION=install   # install | uninstall
 SERVICE=0
 PURGE=0
 YES=0
+FROM_SOURCE=0
 PREFIX="${HOME}/.local/bin"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -46,8 +49,9 @@ while [ $# -gt 0 ]; do
     --purge|--purge-data) PURGE=1 ;;
     --prefix) PREFIX="${2:?--prefix needs a directory}"; shift ;;
     --prefix=*) PREFIX="${1#*=}" ;;
+    --from-source) FROM_SOURCE=1 ;;
     -y|--yes) YES=1 ;;
-    -h|--help) sed -n '2,18p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,20p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown option: $1 (try --help)" ;;
   esac
   shift
@@ -82,6 +86,34 @@ if [ "$ACTION" = uninstall ]; then
   exit 0
 fi
 
+set -- --prefix "$PREFIX"
+[ "$SERVICE" = 1 ] && set -- "$@" --service
+[ "$YES" = 1 ] && set -- "$@" --yes
+
+# ── install: release binary ──────────────────────────────────────────────────
+case "$(uname -s)-$(uname -m)" in
+  Linux-x86_64)  ASSET=hull-linux-x64 ;;
+  Darwin-arm64)  ASSET=hull-macos-apple-silicon ;;
+  Darwin-x86_64) ASSET=hull-macos-intel ;;
+  *)             ASSET="" ;;
+esac
+if [ "$FROM_SOURCE" = 0 ] && [ -n "$ASSET" ]; then
+  step "Downloading Hull"
+  dir="$(mktemp -d)"; trap 'rm -rf "$dir"' EXIT
+  base="https://github.com/$REPO/releases/latest/download"
+  dl "$base/$ASSET" "$dir/hull" || die "could not download $ASSET"
+  dl "$base/SHA256SUMS" "$dir/SHA256SUMS" || die "could not download SHA256SUMS"
+  want="$(awk -v a="$ASSET" '$2 == a || $2 == "*"a { print $1 }' "$dir/SHA256SUMS")"
+  if have sha256sum; then got="$(sha256sum "$dir/hull" | cut -d ' ' -f 1)"
+  else got="$(shasum -a 256 "$dir/hull" | cut -d ' ' -f 1)"; fi
+  [ -n "$want" ] && [ "$got" = "$want" ] || die "the download does not match the release's SHA256SUMS; nothing was installed"
+  ok "verified $ASSET"
+  chmod +x "$dir/hull"
+  dl "$RAW/install.sh" "$dir/install.sh" || die "could not download install.sh"
+  bash "$dir/install.sh" --binary "$dir/hull" "$@"
+  exit 0
+fi
+
 # ── install: from source ─────────────────────────────────────────────────────
 have git || die "git is required to build from source (install git)"
 # The newest release tag, not master: a bootstrap builds what was released.
@@ -90,8 +122,4 @@ TAG="$(git ls-remote --tags --refs --sort=-v:refname "$CLONE" 'v*' | head -n 1 |
 step "Building Hull $TAG from source"
 src="$(mktemp -d)"; trap 'rm -rf "$src"' EXIT
 git clone --depth 1 --branch "$TAG" "$CLONE" "$src" >/dev/null 2>&1 || die "git clone of $TAG failed"
-
-set -- --prefix "$PREFIX"
-[ "$SERVICE" = 1 ] && set -- "$@" --service
-[ "$YES" = 1 ] && set -- "$@" --yes
 ( cd "$src" && ./install.sh "$@" )

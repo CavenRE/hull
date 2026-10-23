@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -382,9 +384,16 @@ func collectSetupConfig(cfg *config.Config, ch setupChoices) error {
 	} else if home, err := os.UserHomeDir(); err == nil {
 		defRoot = filepath.Join(home, "Work", "Sites")
 	}
+	hint := "Hull serves every project inside this folder."
+	if ch.root == "" && isStockRoot(defRoot) {
+		if r := wslDefaultRoot(); r != "" {
+			defRoot = r
+			hint += " This one is inside WSL, where Docker reads files as fast as its own disk; a Windows drive is many times slower."
+		}
+	}
 	root := ch.root
 	if root == "" && interactive {
-		r, err := promptText("Projects folder", "Hull serves every project inside this folder.", defRoot)
+		r, err := promptText("Projects folder", hint, defRoot)
 		if err != nil {
 			return err
 		}
@@ -452,6 +461,32 @@ func collectSetupConfig(cfg *config.Config, ch setupChoices) error {
 }
 
 // ensureFirstRoot returns roots with root at the front, deduped.
+// isStockRoot reports whether root is the untouched default on a Windows
+// drive: ~/Work/Sites, not created yet.
+func isStockRoot(root string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil || root != filepath.Join(home, "Work", "Sites") || !platform.OnWindowsFilesystem(root) {
+		return false
+	}
+	_, err = os.Stat(root)
+	return os.IsNotExist(err)
+}
+
+// wslDefaultRoot is ~/Sites in the default WSL distro, as a UNC path, when
+// Docker Desktop's WSL integration reaches that distro; otherwise "".
+func wslDefaultRoot() string {
+	ctx := context.Background()
+	distros := platform.WSLDistros(ctx)
+	if len(distros) == 0 || !platform.WSLDockerIntegration(ctx, distros[0]) {
+		return ""
+	}
+	home, err := platform.WSLHome(ctx, distros[0])
+	if err != nil {
+		return ""
+	}
+	return platform.UNCPath(distros[0], path.Join(home, "Sites"))
+}
+
 func ensureFirstRoot(roots []string, root string) []string {
 	out := []string{root}
 	for _, r := range roots {

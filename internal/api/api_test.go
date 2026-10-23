@@ -42,6 +42,7 @@ func testServer(t *testing.T) (*Server, *Client, *recorded) {
 	s.Engine = engine.New(cfg)
 	s.Engine.Run = rec.runner()
 	s.Engine.EnsureNet = func(ctx context.Context, name string) error { return nil }
+	s.Engine.EnsureVolume = func(ctx context.Context, name string) error { return nil }
 	s.NewJobEngine = func(log func(string)) *engine.Engine {
 		e := engine.New(cfg)
 		e.Run = func(ctx context.Context, dir, name string, args ...string) error {
@@ -50,6 +51,7 @@ func testServer(t *testing.T) (*Server, *Client, *recorded) {
 			return nil
 		}
 		e.EnsureNet = func(ctx context.Context, name string) error { return nil }
+		e.EnsureVolume = func(ctx context.Context, name string) error { return nil }
 		return e
 	}
 	fakeServices := func() *services.Manager {
@@ -217,6 +219,65 @@ func TestProjectAction(t *testing.T) {
 	}
 	if err := client.ProjectAction(context.Background(), "alpha", "explode"); err == nil {
 		t.Error("unknown action should 404")
+	}
+}
+
+func TestAsyncActionApprovalAndErrorCodes(t *testing.T) {
+	s, client, rec := testServer(t)
+	writeProject(t, s, "alpha")
+	ctx := context.Background()
+
+	ref, err := client.jobFrom(ctx, http.MethodPost, "/v1/projects/alpha/start?async=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info, err := client.WaitJob(ctx, ref.ID, func(string) {}); err != nil || info.Status != jobs.StatusDone {
+		t.Fatalf("async start = %+v, %v", info, err)
+	}
+	if len(rec.commands) != 1 || !strings.Contains(rec.commands[0], "up -d") {
+		t.Errorf("commands = %v", rec.commands)
+	}
+
+	get := func(path string) (int, ErrorBody) {
+		req, _ := http.NewRequest(http.MethodGet, client.BaseURL+path, nil)
+		req.Header.Set("Authorization", "Bearer secret-token")
+		resp, err := client.HTTP.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var body ErrorBody
+		_ = json.NewDecoder(resp.Body).Decode(&body)
+		return resp.StatusCode, body
+	}
+	if code, body := get("/v1/nope"); code != http.StatusNotFound || body.Code != "not_found" {
+		t.Errorf("unknown route = %d %+v", code, body)
+	}
+
+	if err := os.WriteFile(filepath.Join(s.Config.Roots[0], "alpha", "hull.yaml"), []byte("schema: 1\nname: alpha\ntemplate: plain\nphp: \"8.2\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var a Approval
+	if err := client.do(ctx, http.MethodGet, "/v1/projects/alpha/approval", nil, &a); err != nil || a.Approved || len(a.Summary) == 0 {
+		t.Fatalf("changed project approval = %+v, %v", a, err)
+	}
+	req, _ := http.NewRequest(http.MethodPost, client.BaseURL+"/v1/projects/alpha/start", nil)
+	req.Header.Set("Authorization", "Bearer secret-token")
+	resp, err := client.HTTP.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body ErrorBody
+	_ = json.NewDecoder(resp.Body).Decode(&body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict || body.Code != "untrusted" {
+		t.Errorf("start of a changed project = %d %+v", resp.StatusCode, body)
+	}
+	if err := client.do(ctx, http.MethodPost, "/v1/projects/alpha/approve", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.do(ctx, http.MethodGet, "/v1/projects/alpha/approval", nil, &a); err != nil || !a.Approved {
+		t.Errorf("after approve = %+v, %v", a, err)
 	}
 }
 

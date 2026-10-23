@@ -135,6 +135,12 @@ func Render(m *manifest.Manifest, ctx Context) (*File, error) {
 				}
 				f.Volumes[nv.Name] = nil
 			}
+			for _, sv := range def.SharedVolumes {
+				if f.Volumes == nil {
+					f.Volumes = map[string]*Volume{}
+				}
+				f.Volumes[sv.Name] = &Volume{External: true}
+			}
 		}
 	case manifest.TypeApp:
 		for _, key := range m.ContainerKeys() {
@@ -298,7 +304,7 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 	}
 	// Named volumes keep a heavy or platform-specific tree (e.g. a Python venv)
 	// off the slow bind mount; Render registers them in the top-level volumes.
-	for _, nv := range def.NamedVolumes {
+	for _, nv := range append(append([]templates.NamedVolume{}, def.NamedVolumes...), def.SharedVolumes...) {
 		svc.Volumes = append(svc.Volumes, nv.Name+":"+nv.Path)
 	}
 	// Unserved sites (serve: false) still build and run; they just get no
@@ -336,6 +342,11 @@ func siteService(m *manifest.Manifest, ctx Context) (*ServiceDef, error) {
 		svc.User = "0:0"
 	}
 	env := append([]string{}, def.ExtraEnv...)
+	for _, sv := range def.SharedVolumes {
+		if sv.Env != "" {
+			env = append(env, sv.Env)
+		}
+	}
 	if def.NeedsPermFix() {
 		env = append(env, "HULL_WRITABLE_PATHS="+strings.Join(def.WritablePaths, " "))
 	}

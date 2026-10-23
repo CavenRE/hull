@@ -48,7 +48,7 @@ type Manifest struct {
 	Type     Type   `yaml:"type,omitempty"`
 	Template string `yaml:"template,omitempty"` // sites only
 	Domain   string `yaml:"domain,omitempty"`   // sites only; defaults to Name
-	PHP      string `yaml:"php,omitempty"`      // sites only (laravel/plain)
+	PHP      string `yaml:"php,omitempty"`      // sites only (laravel/plain/wordpress)
 	Version  string `yaml:"version,omitempty"`  // sites only (wordpress image tag)
 	// Serve controls whether Hull gives this project a routed domain (vhost
 	// + cert + DNS). nil = heuristic default; explicit wins. (Wired in J1.)

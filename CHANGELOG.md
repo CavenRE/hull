@@ -6,7 +6,40 @@ All notable changes to Hull are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **On Windows, `hull setup` suggests a projects folder inside WSL**
+  (`~/Sites` in your default distro) on a fresh install, when Docker Desktop's
+  WSL integration reaches that distro; `hull setup --yes` uses it. Docker reads files there as fast as its
+  own disk, and a Windows drive is many times slower.
+- **Shared download caches.** Laravel's Composer, npm, pip, and Go modules and
+  builds use one `hull-cache-*` Docker volume each for every project, so a new
+  project does not download the same packages again. The Laravel scaffold uses
+  the Composer cache too, on Windows.
+- **WordPress follows `php:`.** `hull set <site> --php 8.2` now picks the
+  official image's `php8.2-apache` tag. Before, WordPress ignored it.
+- **API for the desktop app.** Every error has a `code` (for example
+  `untrusted` or `engine_down`), and an unknown route answers in JSON.
+  `GET /v1/projects/{name}/approval` and `POST /v1/projects/{name}/approve`
+  review and approve a project. `?async=1` runs start, stop, restart and repair
+  as a job. Each project tells its `mount` (`windows`, `wsl` or `native`) and
+  whether it is `watched`. A cancelled job has the status `canceled`, and job
+  ids stay unique after a daemon restart.
+
+### Changed
+- **Plain PHP sites run Apache** (`serversideup/php:<v>-fpm-apache`), as shared
+  hosting does, so their `.htaccess` files work.
+- **`--yes` no longer approves a project.** Only `hull allow --yes` does. On
+  `up`, `import` and the others, an unapproved project stops with a pointer to
+  `hull allow`, so a script or the desktop app never runs code nobody reviewed.
+- **The one-line installers download the release binary** and check it against
+  the release's `SHA256SUMS`, so they need neither Go nor git. `get.ps1
+  -FromSource` and `get.sh --from-source` build as before, and `install.sh
+  --binary FILE` installs a prebuilt binary.
+
 ### Fixed
+- **`hull doctor` checks imported projects** on a Windows drive, not only the
+  roots, and no longer says the file watcher helps when Hull runs inside WSL,
+  where it cannot see edits that Windows programs make.
 - **Antivirus (Bitdefender) blocked Hull's hosts file update on Windows.** Hull
   no longer runs a hidden, elevated `powershell -EncodedCommand`. It now starts
   `hull.exe` itself as administrator (one UAC prompt), and that copy writes the

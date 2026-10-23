@@ -18,7 +18,8 @@ func init() {
 			"changed since. Projects Hull creates for you are approved already; a\n" +
 			"folder that appears by other means, such as a git clone into a root,\n" +
 			"waits for this. With no name it targets the project in the current\n" +
-			"directory. The prompt is skipped with --yes.",
+			"directory. The prompt is skipped with --yes. Only this command takes\n" +
+			"--yes as approval: on up, import and the others, --yes never approves.",
 		Example: "  hull allow\n" +
 			"  hull allow shop",
 		Args: cobra.MaximumNArgs(1),
@@ -35,7 +36,12 @@ func init() {
 				fmt.Printf("%s is already approved.\n", p.Name)
 				return nil
 			}
-			if err := a.ensureTrusted(p); err != nil {
+			if flagYes {
+				err = a.Engine.Trust(p)
+			} else {
+				err = a.ensureTrusted(p)
+			}
+			if err != nil {
 				return err
 			}
 			fmt.Printf("✔ %s approved.\n", p.Name)
@@ -50,6 +56,11 @@ func init() {
 func (a *app) ensureTrusted(p *state.Project) error {
 	if a.Engine.Trusted(p) {
 		return nil
+	}
+	// --yes skips prompts in scripts and the desktop app; approving code to run
+	// must stay a decision someone made, so it takes `hull allow`.
+	if flagYes {
+		return fmt.Errorf("%s is not approved, and --yes does not approve a project; review it with `hull allow %s`", p.Name, p.Name)
 	}
 	fmt.Printf("Hull has not run %s (%s) in its current form. Running it:\n", p.Name, p.Dir)
 	for _, line := range a.Engine.TrustSummary(p) {

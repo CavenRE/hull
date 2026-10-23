@@ -18,7 +18,7 @@ import (
 // -> time confirmed), so a burst of up/restart/rebuild runs `docker network ls`
 // once. Not longer: a Docker reset or `docker network rm` removes one under a
 // running daemon.
-var ensuredNetworks sync.Map
+var ensuredNetworks, ensuredVolumes sync.Map
 
 // Runner executes a command attached to the user's terminal. Tests inject a
 // recorder; production uses Exec.
@@ -221,5 +221,18 @@ func EnsureNetwork(ctx context.Context, name string) error {
 		return err
 	}
 	ensuredNetworks.Store(name, time.Now())
+	return nil
+}
+
+// EnsureVolume creates the named docker volume if it does not exist (docker
+// volume create is a no-op for an existing one). Memoized like EnsureNetwork.
+func EnsureVolume(ctx context.Context, name string) error {
+	if at, ok := ensuredVolumes.Load(name); ok && time.Since(at.(time.Time)) < memoTTL {
+		return nil
+	}
+	if _, err := Output(ctx, "", "docker", "volume", "create", name); err != nil {
+		return err
+	}
+	ensuredVolumes.Store(name, time.Now())
 	return nil
 }

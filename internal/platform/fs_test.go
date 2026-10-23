@@ -36,3 +36,16 @@ func TestSeesWindowsEditsOnlyOnWindows(t *testing.T) {
 		t.Error("a Linux folder is not a Windows mount")
 	}
 }
+
+func TestMountClass(t *testing.T) {
+	for dir, want := range map[string]string{
+		"/mnt/w/Sites/shop":                      MountWindows,
+		`\\wsl.localhost\Debian\home/me/Sites/x`: MountWSL,
+		`\\wsl$\Ubuntu\home\me\x`:                MountWSL,
+		"/home/me/Sites/shop":                    MountNative,
+	} {
+		if got := MountClass(dir); got != want {
+			t.Errorf("MountClass(%q) = %q, want %q", dir, got, want)
+		}
+	}
+}

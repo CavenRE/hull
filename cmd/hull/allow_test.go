@@ -38,7 +38,7 @@ func TestEnsureTrustedFailsClosedWithoutTerminal(t *testing.T) {
 	old := flagYes
 	flagYes = true
 	defer func() { flagYes = old }()
-	if err := a.ensureTrusted(p); err != nil || !a.Engine.Trusted(p) {
-		t.Fatalf("--yes should approve: %v", err)
+	if err := a.ensureTrusted(p); err == nil || a.Engine.Trusted(p) {
+		t.Fatalf("--yes must not approve a project: %v", err)
 	}
 }

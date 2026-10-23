@@ -251,8 +251,8 @@ func TestSharedServicesNotRendered(t *testing.T) {
 		t.Errorf("expected only the app service, got %d services", len(f.Services))
 	}
 	// Shared db/redis emit no project-local data volumes. The app's own vendor
-	// volume (CR-3) is expected and must be the only volume.
-	if _, ok := f.Volumes["vendor"]; !ok || len(f.Volumes) != 1 {
+	// volume (CR-3) and the shared Composer cache are the only volumes.
+	if _, ok := f.Volumes["vendor"]; !ok || f.Volumes["hull-cache-composer"] == nil || len(f.Volumes) != 2 {
 		t.Errorf("expected only the vendor volume for shared services, got %v", f.Volumes)
 	}
 }
@@ -467,8 +467,8 @@ func TestPythonTemplateRenders(t *testing.T) {
 		t.Errorf("python working_dir = %q, want /app", app.WorkingDir)
 	}
 	vols := strings.Join(app.Volumes, "\n")
-	if !strings.Contains(vols, "venv:/opt/venv") || !strings.Contains(vols, "pip_cache:/root/.cache/pip") {
-		t.Errorf("python volumes = %v, want venv + pip_cache named volumes", app.Volumes)
+	if !strings.Contains(vols, "venv:/opt/venv") || !strings.Contains(vols, "hull-cache-pip:/root/.cache/pip") {
+		t.Errorf("python volumes = %v, want venv + the shared pip cache", app.Volumes)
 	}
 	if strings.Contains(vols, "opcache") {
 		t.Errorf("python must not mount the opcache ini: %v", app.Volumes)
@@ -492,8 +492,8 @@ func TestNodeAndGoTemplates(t *testing.T) {
 		tmpl, image, workdir string
 		vols                 []string
 	}{
-		{"node", "node:22-slim", "/app", []string{"node_modules:/app/node_modules"}},
-		{"go", "golang:1.24", "/app", []string{"go_mod:/go/pkg/mod", "go_bin:/go/bin"}},
+		{"node", "node:22-slim", "/app", []string{"node_modules:/app/node_modules", "hull-cache-npm:/root/.npm"}},
+		{"go", "golang:1.24", "/app", []string{"hull-cache-gomod:/go/pkg/mod", "hull-cache-gobuild:/root/.cache/go-build", "go_bin:/go/bin"}},
 	}
 	for _, c := range cases {
 		m, err := manifest.Parse([]byte("schema: 1\nname: x\ntype: site\ntemplate: " + c.tmpl + "\n"))

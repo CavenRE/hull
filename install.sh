@@ -4,8 +4,9 @@
 # Windows users: see build.ps1.
 #
 # Usage:
-#   ./install.sh [--prefix DIR] [--service] [--skip-setup] [--yes]
+#   ./install.sh [--prefix DIR] [--binary FILE] [--service] [--skip-setup] [--yes]
 #
+#   --binary FILE install this prebuilt hull binary instead of building (no Go)
 #   --prefix DIR  install binaries here (default: ~/.local/bin)
 #   --service     run the Hull daemon as a systemd --user service (Linux)
 #   --skip-setup  don't run `hull setup`/`hull doctor` at the end
@@ -26,13 +27,15 @@ PREFIX="${HOME}/.local/bin"
 SKIP_SETUP=0
 ASSUME_YES=0
 SERVICE=0
+BINARY=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --prefix) PREFIX="${2:?--prefix needs a directory}"; shift ;;
+    --binary) BINARY="${2:?--binary needs a file}"; shift ;;
     --service) SERVICE=1 ;;
     --skip-setup) SKIP_SETUP=1 ;;
     --yes|-y) ASSUME_YES=1 ;;
-    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown flag: $1 (try --help)" ;;
   esac
   shift
@@ -119,7 +122,9 @@ maybe_install() { # maybe_install "human name" "pkg-for-pm" "https://link"
 step "Checking dependencies"
 
 # Go (required to build from source)
-if command -v go >/dev/null 2>&1; then
+if [ -n "$BINARY" ]; then
+  : # prebuilt binary: nothing to build
+elif command -v go >/dev/null 2>&1; then
   ok "go $(go version | awk '{print $3}')"
 else
   warn "Go is required to build Hull"
@@ -153,12 +158,18 @@ else
 fi
 
 # ── build the CLI ───────────────────────────────────────────────────────────
-step "Building Hull (CLI)"
-VER="$(git -C "$REPO_DIR" describe --tags --always --dirty 2>/dev/null || echo dev)"
-COMMIT="$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo none)"
-LDFLAGS="-s -w -X github.com/CavenRE/hull/internal/version.Version=${VER} -X github.com/CavenRE/hull/internal/version.Commit=${COMMIT}"
 mkdir -p "$PREFIX"
-go build -trimpath -ldflags "$LDFLAGS" -o "$PREFIX/hull"  ./cmd/hull
+if [ -n "$BINARY" ]; then
+  step "Installing Hull (CLI)"
+  install -m 0755 "$BINARY" "$PREFIX/hull"
+  VER="$("$PREFIX/hull" --version | awk '{print $2}')"
+else
+  step "Building Hull (CLI)"
+  VER="$(git -C "$REPO_DIR" describe --tags --always --dirty 2>/dev/null || echo dev)"
+  COMMIT="$(git -C "$REPO_DIR" rev-parse --short HEAD 2>/dev/null || echo none)"
+  LDFLAGS="-s -w -X github.com/CavenRE/hull/internal/version.Version=${VER} -X github.com/CavenRE/hull/internal/version.Commit=${COMMIT}"
+  go build -trimpath -ldflags "$LDFLAGS" -o "$PREFIX/hull"  ./cmd/hull
+fi
 ok "installed hull → $PREFIX (version $VER)"
 
 # On Linux the daemon's embedded router and DNS bind 80/443/53 directly (no

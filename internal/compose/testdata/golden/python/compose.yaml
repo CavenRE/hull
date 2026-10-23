@@ -14,7 +14,7 @@ services:
     volumes:
       - ./:/app
       - venv:/opt/venv
-      - pip_cache:/root/.cache/pip
+      - hull-cache-pip:/root/.cache/pip
     ports:
       - 127.0.0.1::8000
     extra_hosts:
@@ -31,5 +31,6 @@ networks:
   caddy:
     external: true
 volumes:
-  pip_cache: null
+  hull-cache-pip:
+    external: true
   venv: null

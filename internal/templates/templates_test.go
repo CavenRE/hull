@@ -202,3 +202,21 @@ func TestEnsureSystemFilesUpdatesUneditedShippedINI(t *testing.T) {
 		t.Error("an edited opcache.ini was overwritten")
 	}
 }
+
+func TestPHPImages(t *testing.T) {
+	cases := []struct{ tmpl, php, version, want string }{
+		{"wordpress", "", "", "wordpress:latest"},
+		{"wordpress", "", "6.8", "wordpress:6.8"},
+		{"wordpress", "8.1", "", "wordpress:php8.1-apache"},
+		{"wordpress", "8.3", "6.8", "wordpress:6.8-php8.3-apache"},
+		{"wordpress", "8.2", "latest", "wordpress:php8.2-apache"},
+		{"plain", "8.3", "", "serversideup/php:8.3-fpm-apache"},
+		{"laravel", "8.3", "", "serversideup/php:8.3-fpm-nginx"},
+	}
+	for _, c := range cases {
+		def, _ := Site(c.tmpl)
+		if got := def.Image(c.php, c.version); got != c.want {
+			t.Errorf("%s Image(%q, %q) = %q, want %q", c.tmpl, c.php, c.version, got, c.want)
+		}
+	}
+}

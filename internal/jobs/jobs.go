@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -18,6 +19,8 @@ const (
 	StatusRunning Status = "running"
 	StatusDone    Status = "done"
 	StatusFailed  Status = "failed"
+	// StatusCanceled is a job stopped by Cancel or by the daemon shutting down.
+	StatusCanceled Status = "canceled"
 )
 
 // Info is a point-in-time snapshot of a job.
@@ -50,9 +53,14 @@ func (j *Job) log(line string) {
 	j.lines = append(j.lines, line)
 }
 
-func (j *Job) finish(err error) {
+func (j *Job) finish(ctx context.Context, err error) {
 	j.mu.Lock()
 	defer j.mu.Unlock()
+	if err != nil && ctx.Err() != nil {
+		j.status = StatusCanceled
+		j.err = err.Error()
+		return
+	}
 	if err != nil {
 		j.status = StatusFailed
 		j.err = err.Error()
@@ -100,8 +108,11 @@ const keepFinished = 50
 
 // Manager owns all jobs of a daemon process.
 type Manager struct {
-	mu   sync.Mutex
-	seq  int
+	mu  sync.Mutex
+	seq int
+	// boot makes ids unique across daemon restarts, so a client holding an
+	// old id never attaches to a new, different job.
+	boot string
 	jobs map[string]*Job
 	// ctx is the parent of every job's context; Shutdown cancels it.
 	ctx    context.Context
@@ -113,7 +124,7 @@ type Manager struct {
 
 func NewManager() *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Manager{jobs: map[string]*Job{}, Now: time.Now, ctx: ctx, cancel: cancel}
+	return &Manager{jobs: map[string]*Job{}, Now: time.Now, ctx: ctx, cancel: cancel, boot: strconv.FormatInt(time.Now().Unix(), 36)}
 }
 
 // Start launches fn on a goroutine. fn receives a context, canceled by Cancel
@@ -124,7 +135,7 @@ func (m *Manager) Start(kind string, fn func(ctx context.Context, log func(strin
 	m.seq++
 	ctx, cancel := context.WithCancel(m.ctx)
 	j := &Job{
-		id:      fmt.Sprintf("job-%d", m.seq),
+		id:      fmt.Sprintf("job-%s-%d", m.boot, m.seq),
 		seq:     m.seq,
 		kind:    kind,
 		created: m.Now(),
@@ -141,10 +152,10 @@ func (m *Manager) Start(kind string, fn func(ctx context.Context, log func(strin
 		defer cancel()
 		defer func() {
 			if r := recover(); r != nil {
-				j.finish(fmt.Errorf("panic: %v", r))
+				j.finish(context.Background(), fmt.Errorf("panic: %v", r))
 			}
 		}()
-		j.finish(fn(ctx, j.log))
+		j.finish(ctx, fn(ctx, j.log))
 	}()
 	return j
 }
@@ -213,14 +224,6 @@ func (m *Manager) List() []Info {
 	for _, j := range jobs {
 		infos = append(infos, j.Snapshot())
 	}
-	// Newest first by id sequence (ids are zero-padded-free but creation
-	// order equals sequence order; sort by Created then ID for stability).
-	for i := 0; i < len(infos); i++ {
-		for k := i + 1; k < len(infos); k++ {
-			if infos[k].Created.After(infos[i].Created) {
-				infos[i], infos[k] = infos[k], infos[i]
-			}
-		}
-	}
+	sort.SliceStable(infos, func(a, b int) bool { return infos[a].Created.After(infos[b].Created) })
 	return infos
 }

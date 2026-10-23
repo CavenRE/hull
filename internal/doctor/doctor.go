@@ -127,24 +127,33 @@ func Run(ctx context.Context, cfg *config.Config, deps Deps) []Check {
 	// filesystem to Linux containers over a slow 9p mount, so PHP page loads run
 	// multiple seconds and a cold start can 502 until the app warms.
 	var slowRoots []string
-	for _, root := range cfg.Roots {
+	watched := true
+	for _, root := range append(append([]string{}, cfg.Roots...), cfg.Projects...) {
 		if platform.OnWindowsFilesystem(root) {
 			slowRoots = append(slowRoots, root)
+			watched = watched && platform.SeesWindowsEdits(root)
 		}
 	}
 	if len(slowRoots) > 0 {
-		msg := "root " + strings.Join(slowRoots, ", ") + " is on the Windows filesystem, which Docker serves to containers over a slow 9p mount (multi-second PHP page loads; a 502 on a cold start until the app warms). "
+		msg := strings.Join(slowRoots, ", ") + " is on the Windows filesystem, which Docker serves to containers over a slow 9p mount (multi-second PHP page loads; a 502 on a cold start until the app warms). "
 		if len(slowRoots) > 1 {
-			msg = "roots " + strings.Join(slowRoots, ", ") + " are on the Windows filesystem, which Docker serves to containers over a slow 9p mount (multi-second PHP page loads; a 502 on a cold start until the app warms). "
+			msg = strings.Join(slowRoots, ", ") + " are on the Windows filesystem, which Docker serves to containers over a slow 9p mount (multi-second PHP page loads; a 502 on a cold start until the app warms). "
 		}
 		fix := ""
-		if cfg.AutoReloadEnabled() {
+		switch {
+		case cfg.AutoReloadEnabled() && watched:
 			msg += "Hull already takes the biggest cost off it: PHP no longer re-checks every cached file on each request, and the daemon watches your sources and clears the opcode cache when you save. "
-		} else {
+		case cfg.AutoReloadEnabled():
+			msg += "Hull cannot watch these files from inside WSL (inotify does not see edits that Windows programs make on /mnt), so PHP re-checks every cached file on each request. "
+		default:
 			msg += "auto_reload is off in config.yaml, so PHP re-checks every cached file on every request, which roughly doubles a page load here. "
 			fix = "turn auto_reload back on"
 		}
-		msg += "The real fix is to move projects into the WSL2 Linux filesystem, which is not merely faster but as fast as the container's own disk: `hull move <project> --to-wsl`."
+		if platform.WSLAvailable() {
+			msg += "The real fix is to move projects into the WSL2 Linux filesystem, which is not merely faster but as fast as the container's own disk: `hull move <project> --to-wsl`."
+		} else {
+			msg += "The real fix is to keep projects in the Linux filesystem (for example ~/Sites), which is as fast as the container's own disk."
+		}
 		addFix(Warn, "performance", msg, fix)
 
 		// Measure it rather than asserting it. A number the user can compare

@@ -8,19 +8,21 @@ Counterpart to get.sh on Linux/macOS.
   With options (create a scriptblock so you can pass args):
     & ([scriptblock]::Create((irm https://raw.githubusercontent.com/CavenRE/hull/master/get.ps1))) -Uninstall
 
-It clones the Hull repo, builds the CLI from source (needs Go and git),
-installs it to %LOCALAPPDATA%\Hull, and adds that to your PATH. No admin needed.
-This builds from source; prebuilt binaries are also attached to each GitHub release if you would rather download one.
+It downloads the newest release binary, checks it against the release's
+SHA256SUMS, installs it to %LOCALAPPDATA%\Hull, adds that to your PATH, and runs
+`hull setup`. No admin needed, and no Go or git. -FromSource builds instead.
 
   -Uninstall     remove Hull instead of installing
   -Purge         with -Uninstall: also remove ~/.hull (config, CA, service data)
   -Prefix DIR    install location (default: %LOCALAPPDATA%\Hull)
-  -Branch NAME   branch or tag to build from (default: the newest release tag)
+  -FromSource    clone and build with Go and git, instead of downloading
+  -Branch NAME   with -FromSource: branch or tag to build (default: the newest release tag)
 #>
 param(
   [switch]$Uninstall,
   [switch]$Purge,
   [string]$Prefix = (Join-Path $env:LOCALAPPDATA 'Hull'),
+  [switch]$FromSource,
   [string]$Branch = ''
 )
 
@@ -71,6 +73,48 @@ if ($Uninstall) {
 }
 
 # --- install ---
+function Install-Release {
+  $base = 'https://github.com/CavenRE/hull/releases/latest/download'
+  $asset = 'hull-windows-x64.exe'
+  New-Item -ItemType Directory -Force -Path $Prefix | Out-Null
+  $new = Join-Path $Prefix 'hull.exe.new'
+  Info 'Downloading Hull...'
+  $ProgressPreference = 'SilentlyContinue'
+  Invoke-WebRequest -UseBasicParsing "$base/$asset" -OutFile $new
+  $sums = (Invoke-WebRequest -UseBasicParsing "$base/SHA256SUMS").Content
+  if ($sums -is [byte[]]) { $sums = [System.Text.Encoding]::UTF8.GetString($sums) }
+  $want = ($sums -split "`n" | Where-Object { $_ -match "^([0-9a-f]{64})\s+\*?$([regex]::Escape($asset))\s*$" } | ForEach-Object { $Matches[1] } | Select-Object -First 1)
+  $got = (Get-FileHash -Algorithm SHA256 $new).Hash.ToLower()
+  if (-not $want -or $got -ne $want) {
+    Remove-Item $new -Force -ErrorAction SilentlyContinue
+    Die "the download does not match the release's SHA256SUMS; nothing was installed"
+  }
+  # A running daemon locks hull.exe, but Windows lets a locked file be renamed.
+  $exe = Join-Path $Prefix 'hull.exe'
+  $old = Join-Path $Prefix 'hull.exe.old'
+  Remove-Item $old -Force -ErrorAction SilentlyContinue
+  if (Test-Path $exe) { Move-Item $exe $old -Force }
+  Move-Item $new $exe -Force
+  Ok "installed hull to $Prefix ($(& $exe --version))"
+}
+
+if (-not $FromSource) {
+  Install-Release
+  Add-ToUserPath $Prefix
+  $hullExe = Join-Path $Prefix 'hull.exe'
+  Write-Host ''
+  Info 'Running setup (this may prompt for elevation)...'
+  & $hullExe setup
+  if ($LASTEXITCODE -ne 0) {
+    Warn 'setup did not finish. Open a new terminal and run: hull setup'
+  } else {
+    & $hullExe doctor
+    Write-Host ''
+    Ok 'Hull is installed and running. In a NEW terminal try: hull new demo laravel'
+  }
+  return
+}
+
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) { Die 'git is required (https://git-scm.com/download/win)' }
 if (-not (Get-Command go  -ErrorAction SilentlyContinue)) { Die 'Go is required to build from source (https://go.dev/dl/)' }
 

@@ -247,7 +247,12 @@ func scaffoldLaravel(ctx context.Context, opts ScaffoldOptions) error {
 	// (create-project, cp, rm, plus composer's own churn). On a Windows 9p mount
 	// that measured about seven minutes; one write pass is the irreducible part.
 	args := []string{"run", "--rm"}
-	args = append(args, userFlag()...)
+	if user := userFlag(); user != nil {
+		args = append(args, user...)
+	} else {
+		// Root (Windows) can write the shared cache volume, which is root-owned.
+		args = append(args, "-v", "hull-cache-composer:"+composerCacheDir, "-e", "COMPOSER_CACHE_DIR="+composerCacheDir)
+	}
 	args = append(args,
 		"-v", mount,
 		"composer:2.8",

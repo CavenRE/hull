@@ -12,6 +12,7 @@ services:
     volumes:
       - ./:/app
       - node_modules:/app/node_modules
+      - hull-cache-npm:/root/.npm
     ports:
       - 127.0.0.1::8000
     extra_hosts:
@@ -28,4 +29,6 @@ networks:
   caddy:
     external: true
 volumes:
+  hull-cache-npm:
+    external: true
   node_modules: null

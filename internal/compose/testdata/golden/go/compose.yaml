@@ -10,9 +10,9 @@ services:
       - PORT=8080
     volumes:
       - ./:/app
-      - go_mod:/go/pkg/mod
-      - go_build:/root/.cache/go-build
       - go_bin:/go/bin
+      - hull-cache-gomod:/go/pkg/mod
+      - hull-cache-gobuild:/root/.cache/go-build
     ports:
       - 127.0.0.1::8080
     extra_hosts:
@@ -30,5 +30,7 @@ networks:
     external: true
 volumes:
   go_bin: null
-  go_build: null
-  go_mod: null
+  hull-cache-gobuild:
+    external: true
+  hull-cache-gomod:
+    external: true

@@ -33,6 +33,12 @@ type ProjectInfo struct {
 	Services []ProjectServiceInfo `json:"services,omitempty"`
 	// Routes are a cluster's served subdomains (type: cluster only).
 	Routes []ClusterRouteInfo `json:"routes,omitempty"`
+	// Mount is how Docker reaches the files: "windows" (slow 9p), "wsl" or
+	// "native" (platform.MountClass).
+	Mount string `json:"mount"`
+	// Watched is whether the daemon refreshes PHP's opcode cache on save, in
+	// place of PHP re-checking files (only on a Windows drive).
+	Watched bool `json:"watched,omitempty"`
 }
 
 // ClusterInfo answers GET /v1/clusters , adopted/managed cluster projects,
@@ -261,6 +267,16 @@ type Event struct {
 // ErrorBody is the JSON error envelope.
 type ErrorBody struct {
 	Error string `json:"error"`
+	// Code is a stable machine-readable reason: bad_request, unauthorized,
+	// forbidden, not_found, conflict, untrusted, engine_down or internal.
+	Code string `json:"code"`
+}
+
+// Approval answers GET /v1/projects/{name}/approval: whether Hull may run the
+// project, and what it would run (the same list `hull allow` shows).
+type Approval struct {
+	Approved bool     `json:"approved"`
+	Summary  []string `json:"summary"`
 }
 
 // Hello is GET /v1/hello: proof that the daemon holds the token, and which

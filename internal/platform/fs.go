@@ -42,3 +42,22 @@ func OnWindowsFilesystem(root string) bool {
 func SeesWindowsEdits(root string) bool {
 	return runtime.GOOS == "windows" && OnWindowsFilesystem(root)
 }
+
+// Mount classes: how fast a container reads a project's files.
+const (
+	MountWindows = "windows" // a Windows drive, served over 9p: slow
+	MountWSL     = "wsl"     // inside a WSL distro: as fast as the container's disk
+	MountNative  = "native"  // a Linux or macOS path on the Docker host
+)
+
+// MountClass names how Docker reaches the files under dir.
+func MountClass(dir string) string {
+	switch {
+	case OnWindowsFilesystem(dir):
+		return MountWindows
+	case OnWSLFilesystem(dir):
+		return MountWSL
+	default:
+		return MountNative
+	}
+}

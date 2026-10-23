@@ -3,9 +3,9 @@
 name: api
 services:
   app:
-    image: serversideup/php:8.4-fpm-nginx
+    image: serversideup/php:8.4-fpm-apache
     environment:
-      - NGINX_WEBROOT=/var/www/html
+      - APACHE_DOCUMENT_ROOT=/var/www/html
       - WEB_DOCUMENT_ROOT=/var/www/html
     volumes:
       - ./:/var/www/html

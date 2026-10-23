@@ -45,6 +45,9 @@ type Engine struct {
 	// EnsureNet creates a docker network if missing; defaults to
 	// dockerx.EnsureNetwork (stubbed in tests).
 	EnsureNet func(ctx context.Context, name string) error
+	// EnsureVolume creates a docker volume if missing; defaults to
+	// dockerx.EnsureVolume. Nil skips it (tests).
+	EnsureVolume func(ctx context.Context, name string) error
 	// RunningHull lists running compose projects carrying Hull's ownership
 	// label , the stop-all safety sweep. Injectable for tests; defaults to
 	// dockerx.RunningHullProjects.
@@ -68,18 +71,26 @@ func (e *Engine) cfg() *config.Config {
 
 func New(cfg *config.Config) *Engine {
 	return &Engine{
-		Config:      cfg,
-		Run:         dockerx.Exec,
-		Pipe:        dockerx.Pipe,
-		HasLoopback: platform.LoopbackPresent,
-		EnsureNet:   dockerx.EnsureNetwork,
-		RunningHull: dockerx.RunningHullProjects,
+		Config:       cfg,
+		Run:          dockerx.Exec,
+		Pipe:         dockerx.Pipe,
+		HasLoopback:  platform.LoopbackPresent,
+		EnsureNet:    dockerx.EnsureNetwork,
+		EnsureVolume: dockerx.EnsureVolume,
+		RunningHull:  dockerx.RunningHullProjects,
 	}
 }
 
-// prepareNetworks creates the external networks generated compose files
-// reference , a fresh v2 machine has no v1 setup to have made them.
+// prepareNetworks creates the external networks and shared cache volumes that
+// generated compose files reference; a fresh machine has none of them.
 func (e *Engine) prepareNetworks(ctx context.Context) error {
+	if e.EnsureVolume != nil {
+		for _, name := range templates.SharedVolumeNames() {
+			if err := e.EnsureVolume(ctx, name); err != nil {
+				return err
+			}
+		}
+	}
 	if e.EnsureNet == nil {
 		return nil
 	}

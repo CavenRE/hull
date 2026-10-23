@@ -50,6 +50,10 @@ type SiteDef struct {
 	// heavy or platform-specific tree (a Python venv, a build cache) off the slow
 	// bind mount. Compose scopes the volume name to the project.
 	NamedVolumes []NamedVolume
+	// SharedVolumes are download caches shared by every project (external
+	// volumes, Name is the real docker volume name), so a new project does not
+	// download its dependencies again.
+	SharedVolumes []NamedVolume
 	// WatchIgnore are project folders (relative, slash-separated) the source
 	// watcher leaves out: runtime data the site rewrites constantly and never
 	// includes as code.
@@ -67,6 +71,8 @@ type SiteDef struct {
 type NamedVolume struct {
 	Name string
 	Path string
+	// Env tells the tool to use Path (shared cache volumes only).
+	Env string
 }
 
 var sites = map[string]SiteDef{
@@ -77,7 +83,8 @@ var sites = map[string]SiteDef{
 		// Keep Composer's vendor/ off the slow bind mount: an empty named volume
 		// shadows the host vendor/, and Hull's /etc/entrypoint.d composer-install
 		// script (see SeedsComposer) fills it before PHP-FPM serves.
-		NamedVolumes: []NamedVolume{{Name: "vendor", Path: "/var/www/html/vendor"}},
+		NamedVolumes:  []NamedVolume{{Name: "vendor", Path: "/var/www/html/vendor"}},
+		SharedVolumes: []NamedVolume{{Name: "hull-cache-composer", Path: composerCacheDir, Env: "COMPOSER_CACHE_DIR=" + composerCacheDir}},
 		// Laravel writes these on every request (sessions, cache, logs, and the
 		// SQLite file plus its -wal/-shm sidecars).
 		WritablePaths: []string{"storage", "bootstrap/cache", "database"},
@@ -87,7 +94,7 @@ var sites = map[string]SiteDef{
 		Runtime:      "php",
 		UpstreamPort: 8080,
 		ExtraEnv: []string{
-			"NGINX_WEBROOT=/var/www/html",
+			"APACHE_DOCUMENT_ROOT=/var/www/html",
 			"WEB_DOCUMENT_ROOT=/var/www/html",
 		},
 	},
@@ -133,8 +140,9 @@ var sites = map[string]SiteDef{
 		// developer expects; an unchanged boot skips a measured ~0.6s.
 		// NOTE: $ is written as $$ so Compose passes a literal $ to the shell
 		// instead of interpolating it as a compose variable.
-		Command:      `sh -c '[ -d /opt/venv/bin ] || python -m venv /opt/venv; if [ -f requirements.txt ]; then h=$$(md5sum requirements.txt | cut -c1-32); if [ "$$(cat /opt/venv/.hull-installed 2>/dev/null)" != "$$h" ]; then pip install -q -r requirements.txt && echo "$$h" > /opt/venv/.hull-installed; fi; fi; exec python app.py'`,
-		NamedVolumes: []NamedVolume{{Name: "venv", Path: "/opt/venv"}, {Name: "pip_cache", Path: "/root/.cache/pip"}},
+		Command:       `sh -c '[ -d /opt/venv/bin ] || python -m venv /opt/venv; if [ -f requirements.txt ]; then h=$$(md5sum requirements.txt | cut -c1-32); if [ "$$(cat /opt/venv/.hull-installed 2>/dev/null)" != "$$h" ]; then pip install -q -r requirements.txt && echo "$$h" > /opt/venv/.hull-installed; fi; fi; exec python app.py'`,
+		NamedVolumes:  []NamedVolume{{Name: "venv", Path: "/opt/venv"}},
+		SharedVolumes: []NamedVolume{{Name: "hull-cache-pip", Path: "/root/.cache/pip"}},
 	},
 	// Node: a node:slim container with your code at /app and node_modules on a
 	// named volume (off the bind mount). Installs package.json deps on boot and
@@ -151,22 +159,38 @@ var sites = map[string]SiteDef{
 		// unchanged boot, and still reinstalls when you edit dependencies.
 		// NOTE: $ is written as $$ so Compose passes a literal $ to the shell
 		// instead of interpolating it as a compose variable.
-		Command:      `sh -c 'if [ -f package.json ]; then h=$$(md5sum package.json | cut -c1-32); if [ "$$(cat node_modules/.hull-installed 2>/dev/null)" != "$$h" ]; then npm install --no-audit --no-fund --loglevel=error && echo "$$h" > node_modules/.hull-installed; fi; fi; exec node server.js'`,
-		NamedVolumes: []NamedVolume{{Name: "node_modules", Path: "/app/node_modules"}},
+		Command:       `sh -c 'if [ -f package.json ]; then h=$$(md5sum package.json | cut -c1-32); if [ "$$(cat node_modules/.hull-installed 2>/dev/null)" != "$$h" ]; then npm install --no-audit --no-fund --loglevel=error && echo "$$h" > node_modules/.hull-installed; fi; fi; exec node server.js'`,
+		NamedVolumes:  []NamedVolume{{Name: "node_modules", Path: "/app/node_modules"}},
+		SharedVolumes: []NamedVolume{{Name: "hull-cache-npm", Path: "/root/.npm"}},
 	},
 	// Go: a golang container that rebuilds and reruns on change via air, with the
 	// module and build caches on named volumes (off the bind mount). Use
 	// `hull go` for the toolchain (build/run/test/mod).
 	"go": {
-		Key:          "go",
-		Runtime:      "go",
-		UpstreamPort: 8080,
-		Mount:        "/app",
-		Workdir:      "/app",
-		ExtraEnv:     []string{"PORT=8080"},
-		Command:      `sh -c 'command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@latest; exec air'`,
-		NamedVolumes: []NamedVolume{{Name: "go_mod", Path: "/go/pkg/mod"}, {Name: "go_build", Path: "/root/.cache/go-build"}, {Name: "go_bin", Path: "/go/bin"}},
+		Key:           "go",
+		Runtime:       "go",
+		UpstreamPort:  8080,
+		Mount:         "/app",
+		Workdir:       "/app",
+		ExtraEnv:      []string{"PORT=8080"},
+		Command:       `sh -c 'command -v air >/dev/null 2>&1 || go install github.com/air-verse/air@latest; exec air'`,
+		NamedVolumes:  []NamedVolume{{Name: "go_bin", Path: "/go/bin"}},
+		SharedVolumes: []NamedVolume{{Name: "hull-cache-gomod", Path: "/go/pkg/mod"}, {Name: "hull-cache-gobuild", Path: "/root/.cache/go-build"}},
 	},
+}
+
+// composerCacheDir is where Laravel's Composer cache lives in the container.
+const composerCacheDir = "/var/cache/hull-composer"
+
+// SharedVolumeNames lists every shared cache volume, for the engine to create.
+func SharedVolumeNames() []string {
+	var names []string
+	for _, key := range SiteKeys() {
+		for _, v := range sites[key].SharedVolumes {
+			names = append(names, v.Name)
+		}
+	}
+	return names
 }
 
 // IsPHP reports whether the template runs on a PHP image (laravel, plain,
@@ -237,8 +261,9 @@ func SiteKeys() []string {
 	return keys
 }
 
-// Image returns the web image for the template. For PHP templates, php applies
-// to laravel/plain and version pins the wordpress image tag. For a non-PHP
+// Image returns the web image for the template. For PHP templates, php picks
+// the PHP version (for wordpress, the official image's php<v>-apache tag) and
+// version pins the wordpress image tag. For a non-PHP
 // runtime it is the template's BaseImage.
 func (d SiteDef) Image(php, version string) string {
 	if !d.IsPHP() {
@@ -266,13 +291,26 @@ func (d SiteDef) Image(php, version string) string {
 		}
 	}
 	if d.Key == "wordpress" {
-		if version == "" {
-			version = "latest"
+		if version == "latest" {
+			version = ""
 		}
-		return "wordpress:" + version
+		switch {
+		case php == "" && version == "":
+			return "wordpress:latest"
+		case php == "":
+			return "wordpress:" + version
+		case version == "":
+			return "wordpress:php" + php + "-apache"
+		default:
+			return "wordpress:" + version + "-php" + php + "-apache"
+		}
 	}
 	if php == "" {
 		php = DefaultPHP
+	}
+	// plain runs Apache, as shared hosting does, so its .htaccess files work.
+	if d.Key == "plain" {
+		return fmt.Sprintf("serversideup/php:%s-fpm-apache", php)
 	}
 	return fmt.Sprintf("serversideup/php:%s-fpm-nginx", php)
 }

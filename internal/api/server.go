@@ -25,6 +25,7 @@ import (
 	"github.com/CavenRE/hull/internal/jobs"
 	"github.com/CavenRE/hull/internal/ledger"
 	"github.com/CavenRE/hull/internal/manifest"
+	"github.com/CavenRE/hull/internal/platform"
 	"github.com/CavenRE/hull/internal/registry"
 	"github.com/CavenRE/hull/internal/services"
 	"github.com/CavenRE/hull/internal/state"
@@ -196,6 +197,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/projects", s.withEngine(s.handleCreateProject))
 	mux.HandleFunc("GET /v1/projects/{name}/volumes", s.handleProjectVolumes)
 	mux.HandleFunc("POST /v1/projects/{name}/{action}", s.withEngine(s.handleProjectAction))
+	mux.HandleFunc("GET /v1/projects/{name}/approval", s.handleApproval)
+	mux.HandleFunc("POST /v1/projects/{name}/approve", s.handleApprove)
 	mux.HandleFunc("POST /v1/imports", s.withEngine(s.handleImport))
 	mux.HandleFunc("GET /v1/clusters", s.handleClusters)
 	mux.HandleFunc("POST /v1/clusters", s.handleAdoptCluster)
@@ -216,6 +219,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/events", s.handleEvents)
 	mux.HandleFunc("POST /v1/stop-all", s.withEngine(s.handleStopAll))
 	mux.HandleFunc("POST /v1/shutdown", s.handleShutdown)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, http.StatusNotFound, fmt.Errorf("no route %s %s", r.Method, r.URL.Path))
+	})
 	return s.auth(mux)
 }
 
@@ -326,7 +332,52 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 func writeError(w http.ResponseWriter, status int, err error) {
-	writeJSON(w, status, ErrorBody{Error: err.Error()})
+	writeJSON(w, status, ErrorBody{Error: err.Error(), Code: errorCode(status, err)})
+}
+
+func errorCode(status int, err error) string {
+	var untrusted *engine.UntrustedError
+	if errors.As(err, &untrusted) {
+		return "untrusted"
+	}
+	switch status {
+	case http.StatusBadRequest, http.StatusRequestEntityTooLarge:
+		return "bad_request"
+	case http.StatusUnauthorized:
+		return "unauthorized"
+	case http.StatusForbidden:
+		return "forbidden"
+	case http.StatusNotFound, http.StatusMethodNotAllowed:
+		return "not_found"
+	case http.StatusConflict:
+		return "conflict"
+	case http.StatusServiceUnavailable:
+		return "engine_down"
+	default:
+		return "internal"
+	}
+}
+
+func (s *Server) handleApproval(w http.ResponseWriter, r *http.Request) {
+	p, err := s.findProject(r.PathValue("name"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, Approval{Approved: s.Engine.Trusted(p), Summary: s.Engine.TrustSummary(p)})
+}
+
+func (s *Server) handleApprove(w http.ResponseWriter, r *http.Request) {
+	p, err := s.findProject(r.PathValue("name"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	if err := s.Engine.Trust(p); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
@@ -384,6 +435,8 @@ func ProjectList(ctx context.Context, cfg *config.Config, running func(context.C
 			Dir:     p.Dir,
 			Running: runningSet[p.Name],
 			Legacy:  p.Legacy,
+			Mount:   platform.MountClass(p.Dir),
+			Watched: cfg.AutoReloadEnabled() && engine.IsPHPProject(&p) && platform.SeesWindowsEdits(p.Dir),
 		}
 		if grp != nil {
 			info.Group = grp.GroupOf(p.Dir)
@@ -586,6 +639,28 @@ func (s *Server) handleProjectAction(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusConflict, err)
 			return
 		}
+	}
+	lifecycle := map[string]func(*engine.Engine, context.Context, *state.Project) error{
+		"start":   (*engine.Engine).Up,
+		"stop":    (*engine.Engine).Down,
+		"restart": (*engine.Engine).Restart,
+		"repair":  (*engine.Engine).Repair,
+	}
+	// ?async=1 runs a lifecycle action as a job: it streams progress (the first
+	// start pulls images) and a client that disconnects does not abort compose.
+	if run, ok := lifecycle[action]; ok && r.URL.Query().Get("async") != "" {
+		job := s.Jobs.Start(action+":"+p.Name, func(ctx context.Context, log func(string)) error {
+			defer s.lockProject(p.Name)()
+			if err := run(s.NewJobEngine(log), ctx, p); err != nil {
+				return err
+			}
+			if s.SyncRoutes != nil {
+				s.SyncRoutes()
+			}
+			return nil
+		})
+		writeJSON(w, http.StatusAccepted, JobRef{Job: job.Snapshot()})
+		return
 	}
 	switch action {
 	case "rebuild", "reset":

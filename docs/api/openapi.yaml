@@ -148,8 +148,10 @@ paths:
       tags: [projects]
       summary: Lifecycle action on a project
       description: |
-        `start`, `stop`, `restart`, and `repair` are synchronous (204).
-        `rebuild` and `reset` run as jobs (202). `restart` force-recreates
+        `start`, `stop`, `restart`, and `repair` are synchronous (204), or a
+        job (202) with `?async=1`, which a GUI should use: it streams progress
+        and survives a disconnect. `rebuild` and `reset` always run as jobs
+        (202). `restart` force-recreates
         containers; `repair` brings the project down (keeping volumes) and back
         up. `reset` removes named volumes. `?no_cache=1` on `rebuild`.
       parameters:
@@ -160,6 +162,7 @@ paths:
           schema:
             type: string
             enum: [start, stop, restart, repair, rebuild, reset]
+        - { name: async, in: query, schema: { type: string }, description: "any value: run start/stop/restart/repair as a job" }
         - { name: no_cache, in: query, required: false, schema: { type: boolean } }
       responses:
         "204": { description: Done (start/stop/restart/repair) }
@@ -181,6 +184,28 @@ paths:
           content:
             application/json:
               schema: { type: array, items: { type: string } }
+
+  /v1/projects/{name}/approval:
+    get:
+      tags: [projects]
+      summary: Whether Hull may run the project, and what it would run
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Approval" }
+
+  /v1/projects/{name}/approve:
+    post:
+      tags: [projects]
+      summary: Approve the project in its current form, so Hull may run it
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Approved }
 
   /v1/projects/{name}:
     patch:
@@ -635,7 +660,7 @@ components:
         hull_home: { type: string }
     ProjectInfo:
       type: object
-      required: [name, dir, kind, running, served]
+      required: [name, dir, kind, running, served, mount]
       properties:
         name: { type: string }
         dir: { type: string }
@@ -649,6 +674,8 @@ components:
         group: { type: string }
         services: { type: array, items: { $ref: "#/components/schemas/ProjectServiceInfo" } }
         routes: { type: array, items: { $ref: "#/components/schemas/ClusterRouteInfo" } }
+        mount: { type: string, enum: [windows, wsl, native], description: "how Docker reaches the files; windows is the slow 9p mount" }
+        watched: { type: boolean, description: "the daemon refreshes PHP's opcode cache on save (Windows drive only)" }
     ProjectServiceInfo:
       type: object
       required: [key, engine, mode]
@@ -886,7 +913,7 @@ components:
       properties:
         id: { type: string }
         kind: { type: string }
-        status: { type: string, enum: [running, done, failed] }
+        status: { type: string, enum: [running, done, failed, canceled] }
         error: { type: string }
         lines: { type: array, items: { type: string } }
         created: { type: string, format: date-time }
@@ -903,6 +930,16 @@ components:
         running: { type: array, items: { type: string } }
     ErrorBody:
       type: object
-      required: [error]
+      required: [error, code]
       properties:
         error: { type: string }
+        code:
+          type: string
+          enum: [bad_request, unauthorized, forbidden, not_found, conflict, untrusted, engine_down, internal]
+          description: "stable reason to branch on; untrusted means approve the project first (see /approval)"
+    Approval:
+      type: object
+      required: [approved, summary]
+      properties:
+        approved: { type: boolean }
+        summary: { type: array, items: { type: string }, description: "what Hull will run, as `hull allow` shows it" }

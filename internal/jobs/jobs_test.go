@@ -113,7 +113,7 @@ func TestCancelAndShutdownStopJobs(t *testing.T) {
 	if !m.Cancel(j.Snapshot().ID) || m.Cancel("job-404") {
 		t.Fatal("Cancel did not find the job, or found one that does not exist")
 	}
-	if s := wait(t, j); s.Status != StatusFailed {
+	if s := wait(t, j); s.Status != StatusCanceled {
 		t.Errorf("cancelled job = %+v", s)
 	}
 	k := m.Start("long", func(ctx context.Context, log func(string)) error {

@@ -196,7 +196,7 @@ func streamJob(ctx context.Context, c *api.Client, job jobs.Info) error {
 		}
 		return err
 	}
-	if final.Status == jobs.StatusFailed {
+	if final.Status == jobs.StatusFailed || final.Status == jobs.StatusCanceled {
 		if final.Error != "" {
 			return errors.New(final.Error)
 		}
