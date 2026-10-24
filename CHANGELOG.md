@@ -6,6 +6,8 @@ All notable changes to Hull are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-24
+
 ### Added
 - **On Windows, `hull setup` suggests a projects folder inside WSL**
   (`~/Sites` in your default distro) on a fresh install, when Docker Desktop's
